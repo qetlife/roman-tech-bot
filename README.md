@@ -2,21 +2,20 @@
 
 A Telegram bot built with `python-telegram-bot` and SQLAlchemy.
 
-The bot currently provides a keyboard-driven menu UI, basic settings actions, and creates/loads a user record in PostgreSQL when `/start` is used.
+The bot currently provides an inline-button menu UI, basic settings actions, and creates/loads a user record in PostgreSQL when `/start` is used.
 
 ## Current Features
 
 - `/start`
 - `/menu`
-- Main menu buttons:
+- Inline main menu buttons (callback-based navigation):
   - `⏰ Reminders` (placeholder response)
   - `⚙️ Settings`
-  - `⬇️ Hide Menu`
 - Settings submenu:
   - `🆔 My ID`
   - `↩️ Back`
 - Persistent user registration by `telegram_id` on first `/start`
-- Single-message menu UX (edits previous menu message when possible)
+- Single-message menu UX (the menu message is edited in place as you navigate)
 
 ## Tech Stack
 
@@ -30,8 +29,8 @@ The bot currently provides a keyboard-driven menu UI, basic settings actions, an
 
 - `bot.py` - app entrypoint, handlers, polling
 - `commands/` - slash command handlers
-- `menu/` - button action handlers and submenu builders
-- `helpers/chat_helper.py` - message edit/send helper
+- `menu/` - callback action handlers and inline submenu builders
+- `helpers/chat_helper.py` - `render_menu` in-place message edit/send helper
 - `models/user.py` - SQLAlchemy models
 - `db/db.py` - DB engine/session setup
 - `db/repository/user_repository.py` - user repository methods

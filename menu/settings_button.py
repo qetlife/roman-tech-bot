@@ -1,32 +1,33 @@
-from    telegram                import  Update, ReplyKeyboardMarkup, KeyboardButton
+from    telegram                import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from    telegram.ext            import ContextTypes
 
-from commands.menu_command      import build_main_menu
-from    helpers.chat_helper     import send_message
+from    commands.menu_command   import MAIN_MENU_TEXT, build_main_menu
+from    helpers.chat_helper     import render_menu
 
 
-SETTINGS_BUTTONS = [
-    [KeyboardButton("🆔 My ID")],
-    [KeyboardButton("↩️ Back")]
-]
+SETTINGS_TEXT = "Settings:"
+
 
 def build_settings_menu():
-    return ReplyKeyboardMarkup(
-        SETTINGS_BUTTONS,
-        resize_keyboard=True,
-        one_time_keyboard=False,
-        input_field_placeholder="Pick a tool…"
-    )
-    
+    keyboard = [
+        [InlineKeyboardButton("🆔 My ID", callback_data="settings:my_id")],
+        [InlineKeyboardButton("↩️ Back", callback_data="settings:back")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 async def on_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_message(update, context,
-        "Settings:", build_settings_menu())
+    await update.callback_query.answer()
+    await render_menu(update, context, SETTINGS_TEXT, build_settings_menu())
+
 
 async def on_my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_message(update, context,
+    await update.callback_query.answer()
+    await render_menu(update, context,
         f"Your ID: {update.effective_user.id}",
-        build_settings_menu()) 
+        build_settings_menu())
+
 
 async def on_back_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_message(update, context,
-        "Back to menu.", build_main_menu())
+    await update.callback_query.answer()
+    await render_menu(update, context, MAIN_MENU_TEXT, build_main_menu())

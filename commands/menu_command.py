@@ -1,30 +1,24 @@
-from    telegram                    import ReplyKeyboardMarkup, Update, ReplyKeyboardRemove, KeyboardButton
+from    telegram                    import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from    telegram.ext                import ContextTypes
 
-from    helpers.chat_helper         import send_message
+from    helpers.chat_helper         import render_menu
 
 
+MAIN_MENU_TEXT = "Menu:"
 
-MAIN_BUTTONS = [
-    [KeyboardButton("⏰ Reminders")],
-    [KeyboardButton("⚙️ Settings")],
-    [KeyboardButton("⬇️ Hide Menu")]
-]
 
 def build_main_menu():
-    return ReplyKeyboardMarkup(
-        MAIN_BUTTONS,
-        resize_keyboard=True,
-        one_time_keyboard=False,
-        input_field_placeholder="Pick a tool…"
-    )
+    keyboard = [
+        [InlineKeyboardButton("⏰ Reminders", callback_data="menu:reminders")],
+        [InlineKeyboardButton("⚙️ Settings", callback_data="menu:settings")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 
 async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_message(update, context,
-        "Menu:", build_main_menu())
-    
-async def hide_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_message(update, context,
-        "Menu hidden. Type /menu to bring it back.",
-        ReplyKeyboardRemove()
-    )
+    await render_menu(update, context, MAIN_MENU_TEXT, build_main_menu())
+
+
+async def on_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    await render_menu(update, context, MAIN_MENU_TEXT, build_main_menu())
