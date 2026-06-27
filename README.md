@@ -2,7 +2,7 @@
 
 A Telegram bot built with `python-telegram-bot` and SQLAlchemy.
 
-The bot currently provides an inline-button menu UI, basic settings actions, and creates/loads a user record in PostgreSQL when `/start` is used.
+The bot currently provides an inline-button menu UI, basic settings actions, and creates/loads a user record in a SQL database (SQLite by default, PostgreSQL also supported) when `/start` is used.
 
 ## Current Features
 
@@ -22,7 +22,7 @@ The bot currently provides an inline-button menu UI, basic settings actions, and
 - Python 3
 - `python-telegram-bot`
 - SQLAlchemy
-- PostgreSQL
+- SQLite (default) / PostgreSQL
 - `python-dotenv`
 
 ## Project Structure
@@ -41,23 +41,22 @@ Create a `.env` file with:
 
 ```env
 BOT_TOKEN=<your telegram bot token>
-DB_CONNECTION=postgresql+psycopg://<user>:<password>@<host>:<port>/<database>
+
+# SQLite (default) — a local file:
+DB_CONNECTION=sqlite:///data/bot.db
+
+# ...or PostgreSQL:
+# DB_CONNECTION=postgresql+psycopg://<user>:<password>@<host>:<port>/<database>
 ```
+
+`DB_CONNECTION` is any SQLAlchemy URL. The application is database-agnostic:
+UUID primary keys are generated in Python, so no PostgreSQL-specific extensions
+are required.
 
 ## Database Prerequisites
 
-The `users.id` column uses `gen_random_uuid()`, so PostgreSQL needs `pgcrypto` enabled.
-
-Example SQL:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
-CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  telegram_id BIGINT UNIQUE NOT NULL
-);
-```
+Tables are created automatically on startup via `init_db()` in `bot.py`, so no
+manual schema setup is needed for either SQLite or PostgreSQL.
 
 ## Local Setup
 
@@ -97,8 +96,25 @@ You can also load the variables from a `.env` file:
 docker run --rm --env-file .env roman-tech-bot
 ```
 
+## Docker Compose
+
+`docker-compose.yml` runs the bot with a SQLite database stored on a persistent
+named volume (`bot-data`, mounted at `/app/data`). The SQLite file lives at
+`/app/data/bot.db` inside the container and survives restarts and rebuilds.
+
+Provide the bot token (via your shell or a `.env` file) and start it:
+
+```bash
+BOT_TOKEN=<your telegram bot token> docker compose up --build
+```
+
+`DB_CONNECTION` is already set to `sqlite:///data/bot.db` in the compose file,
+so only `BOT_TOKEN` is required. The SQLite file is the only state, so there is
+no separate database container to manage. To wipe the database, remove the
+volume with `docker compose down -v`.
+
 ## Notes
 
 - The reminders flow is currently a placeholder text response.
 - Error handling/logging is minimal in some paths (for example in `/start`).
-- There is no migration tool configured yet (table creation is expected outside the app).
+- There is no migration tool configured yet; tables are created on startup via `init_db()` (suitable for the current simple schema).

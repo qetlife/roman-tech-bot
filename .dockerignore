@@ -11,3 +11,6 @@ __pycache__/
 .ruff_cache/
 *.md
 plan.md
+data/
+*.db
+*.sqlite
