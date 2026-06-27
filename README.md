@@ -74,6 +74,29 @@ Stop virtualenv:
 deactivate
 ```
 
+## Docker
+
+Build the image:
+
+```bash
+docker build -t roman-tech-bot .
+```
+
+Run the bot (passing the required environment variables):
+
+```bash
+docker run --rm \
+  -e BOT_TOKEN=<your telegram bot token> \
+  -e DB_CONNECTION=postgresql+psycopg://<user>:<password>@<host>:<port>/<database> \
+  roman-tech-bot
+```
+
+You can also load the variables from a `.env` file:
+
+```bash
+docker run --rm --env-file .env roman-tech-bot
+```
+
 ## Notes
 
 - The reminders flow is currently a placeholder text response.

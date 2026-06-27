@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.venv
+venv/
+__pycache__/
+*.py[codz]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.md
+plan.md
