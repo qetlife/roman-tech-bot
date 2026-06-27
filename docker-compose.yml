@@ -1,0 +1,14 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Telegram bot token (required)
+      BOT_TOKEN: ${BOT_TOKEN}
+      # SQLite database stored on the persistent volume mounted at /app/data
+      DB_CONNECTION: sqlite:///data/bot.db
+    volumes:
+      - bot-data:/app/data
+
+volumes:
+  bot-data:

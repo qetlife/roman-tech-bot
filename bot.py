@@ -7,11 +7,14 @@ from    menu.reminders_button       import on_reminders
 from    menu.settings_button        import on_back_settings, on_my_id, on_settings
 from    commands.menu_command       import menu_cmd, on_main_menu
 from    commands.start_command      import start
+from    db.db                       import init_db
 
 def main():
     load_dotenv()
 
     BOT_TOKEN =     os.environ.get("BOT_TOKEN")
+
+    init_db()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 

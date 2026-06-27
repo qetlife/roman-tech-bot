@@ -1,14 +1,15 @@
+import uuid
+
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
-from sqlalchemy import BigInteger, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import BigInteger, Uuid
 
 class Base(DeclarativeBase):
     pass
 
 class User(Base):
     __tablename__ = "users"
-    
-    id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))    
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
