@@ -1,157 +1,73 @@
-# Near-Term Plan
+# Plan
 
-This document captures the next major steps for `roman-tech-bot`.
+Status and next steps for `roman-tech-bot`.
 
-## Goal
+## Done
 
-Move the bot from a simple reply-keyboard prototype to a cleaner inline-button architecture, then build a real reminder system backed by the database.
+### Infrastructure
 
-## Phase 1: Refresh and Restructure the Current Bot
+- PostgreSQL on the Raspberry Pi (`postgres` container on `shared-network`),
+  migrated from the original SQLite file.
+- Schema managed with Alembic; migrations run automatically on startup.
+- Auto-deploy: every push to `master` redeploys via the self-hosted runner
+  (`.github/workflows/deploy.yml`).
 
-### 1. Review and modernize the current codebase
+### Bot UI
 
-- Clean up the current handler structure and make the flow easier to extend.
-- Improve naming consistency across `commands/`, `menu/`, `helpers/`, `db/`, and `models/`.
-- Add clearer error handling and logging in places that currently swallow exceptions.
-- Make the message/edit helpers work reliably for callback-based navigation.
-- Prepare the code for multi-step user flows instead of single-message placeholder responses.
+- Inline-keyboard menus with callback-based navigation (`menu:*`,
+  `settings:*`, `rem:*`, `tz:*`); menu messages are edited in place.
+- Trigger phrases → actions for free text (`intents/registry.py`), e.g.
+  “remind me …”, “set a reminder …”, “my reminders”.
 
-### 2. Replace `ReplyKeyboardMarkup` with `InlineKeyboardButton`
+### Reminders (phase 1)
 
-- Remove the current reply-keyboard based menu system.
-- Rebuild the main menu and settings menu with inline keyboards.
-- Move navigation to callback queries instead of text matching.
-- Introduce stable callback IDs for actions such as:
-  - `menu:main`
-  - `menu:reminders`
-  - `menu:settings`
-  - `settings:my_id`
-  - `settings:back`
-- Update the chat helper so menus are edited in place when possible.
-- Adjust `/start` and `/menu` to open the inline main menu.
+- Create by free text or `⏰ Reminders → ➕ New`, parsed by a small English
+  time parser (`reminders/parser.py`); confirmation with Undo / Edit.
+- Per-user timezone, asked on the first reminder and changeable in Settings;
+  times stored in UTC.
+- Delivery job every 20 s: sends due reminders with OK / 💤 10 min / 💤 1 h,
+  re-sends every 5 min until OK, gives up after 24 h (`missed`); blocked
+  users are marked `failed`.
+- List upcoming reminders with ❌ to cancel.
+- Reminders only for yourself, in private chats.
 
-### 3. Rework bot architecture for inline interactions
+Decisions made along the way (from the old “Open decisions” list):
 
-- Add callback query handlers in `bot.py`.
-- Split UI rendering from business logic where possible.
-- Keep each screen responsible for:
-  - text content
-  - inline keyboard layout
-  - callback actions
-- Define a predictable navigation pattern so new sections are easy to add later.
+- Date/time format: natural English (“in 2 hours”, “tomorrow at 9”,
+  “friday 18:00”, “dec 24”); a bare “at 9” means the next 09:00 or 21:00.
+- Times are stored in UTC and shown in the user's timezone.
+- Editing reminders is supported (✏️ Edit after creating).
+- Recurring reminders were out of scope for phase 1.
 
-## Phase 2: Build the Reminder System
+## Next
 
-### 4. Define reminder requirements and flow
+### Small fixes and cleanup
 
-Each reminder should support:
+- Editing a reminder that is already repeating leaves the old message's
+  buttons active; remove them on edit.
+- “tomorrow at 9” said shortly after midnight means the next calendar day;
+  consider treating it as “this morning” before ~04:00.
+- Remove the `bot-data` volume from `docker-compose.yml` (and delete it on
+  the Pi) now that the SQLite data is migrated.
+- Run the tests in the deploy workflow before rebuilding.
 
-- target user
-- reminder text
-- date
-- time
-- creator user
-- delivery status
+### Reminders (phase 2)
 
-Supported use cases:
+- Configurable snooze options (and possibly repeat interval) in Settings.
+- Recurring reminders (daily, weekdays, every Monday, …) via a `recurrence`
+  column.
+- Reminders for other users. The `reminders` table already has
+  `creator_user_id` and `target_user_id`. Open questions:
+  - how to pick the target (Telegram username, forwarded message, contact
+    list of registered users)
+  - the target must have pressed `/start`, since bots can't message users
+    first
+  - whether the target can decline / mute reminders from someone
+- Group chats: deliver to `chat_id`, only the target can press the buttons
+  (already enforced).
+- Optional AI fallback for phrasing the parser doesn't understand.
 
-- A user creates a reminder for himself.
-- A user creates a reminder for another known user.
-- The bot stores the reminder in the database.
-- The bot sends the reminder when the scheduled time arrives.
+### General
 
-### 5. Extend the database schema
-
-Add a reminders table with fields such as:
-
-- `id`
-- `creator_user_id`
-- `target_user_id`
-- `text`
-- `remind_at`
-- `created_at`
-- `sent_at`
-- `status`
-
-Also consider:
-
-- storing timezone if needed later
-- indexes on `remind_at` and `status`
-- adding a migration strategy instead of manual SQL changes
-
-### 6. Create reminder models and repository layer
-
-- Add a SQLAlchemy model for reminders.
-- Add a reminder repository for:
-  - create
-  - fetch pending reminders
-  - mark reminder as sent
-  - fetch reminders by user
-- Keep repository methods small and explicit.
-
-### 7. Build the reminder creation flow
-
-Implement a multi-step interaction for reminder creation:
-
-1. Choose target user:
-   self or another user
-2. Enter reminder text
-3. Enter date
-4. Enter time
-5. Show confirmation
-6. Save to database
-
-Notes:
-
-- This likely needs conversation state management.
-- Input validation should be added for date and time parsing.
-- We should define what "specific user" means in the bot:
-  - by Telegram ID
-  - by previously registered bot user
-
-### 8. Deliver reminders on schedule
-
-- Add a background scheduling/checking mechanism.
-- Periodically poll the database for due reminders.
-- Send due reminders to the target Telegram user.
-- Mark reminders as sent after successful delivery.
-- Handle retry/error cases cleanly.
-
-Possible implementation directions:
-
-- simple polling loop inside the bot process
-- job queue / scheduler integrated with the bot runtime
-
-For the near future, a simple polling worker is enough.
-
-## Suggested Order of Execution
-
-1. Refactor the current menu/navigation code.
-2. Replace reply keyboards with inline keyboards and callback handlers.
-3. Improve helper utilities and error handling.
-4. Design the reminder schema.
-5. Add reminder model and repository.
-6. Build the reminder creation conversation flow.
-7. Add background processing for due reminders.
-8. Test the full flow end to end.
-
-## Open Decisions
-
-These decisions should be clarified while implementing:
-
-- How users select another user for reminders.
-- What date/time format the bot should accept.
-- Whether reminders are stored in UTC only.
-- Whether editing an existing reminder is needed now or later.
-- Whether recurring reminders are out of scope for this phase.
-
-## Definition of Done for This Phase
-
-The phase is complete when:
-
-- all current menus use inline keyboards
-- navigation is callback-based instead of text-match based
-- users can create reminders through a guided flow
-- reminders are persisted in PostgreSQL
-- due reminders are sent automatically by the bot
-- reminder delivery is marked in the database
+- Error handling: `/start` still swallows exceptions silently.
+- Tests for the handlers (currently covered only by manual end-to-end runs).
