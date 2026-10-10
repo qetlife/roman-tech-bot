@@ -6,16 +6,43 @@ The bot currently provides an inline-button menu UI, basic settings actions, and
 
 ## Current Features
 
-- `/start`
-- `/menu`
-- Inline main menu buttons (callback-based navigation):
-  - `⏰ Reminders` (placeholder response)
-  - `⚙️ Settings`
-- Settings submenu:
-  - `🆔 My ID`
-  - `↩️ Back`
+- `/start`, `/menu`
+- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`)
 - Persistent user registration by `telegram_id` on first `/start`
 - Single-message menu UX (the menu message is edited in place as you navigate)
+- Reminders (see below)
+
+## Reminders
+
+Create a reminder by typing in a private chat with the bot, or via
+`⏰ Reminders → ➕ New`:
+
+- “remind me in 2 hours to call mom”
+- “set a reminder for tomorrow at 9: pay rent”
+- “remind me to stretch at 18:30”
+
+The bot confirms with the parsed time and `↩️ Undo` / `✏️ Edit` buttons.
+“my reminders” (or `📋 My reminders`) lists upcoming reminders with `❌` to
+cancel. The first reminder asks for your timezone (changeable under
+`⚙️ Settings → 🌍 Timezone`).
+
+When a reminder is due the bot sends it with `✅ OK`, `💤 10 min` and
+`💤 1 h`. Until OK is pressed it is re-sent every 5 minutes (the previous
+copy is deleted), and after 24 hours without a response it is marked missed.
+Only the reminder's owner can press its buttons.
+
+How it works:
+
+- `intents/registry.py` maps trigger phrases (“remind me”, “set a reminder”,
+  “my reminders”, …) to actions. A message that starts with a phrase runs
+  that action with the rest of the message. Add phrases or new actions there.
+- `reminders/parser.py` turns the rest (“in 2 hours to call mom”) into a time
+  and a text. It understands a fixed set of English time expressions (see the
+  module docstring) and asks the user to rephrase anything else.
+- Reminders are stored in the `reminders` table (times in UTC). A job runs
+  every 20 seconds (`reminders/delivery.py`) and sends whatever is due, so
+  reminders survive restarts and deploys; anything that came due while the
+  bot was down is sent on startup.
 
 ## Tech Stack
 
@@ -31,11 +58,15 @@ The bot currently provides an inline-button menu UI, basic settings actions, and
 - `commands/` - slash command handlers
 - `menu/` - callback action handlers and inline submenu builders
 - `helpers/chat_helper.py` - `render_menu` in-place message edit/send helper
-- `models/user.py` - SQLAlchemy models
+- `models/` - SQLAlchemy models
 - `db/db.py` - DB engine/session setup
 - `db/migrations.py` - runs Alembic migrations on startup
 - `alembic/` - schema migrations (`alembic.ini` at the repo root)
 - `db/repository/user_repository.py` - user repository methods
+- `db/repository/reminder_repository.py` - reminder repository methods
+- `intents/` - trigger phrase → action mapping for free-text messages
+- `reminders/` - reminder parsing, handlers and the delivery job
+- `tests/` - unit tests (`pip install -r requirements-dev.txt && pytest`)
 - `scripts/migrate_sqlite_to_postgres.py` - one-off copy of legacy SQLite data into PostgreSQL
 
 ## Environment Variables
@@ -202,6 +233,5 @@ To redeploy manually: **Actions → Deploy → Run workflow**.
 
 ## Notes
 
-- The reminders flow is currently a placeholder text response.
 - Error handling/logging is minimal in some paths (for example in `/start`).
 - Once the SQLite data is migrated and verified, the `bot-data` volume can be dropped from `docker-compose.yml`.
