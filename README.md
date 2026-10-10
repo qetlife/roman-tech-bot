@@ -2,7 +2,7 @@
 
 A Telegram bot built with `python-telegram-bot` and SQLAlchemy.
 
-The bot currently provides an inline-button menu UI, basic settings actions, and creates/loads a user record in a SQL database (SQLite by default, PostgreSQL also supported) when `/start` is used.
+The bot currently provides an inline-button menu UI, basic settings actions, and creates/loads a user record in a PostgreSQL database when `/start` is used.
 
 ## Current Features
 
@@ -22,7 +22,7 @@ The bot currently provides an inline-button menu UI, basic settings actions, and
 - Python 3
 - `python-telegram-bot`
 - SQLAlchemy
-- SQLite (default) / PostgreSQL
+- PostgreSQL (via psycopg 3)
 - `python-dotenv`
 
 ## Project Structure
@@ -34,29 +34,33 @@ The bot currently provides an inline-button menu UI, basic settings actions, and
 - `models/user.py` - SQLAlchemy models
 - `db/db.py` - DB engine/session setup
 - `db/repository/user_repository.py` - user repository methods
+- `scripts/migrate_sqlite_to_postgres.py` - one-off copy of legacy SQLite data into PostgreSQL
 
 ## Environment Variables
 
-Create a `.env` file with:
+Copy `.env.example` to `.env` (gitignored, never commit it) and fill it in:
 
 ```env
 BOT_TOKEN=<your telegram bot token>
-
-# SQLite (default) — a local file:
-DB_CONNECTION=sqlite:///data/bot.db
-
-# ...or PostgreSQL:
-# DB_CONNECTION=postgresql+psycopg://<user>:<password>@<host>:<port>/<database>
+DB_CONNECTION=postgresql+psycopg://<user>:<password>@<host>:<port>/<database>
 ```
 
-`DB_CONNECTION` is any SQLAlchemy URL. The application is database-agnostic:
-UUID primary keys are generated in Python, so no PostgreSQL-specific extensions
-are required.
+`DB_CONNECTION` is a SQLAlchemy URL and must use the `postgresql+psycopg://`
+scheme. Plain `postgresql://` makes SQLAlchemy look for psycopg2, which is not
+installed. UUID primary keys are generated in Python, so no PostgreSQL
+extensions are required. (A `sqlite:///...` URL still works for quick local
+experiments.)
 
 ## Database Prerequisites
 
-Tables are created automatically on startup via `init_db()` in `bot.py`, so no
-manual schema setup is needed for either SQLite or PostgreSQL.
+The database and its user must exist already, e.g.:
+
+```sql
+CREATE USER roman_tech_bot WITH PASSWORD '<password>';
+CREATE DATABASE roman_tech_bot OWNER roman_tech_bot;
+```
+
+Tables are created automatically on startup via `init_db()` in `bot.py`.
 
 ## Local Setup
 
@@ -98,23 +102,55 @@ docker run --rm --env-file .env roman-tech-bot
 
 ## Docker Compose
 
-`docker-compose.yml` runs the bot with a SQLite database stored on a persistent
-named volume (`bot-data`, mounted at `/app/data`). The SQLite file lives at
-`/app/data/bot.db` inside the container and survives restarts and rebuilds.
+`docker-compose.yml` runs the bot and reads `BOT_TOKEN` and `DB_CONNECTION`
+from the shell or from `.env` next to the compose file. The bot joins the
+external Docker network `shared-network`, where the PostgreSQL container
+`postgres` runs, so the production URL is:
 
-Provide the bot token (via your shell or a `.env` file) and start it:
-
-```bash
-BOT_TOKEN=<your telegram bot token> docker compose up --build
+```env
+DB_CONNECTION=postgresql+psycopg://roman_tech_bot:<password>@postgres:5432/roman_tech_bot
 ```
 
-`DB_CONNECTION` is already set to `sqlite:///data/bot.db` in the compose file,
-so only `BOT_TOKEN` is required. The SQLite file is the only state, so there is
-no separate database container to manage. To wipe the database, remove the
-volume with `docker compose down -v`.
+The network must already exist (`docker network create shared-network` if
+not). Then:
+
+```bash
+docker compose up -d --build
+```
+
+The `bot-data` volume (mounted at `/app/data`) is still attached so the legacy
+SQLite file `/app/data/bot.db` stays available for the migration below.
+
+## Deploying / Migrating from SQLite
+
+On the Raspberry Pi:
+
+```bash
+cd /home/apps/roman-tech-bot && git pull
+echo 'DB_CONNECTION=postgresql+psycopg://roman_tech_bot:<password>@postgres:5432/roman_tech_bot' >> .env
+docker compose up -d --build
+docker compose exec bot python scripts/migrate_sqlite_to_postgres.py sqlite:////app/data/bot.db "$DB_CONNECTION"
+```
+
+The script creates the tables, copies every model table with its primary keys,
+resets integer id sequences, and prints source/target row counts. If the target
+URL argument is empty (on the host, `"$DB_CONNECTION"` usually is, since `.env`
+is not exported), it uses `DB_CONNECTION` from the container's environment.
+
+It is safe to re-run: if any target table already has rows, it copies nothing
+and exits with an error. Note that a user who sends `/start` between
+`docker compose up` and the migration creates a row, which makes the migration
+refuse. To avoid that, run the migration before starting the bot:
+
+```bash
+docker compose build
+docker compose run --rm bot python scripts/migrate_sqlite_to_postgres.py sqlite:////app/data/bot.db
+docker compose up -d
+```
 
 ## Notes
 
 - The reminders flow is currently a placeholder text response.
 - Error handling/logging is minimal in some paths (for example in `/start`).
-- There is no migration tool configured yet; tables are created on startup via `init_db()` (suitable for the current simple schema).
+- There is no schema migration tool configured yet; tables are created on startup via `init_db()` (suitable for the current simple schema). `init_db()` does not alter existing tables.
+- Once the SQLite data is migrated and verified, the `bot-data` volume can be dropped from `docker-compose.yml`.

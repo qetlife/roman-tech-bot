@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the application source
 COPY . .
 
-# Run as a non-root user; /app/data holds the SQLite database file
+# Run as a non-root user; /app/data holds the legacy SQLite file (pre-PostgreSQL)
 RUN useradd --create-home appuser \
     && mkdir -p /app/data \
     && chown -R appuser:appuser /app
