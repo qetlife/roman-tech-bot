@@ -1,0 +1,22 @@
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency: deploy
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, roman-tech-bot]
+    steps:
+      - name: Pull and rebuild on the Pi
+        working-directory: /home/apps/roman-tech-bot
+        run: |
+          git fetch origin master
+          git reset --hard origin/master   # .env is gitignored and untracked, so it is left untouched
+          docker compose up -d --build
+          sleep 10
+          docker compose ps
+          test "$(docker inspect -f '{{.State.Running}}' "$(docker compose ps -q bot)")" = true
