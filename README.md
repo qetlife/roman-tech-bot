@@ -33,6 +33,8 @@ The bot currently provides an inline-button menu UI, basic settings actions, and
 - `helpers/chat_helper.py` - `render_menu` in-place message edit/send helper
 - `models/user.py` - SQLAlchemy models
 - `db/db.py` - DB engine/session setup
+- `db/migrations.py` - runs Alembic migrations on startup
+- `alembic/` - schema migrations (`alembic.ini` at the repo root)
 - `db/repository/user_repository.py` - user repository methods
 - `scripts/migrate_sqlite_to_postgres.py` - one-off copy of legacy SQLite data into PostgreSQL
 
@@ -60,7 +62,46 @@ CREATE USER roman_tech_bot WITH PASSWORD '<password>';
 CREATE DATABASE roman_tech_bot OWNER roman_tech_bot;
 ```
 
-Tables are created automatically on startup via `init_db()` in `bot.py`.
+The schema is managed by Alembic migrations, which run automatically on
+startup (`init_db()` in `bot.py`). See [Database Migrations](#database-migrations).
+
+## Database Migrations
+
+The schema lives in the SQLAlchemy models (`models/`) and in versioned
+migrations under `alembic/versions/`. On every startup the bot runs
+`alembic upgrade head`, so merging a migration to `master` applies it on the
+next deploy.
+
+To change the schema:
+
+1. Edit or add a model in `models/`. New model modules must also be imported
+   in `alembic/env.py` so autogenerate sees them.
+2. Generate a migration against a database that is at the latest revision:
+
+   ```bash
+   alembic revision --autogenerate -m "add reminders table"
+   ```
+
+3. Review the generated file in `alembic/versions/`. Autogenerate does not
+   detect everything (e.g. column renames show up as drop + add, which loses
+   data), so fix it by hand where needed.
+4. Commit it together with the model change.
+
+Other useful commands (they read `DB_CONNECTION` from the environment / `.env`):
+
+```bash
+alembic current        # revision the database is at
+alembic history        # list migrations
+alembic check          # fail if the models differ from the database
+alembic downgrade -1   # undo the last migration
+```
+
+On the Pi, run them inside the container, e.g.
+`docker compose exec bot alembic current`.
+
+Databases created before Alembic was added (which already have the `users`
+table but no `alembic_version` table) are stamped at the baseline revision
+`0001` on first startup rather than recreated.
 
 ## Local Setup
 
@@ -132,7 +173,7 @@ docker compose up -d --build
 docker compose exec bot python scripts/migrate_sqlite_to_postgres.py sqlite:////app/data/bot.db "$DB_CONNECTION"
 ```
 
-The script creates the tables, copies every model table with its primary keys,
+The script creates the schema (Alembic migrations), copies every model table with its primary keys,
 resets integer id sequences, and prints source/target row counts. If the target
 URL argument is empty (on the host, `"$DB_CONNECTION"` usually is, since `.env`
 is not exported), it uses `DB_CONNECTION` from the container's environment.
@@ -163,5 +204,4 @@ To redeploy manually: **Actions → Deploy → Run workflow**.
 
 - The reminders flow is currently a placeholder text response.
 - Error handling/logging is minimal in some paths (for example in `/start`).
-- There is no schema migration tool configured yet; tables are created on startup via `init_db()` (suitable for the current simple schema). `init_db()` does not alter existing tables.
 - Once the SQLite data is migrated and verified, the `bot-data` volume can be dropped from `docker-compose.yml`.

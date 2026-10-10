@@ -4,7 +4,7 @@ from dotenv             import load_dotenv
 
 import os
 
-from models.user        import Base
+from db.migrations      import upgrade_db
 
 load_dotenv()
 
@@ -27,5 +27,5 @@ SessionLocal = sessionmaker(bind=ENGINE, autoflush=False, autocommit=False, futu
 
 
 def init_db():
-    """Create tables if they don't exist yet."""
-    Base.metadata.create_all(ENGINE)
+    """Apply pending migrations on startup."""
+    upgrade_db(ENGINE)

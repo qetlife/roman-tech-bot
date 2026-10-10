@@ -7,7 +7,7 @@ Usage:
 
 If <postgres-url> is omitted or empty, DB_CONNECTION from the environment is used.
 
-The target tables are created from the models, every row of every model table
+The target schema is created with the Alembic migrations, every row of every model table
 is copied with its primary key, and integer id sequences are moved past the
 copied ids. A table that already has rows in the target is left untouched and
 the script exits with an error, so re-running it never duplicates data.
@@ -20,6 +20,7 @@ from sqlalchemy     import create_engine, func, inspect, make_url, select, text
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from db.migrations  import upgrade_db  # noqa: E402
 from models.user    import Base  # noqa: E402
 
 BATCH_SIZE = 1000
@@ -78,7 +79,8 @@ def main(argv) -> int:
         print(f"Source database {sqlite_url} has no tables (wrong path?). Nothing to do.")
         return 1
 
-    Base.metadata.create_all(target)
+    # Same schema setup the bot runs on startup (Alembic migrations).
+    upgrade_db(target)
 
     tables = Base.metadata.sorted_tables
 
