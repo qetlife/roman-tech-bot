@@ -8,6 +8,7 @@ from sqlalchemy     import create_engine, pool
 
 # Import every model module here so autogenerate sees all tables.
 from models.user    import Base
+import models.reminder  # noqa: F401
 
 load_dotenv()
 
@@ -55,10 +56,21 @@ def run_migrations_online() -> None:
         do_run_migrations(connection)
 
 
+def render_item(type_, obj, autogen_context):
+    """Render app-specific column types as plain SQLAlchemy types, so
+    migrations don't import app code."""
+    from models.types import UTCDateTime
+
+    if type_ == "type" and isinstance(obj, UTCDateTime):
+        return "sa.DateTime(timezone=True)"
+    return False
+
+
 def do_run_migrations(connection) -> None:
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
+        render_item=render_item,
         # SQLite can't ALTER most things; batch mode recreates the table instead.
         render_as_batch=connection.dialect.name == "sqlite",
     )

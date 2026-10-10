@@ -11,6 +11,7 @@ SETTINGS_TEXT = "Settings:"
 def build_settings_menu():
     keyboard = [
         [InlineKeyboardButton("🆔 My ID", callback_data="settings:my_id")],
+        [InlineKeyboardButton("🌍 Timezone", callback_data="settings:timezone")],
         [InlineKeyboardButton("↩️ Back", callback_data="settings:back")],
     ]
     return InlineKeyboardMarkup(keyboard)

@@ -46,3 +46,12 @@ class UserRepository:
             except IntegrityError:
                 session.rollback()
                 return session.scalar(select(User).where(User.telegram_id == telegram_id))
+
+    def set_timezone(self, telegram_id: int, timezone: str) -> Optional[User]:
+        with SessionLocal(expire_on_commit=False) as session:
+            user = session.scalar(select(User).where(User.telegram_id == telegram_id))
+            if user is None:
+                return None
+            user.timezone = timezone
+            session.commit()
+            return user

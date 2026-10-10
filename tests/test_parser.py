@@ -1,0 +1,104 @@
+from datetime   import datetime
+from zoneinfo   import ZoneInfo
+
+import pytest
+
+from reminders.parser import ParseError, parse_reminder, parse_when
+
+TZ = ZoneInfo("Europe/Kyiv")
+# Saturday 10 Oct 2026, 23:30
+NOW = datetime(2026, 10, 10, 23, 30, tzinfo=TZ)
+# Saturday 10 Oct 2026, 14:00
+AFTERNOON = datetime(2026, 10, 10, 14, 0, tzinfo=TZ)
+
+
+def dt(day, hour, minute=0, month=10, year=2026):
+    return datetime(year, month, day, hour, minute, tzinfo=TZ)
+
+
+@pytest.mark.parametrize("phrase, now, expected", [
+    ("in two hours",              NOW, dt(11, 1, 30)),
+    ("in 2 hours",                NOW, dt(11, 1, 30)),
+    ("in 30 minutes",             NOW, dt(11, 0, 0)),
+    ("in 30 min",                 NOW, dt(11, 0, 0)),
+    ("in 1.5 hours",              NOW, dt(11, 1, 0)),
+    ("in 1h30m",                  NOW, dt(11, 1, 0)),
+    ("in 1 hour and 15 minutes",  NOW, dt(11, 0, 45)),
+    ("in half an hour",           NOW, dt(11, 0, 0)),
+    ("in an hour and a half",     NOW, dt(11, 1, 0)),
+    ("in a couple of hours",      NOW, dt(11, 1, 30)),
+    ("in 3 days",                 NOW, dt(13, 23, 30)),
+    ("in a week",                 NOW, dt(17, 23, 30)),
+    ("tomorrow",                  NOW, dt(11, 9)),
+    ("tomorrow at 9",             NOW, dt(11, 9)),
+    ("tomorrow 9am",              NOW, dt(11, 9)),
+    ("tomorrow at 9:30 pm",       NOW, dt(11, 21, 30)),
+    ("at 9 tomorrow",             NOW, dt(11, 9)),
+    ("tomorrow morning",          NOW, dt(11, 9)),
+    ("tomorrow in the evening",   NOW, dt(11, 19)),
+    ("day after tomorrow",        NOW, dt(12, 9)),
+    ("at 9",                      NOW, dt(11, 9)),
+    ("at 9",                      AFTERNOON, dt(10, 21)),
+    ("at 18:00",                  NOW, dt(11, 18)),
+    ("18:00",                     AFTERNOON, dt(10, 18)),
+    ("at 09:00",                  AFTERNOON, dt(11, 9)),
+    ("at noon",                   NOW, dt(11, 12)),
+    ("tonight",                   AFTERNOON, dt(10, 20)),
+    ("today at 5",                AFTERNOON, dt(10, 17)),
+    ("friday 18:00",              NOW, dt(16, 18)),
+    ("on friday",                 NOW, dt(16, 9)),
+    ("next monday",               NOW, dt(12, 9)),
+    ("saturday at 10",            AFTERNOON, dt(17, 10)),
+    ("next week",                 NOW, dt(17, 9)),
+    ("24.12",                     NOW, dt(24, 9, month=12)),
+    ("24/12 10:00",               NOW, dt(24, 10, month=12)),
+    ("2027-01-05 at 8am",         NOW, datetime(2027, 1, 5, 8, tzinfo=TZ)),
+    ("dec 24",                    NOW, dt(24, 9, month=12)),
+    ("on december 24th at 10am",  NOW, dt(24, 10, month=12)),
+    ("24th of december",          NOW, dt(24, 9, month=12)),
+    ("jan 3",                     NOW, datetime(2027, 1, 3, 9, tzinfo=TZ)),
+])
+def test_parse_when(phrase, now, expected):
+    assert parse_when(phrase, now) == expected
+
+
+@pytest.mark.parametrize("phrase", [
+    "call mom", "pay rent", "9", "may", "in", "at", "someday", "in two", "31.02",
+    "tomorrow tomorrow", "in 2 hours tomorrow",
+])
+def test_parse_when_rejects(phrase):
+    assert parse_when(phrase, NOW) is None
+
+
+@pytest.mark.parametrize("request_, expected_when, expected_text", [
+    ("in two hours to call mom",              dt(11, 1, 30), "call mom"),
+    ("to call mom in two hours",              dt(11, 1, 30), "call mom"),
+    ("tomorrow at 9 to pay rent",             dt(11, 9),     "pay rent"),
+    ("to pay rent tomorrow at 9",             dt(11, 9),     "pay rent"),
+    ("call mom tomorrow",                     dt(11, 9),     "call mom"),
+    ("for friday 18:00: dentist",             dt(16, 18),    "dentist"),
+    ("buy 2 eggs tomorrow",                   dt(11, 9),     "buy 2 eggs"),
+    ("that the Laundry is done in 45 min",    dt(11, 0, 15), "the Laundry is done"),
+    ("about the meeting at 10 am tomorrow",   dt(11, 10),    "the meeting"),
+    ("in 1 hour - take pills",                dt(11, 0, 30), "take pills"),
+])
+def test_parse_reminder(request_, expected_when, expected_text):
+    parsed = parse_reminder(request_, NOW)
+    assert parsed.when == expected_when
+    assert parsed.text == expected_text
+
+
+@pytest.mark.parametrize("request_, message", [
+    ("",                      "What should I remind you about"),
+    ("tomorrow at 9",         "What should I remind you about?"),
+    ("to call mom",           "couldn't understand when"),
+    ("to call mom someday",   "couldn't understand when"),
+])
+def test_parse_reminder_errors(request_, message):
+    with pytest.raises(ParseError, match=message):
+        parse_reminder(request_, NOW)
+
+
+def test_past_time_rejected():
+    with pytest.raises(ParseError, match="already passed"):
+        parse_reminder("today at 9:00 to call mom", AFTERNOON)

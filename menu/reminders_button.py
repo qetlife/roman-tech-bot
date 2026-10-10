@@ -4,11 +4,16 @@ from    telegram.ext            import ContextTypes
 from    helpers.chat_helper     import render_menu
 
 
-REMINDERS_TEXT = "Reminders: try “Buy milk | tomorrow 09:00”."
+REMINDERS_TEXT = (
+    "Reminders:\n\n"
+    "You can also just type, e.g. “remind me in 2 hours to call mom”."
+)
 
 
 def build_reminders_menu():
     keyboard = [
+        [InlineKeyboardButton("➕ New", callback_data="rem:new")],
+        [InlineKeyboardButton("📋 My reminders", callback_data="rem:list")],
         [InlineKeyboardButton("↩️ Back", callback_data="menu:main")],
     ]
     return InlineKeyboardMarkup(keyboard)
