@@ -148,6 +148,17 @@ docker compose run --rm bot python scripts/migrate_sqlite_to_postgres.py sqlite:
 docker compose up -d
 ```
 
+## Deployment
+
+Every push to `master` auto-deploys to the Raspberry Pi via the
+`.github/workflows/deploy.yml` workflow, which runs on a self-hosted runner
+(label `roman-tech-bot`) on the Pi. It resets `/home/apps/roman-tech-bot` to
+`origin/master`, runs `docker compose up -d --build`, and fails if the `bot`
+container is not running afterwards. The untracked `.env` there is left
+untouched.
+
+To redeploy manually: **Actions → Deploy → Run workflow**.
+
 ## Notes
 
 - The reminders flow is currently a placeholder text response.
