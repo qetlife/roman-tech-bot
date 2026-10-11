@@ -40,6 +40,8 @@ def main():
     app.add_handler(CallbackQueryHandler(on_my_id,        pattern=r"^settings:my_id$"))
     app.add_handler(CallbackQueryHandler(on_back_settings, pattern=r"^settings:back$"))
     app.add_handler(CallbackQueryHandler(reminders.on_timezone_settings, pattern=r"^settings:timezone$"))
+    app.add_handler(CallbackQueryHandler(user_settings.on_reminder_settings,
+                                         pattern=r"^(settings:reminders|rem:settings|rset:show)$"))
     app.add_handler(CallbackQueryHandler(user_settings.on_snooze_settings, pattern=r"^settings:snooze$"))
     app.add_handler(CallbackQueryHandler(user_settings.on_snooze_button,   pattern=r"^snzopt:"))
     app.add_handler(CallbackQueryHandler(user_settings.on_repeat_settings, pattern=r"^settings:repeat$"))

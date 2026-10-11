@@ -14,6 +14,7 @@ def build_reminders_menu():
     keyboard = [
         [InlineKeyboardButton("➕ New", callback_data="rem:new")],
         [InlineKeyboardButton("📋 My reminders", callback_data="rem:list")],
+        [InlineKeyboardButton("⚙️ Settings", callback_data="rem:settings")],
         [InlineKeyboardButton("↩️ Back", callback_data="menu:main")],
     ]
     return InlineKeyboardMarkup(keyboard)

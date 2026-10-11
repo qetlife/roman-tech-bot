@@ -15,9 +15,51 @@ settings = SettingsRepository()
 # context.user_data["awaiting"] value while waiting for custom snooze options
 AWAIT_SNOOZE_OPTIONS = "snooze_options"
 
+# Reminder settings open from ⚙️ Settings or from the ⏰ Reminders menu;
+# ↩️ Back returns to whichever it was.
+REMINDER_SETTINGS_BACK = "reminder_settings_back"
+REMINDER_SETTINGS_ENTRIES = {
+    "settings:reminders": "menu:settings",
+    "rem:settings": "menu:reminders",
+}
+
 
 def format_snooze_options(minutes) -> str:
     return " · ".join(format_minutes(m) for m in minutes)
+
+
+# --- reminder settings ------------------------------------------------------
+
+def build_reminder_settings_menu(back: str):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(SNOOZE_OPTIONS.label, callback_data="settings:snooze")],
+        [InlineKeyboardButton(REPEAT_MINUTES.label, callback_data="settings:repeat")],
+        [InlineKeyboardButton("↩️ Back", callback_data=back)],
+    ])
+
+
+def reminder_settings_text(snooze, repeat) -> str:
+    return (
+        "⏰ Reminder settings:\n\n"
+        f"{SNOOZE_OPTIONS.label}: {format_snooze_options(snooze)}\n"
+        f"{REPEAT_MINUTES.label}: every {format_minutes(repeat)}"
+    )
+
+
+async def on_reminder_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """⚙️ Settings → ⏰ Reminders, or ⏰ Reminders → ⚙️ Settings."""
+    query = update.callback_query
+    await query.answer()
+    if query.data in REMINDER_SETTINGS_ENTRIES:
+        context.user_data[REMINDER_SETTINGS_BACK] = REMINDER_SETTINGS_ENTRIES[query.data]
+    back = context.user_data.get(REMINDER_SETTINGS_BACK, "menu:settings")
+
+    user = users.get_or_create(update.effective_user.id)
+    text = reminder_settings_text(settings.get(user.id, SNOOZE_OPTIONS), settings.get(user.id, REPEAT_MINUTES))
+    await render_menu(update, context, text, build_reminder_settings_menu(back))
+
+
+# --- snooze options ---------------------------------------------------------
 
 
 def build_snooze_menu(current):
@@ -32,7 +74,7 @@ def build_snooze_menu(current):
         InlineKeyboardButton("✏️ Custom", callback_data="snzopt:custom"),
         InlineKeyboardButton("♻️ Default", callback_data="snzopt:default"),
     ])
-    rows.append([InlineKeyboardButton("↩️ Back", callback_data="menu:settings")])
+    rows.append([InlineKeyboardButton("↩️ Back", callback_data="rset:show")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -94,7 +136,7 @@ async def on_snooze_text(update: Update, context: ContextTypes.DEFAULT_TYPE, tex
     await update.effective_message.reply_text(
         f"💤 Snooze options set to {format_snooze_options(minutes)}.",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("↩️ Settings", callback_data="menu:settings"),
+            InlineKeyboardButton("↩️ Reminder settings", callback_data="rset:show"),
         ]]),
     )
 
@@ -107,7 +149,7 @@ def build_repeat_menu(current):
         for m in REPEAT_PRESETS
     ]
     rows = [buttons[i:i + 3] for i in range(0, len(buttons), 3)]
-    rows.append([InlineKeyboardButton("↩️ Back", callback_data="menu:settings")])
+    rows.append([InlineKeyboardButton("↩️ Back", callback_data="rset:show")])
     return InlineKeyboardMarkup(rows)
 
 
