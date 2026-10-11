@@ -1,75 +1,36 @@
 # Roman Tech Bot
 
-A Telegram bot built with `python-telegram-bot` and SQLAlchemy.
+A personal assistant Telegram bot built with `python-telegram-bot`,
+SQLAlchemy and PostgreSQL, running on a Raspberry Pi.
 
-The bot currently provides an inline-button menu UI, basic settings actions, and creates/loads a user record in a PostgreSQL database when `/start` is used.
+- **[User guide](docs/user-guide.md)**: everything the bot can do and how to
+  use every setting.
+- **[Development guide](docs/development.md)**: how it works and how to
+  extend it.
+- **[Plan](plan.md)**: what's done and what's next.
 
-## Current Features
+## Features
 
-- `/start`, `/menu`
-- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`, `⏰ Reminders` → `💤 Snooze options`, `🔁 Repeat interval`, `🌙 Quiet hours`)
-- Reminder settings are also reachable from `⏰ Reminders → ⚙️ Settings`
-- Persistent user registration by `telegram_id` on first `/start`
-- Single-message menu UX (the menu message is edited in place as you navigate)
-- Reminders (see below)
+- **Menus**: `/start` and `/menu` open an inline-button menu that updates in
+  place: `⏰ Reminders` and `⚙️ Settings`.
+- **Reminders by typing**: “remind me in 2 hours to call mom”, “remind me
+  tomorrow at 9 to pay rent”, or `⏰ Reminders → ➕ New`. Natural English
+  times: relative, clock times, weekdays, dates, parts of the day.
+- **Recurring reminders**: daily, weekdays/weekends, certain weekdays
+  (“every mon and thu”), every N minutes/hours/days/weeks (“every 2 hours”),
+  and monthly (“on the 1st of every month”).
+- **Delivery until acknowledged**: `✅ OK` and snooze buttons; unanswered
+  reminders are re-sent until OK, and marked missed after 24 hours.
+- **Manage reminders**: list upcoming ones (“my reminders”), `↩️ Undo`,
+  `✏️ Edit` and `❌` cancel.
+- **Settings**: `🆔 My ID`, `🌍 Timezone`, and reminder settings (also under
+  `⏰ Reminders → ⚙️ Settings`): `💤 Snooze options`, `🔁 Repeat interval`,
+  `🌙 Quiet hours` (default 00:00–07:00).
+- **Reliable**: reminders are stored in the database and survive restarts;
+  anything due while the bot was down is sent when it is back.
 
-## Reminders
-
-Create a reminder by typing in a private chat with the bot, or via
-`⏰ Reminders → ➕ New`:
-
-- “remind me in 2 hours to call mom”
-- “set a reminder for tomorrow at 9: pay rent”
-- “remind me to stretch at 18:30”
-- “remind me every day at 9 to take pills”
-- “remind me on weekdays at 8:30: standup” (also “every monday and
-  thursday”, “every weekend”, “mondays”, “every evening at 7”)
-- “remind me every 2 hours to drink water” (also “every 30 minutes”,
-  “every other day at 20:00”, “every 2 weeks”; at least 15 minutes apart)
-- “remind me on the 1st of every month to pay rent” (also “monthly”,
-  “every month on the 15th at 10”; in shorter months the 31st is the last day)
-
-The bot confirms with the parsed time and `↩️ Undo` / `✏️ Edit` buttons.
-“my reminders” (or `📋 My reminders`) lists upcoming reminders with `❌` to
-cancel. The first reminder asks for your timezone (changeable under
-`⚙️ Settings → 🌍 Timezone`).
-
-When a reminder is due the bot sends it with `✅ OK` and snooze buttons
-(`💤 10 min`, `💤 1 h` by default; up to 3 options of your choice under
-`⚙️ Settings → ⏰ Reminders → 💤 Snooze options`). Until OK is pressed it is re-sent every 5 minutes (changeable under
-`⚙️ Settings → ⏰ Reminders → 🔁 Repeat interval`; the previous copy is deleted), and after 24 hours without a response it is marked missed.
-Only the reminder's owner can press its buttons.
-
-Recurring reminders work the same way; pressing OK (or not answering before
-the next occurrence or within 24 hours) moves them on to the next occurrence.
-Cancelling one cancels the whole series.
-
-Quiet hours (`⚙️ Settings → ⏰ Reminders → 🌙 Quiet hours`, default
-00:00–07:00, can be turned off): “every 2 hours”-style occurrences that fall
-in them are skipped, and unanswered reminders stop re-sending until they end.
-Reminders set for a specific time still go off. Their time stays in local time, so
-“every day at 9” is 09:00 across DST changes.
-
-How it works:
-
-- `intents/registry.py` maps trigger phrases (“remind me”, “set a reminder”,
-  “my reminders”, …) to actions. A message that starts with a phrase runs
-  that action with the rest of the message. Add phrases or new actions there.
-- `reminders/parser.py` turns the rest (“in 2 hours to call mom”) into a time
-  and a text. It understands a fixed set of English time expressions (see the
-  module docstring) and asks the user to rephrase anything else.
-- Reminders are stored in the `reminders` table (times in UTC). A job runs
-  every 20 seconds (`reminders/delivery.py`) and sends whatever is due, so
-  reminders survive restarts and deploys; anything that came due while the
-  bot was down is sent on startup.
-
-## Settings
-
-Per-user settings are defined in code in `settings/registry.py` (key,
-default, validation, label). The `user_settings` table stores only the values
-a user changed, so adding a setting needs a registry entry and a Settings
-screen, but no migration. `SettingsRepository` returns the user's value or the
-default.
+See the [user guide](docs/user-guide.md) for details and all supported
+phrases.
 
 ## Tech Stack
 
@@ -82,9 +43,12 @@ default.
 ## Project Structure
 
 - `bot.py` - app entrypoint, handlers, polling
+- `docs/` - user guide and development guide
 - `commands/` - slash command handlers
 - `menu/` - callback action handlers and inline submenu builders
 - `helpers/chat_helper.py` - `render_menu` in-place message edit/send helper
+- `helpers/callbacks.py` - callback data of every button (enums)
+- `helpers/awaiting.py` - what the next typed message answers (enum)
 - `models/` - SQLAlchemy models
 - `db/db.py` - DB engine/session setup
 - `db/migrations.py` - runs Alembic migrations on startup
@@ -94,7 +58,7 @@ default.
 - `db/repository/settings_repository.py` - per-user settings (value or default)
 - `settings/` - settings registry and Settings screens
 - `intents/` - trigger phrase → action mapping for free-text messages
-- `reminders/` - reminder parsing, handlers and the delivery job
+- `reminders/` - reminder parsing, recurrence, quiet hours, handlers and the delivery job
 - `tests/` - tests (`pip install -r requirements-dev.txt && pytest`; they use a throwaway SQLite database)
 - `scripts/migrate_sqlite_to_postgres.py` - one-off copy of legacy SQLite data into PostgreSQL
 
@@ -248,7 +212,3 @@ The same tests also run on every pull request, so failures show up before
 merging.
 
 To redeploy manually: **Actions → Deploy → Run workflow**.
-
-## Notes
-
-- Error handling/logging is minimal in some paths (for example in `/start`).

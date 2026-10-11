@@ -14,8 +14,9 @@ Status and next steps for `roman-tech-bot`.
 
 ### Bot UI
 
-- Inline-keyboard menus with callback-based navigation (`menu:*`,
-  `settings:*`, `rem:*`, `tz:*`); menu messages are edited in place.
+- Inline-keyboard menus with callback-based navigation; callback data is
+  defined as enums in `helpers/callbacks.py`; menu messages are edited in
+  place.
 - Trigger phrases → actions for free text (`intents/registry.py`), e.g.
   “remind me …”, “set a reminder …”, “my reminders”.
 
@@ -40,6 +41,14 @@ Status and next steps for `roman-tech-bot`.
   occurrence is sent.
 - Interval repeats (“every 2 hours”, “every other day”, at least 15 min) and
   monthly ones (“on the 1st of every month”).
+
+### Code and docs
+
+- Enums for reminder statuses, callback data, conversation state and repeat
+  kinds.
+- Documentation: `docs/user-guide.md` (features and settings for users),
+  `docs/development.md` (internals), kept up to date with every change
+  (`CLAUDE.md`).
 
 ### Settings
 
