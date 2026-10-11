@@ -204,12 +204,19 @@ python scripts/migrate_sqlite_to_postgres.py sqlite:////path/to/bot.db "$DB_CONN
 
 ## Deployment
 
-Every push to `master` auto-deploys to the Raspberry Pi via the
-`.github/workflows/deploy.yml` workflow, which runs on a self-hosted runner
-(label `roman-tech-bot`) on the Pi. It resets `/home/apps/roman-tech-bot` to
-`origin/master`, runs `docker compose up -d --build`, and fails if the `bot`
-container is not running afterwards. The untracked `.env` there is left
-untouched.
+Every push to `master` runs the tests and, if they pass, auto-deploys to the
+Raspberry Pi via the `.github/workflows/deploy.yml` workflow:
+
+1. `test` runs `pytest` on a GitHub-hosted runner (`.github/workflows/tests.yml`).
+2. `deploy` runs only if the tests pass, on a self-hosted runner (label
+   `roman-tech-bot`) on the Pi. It resets `/home/apps/roman-tech-bot` to the
+   tested commit, runs `docker compose up -d --build`, and fails if the `bot`
+   container is not running afterwards. The untracked `.env` there is left
+   untouched.
+
+If the tests fail, nothing is deployed and the previous version keeps running.
+The same tests also run on every pull request, so failures show up before
+merging.
 
 To redeploy manually: **Actions → Deploy → Run workflow**.
 
