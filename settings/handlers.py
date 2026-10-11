@@ -3,6 +3,9 @@ from    telegram.ext                import ContextTypes
 
 from    db.repository.settings_repository import SettingsRepository
 from    db.repository.user_repository import UserRepository
+from    enums                       import Awaiting, Callback, CallbackPrefix, OptionAction
+from    helpers.awaiting            import AWAITING
+from    helpers.callbacks           import option_callback, split_option
 from    helpers.chat_helper         import render_menu
 from    settings.registry           import (
     QUIET_HOURS, QUIET_PRESETS, REPEAT_MINUTES, REPEAT_PRESETS, SNOOZE_OPTIONS, SNOOZE_PRESETS,
@@ -13,16 +16,12 @@ from    settings.registry           import (
 users = UserRepository()
 settings = SettingsRepository()
 
-# context.user_data["awaiting"] value while waiting for custom snooze options
-AWAIT_SNOOZE_OPTIONS = "snooze_options"
-AWAIT_QUIET_HOURS = "quiet_hours"
-
 # Reminder settings open from ⚙️ Settings or from the ⏰ Reminders menu;
 # ↩️ Back returns to whichever it was.
 REMINDER_SETTINGS_BACK = "reminder_settings_back"
 REMINDER_SETTINGS_ENTRIES = {
-    "settings:reminders": "menu:settings",
-    "rem:settings": "menu:reminders",
+    Callback.REMINDER_SETTINGS: Callback.SETTINGS_MENU,
+    Callback.REMINDER_SETTINGS_FROM_MENU: Callback.REMINDERS_MENU,
 }
 
 
@@ -34,9 +33,9 @@ def format_snooze_options(minutes) -> str:
 
 def build_reminder_settings_menu(back: str):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(SNOOZE_OPTIONS.label, callback_data="settings:snooze")],
-        [InlineKeyboardButton(REPEAT_MINUTES.label, callback_data="settings:repeat")],
-        [InlineKeyboardButton(QUIET_HOURS.label, callback_data="settings:quiet")],
+        [InlineKeyboardButton(SNOOZE_OPTIONS.label, callback_data=Callback.SNOOZE_SETTINGS)],
+        [InlineKeyboardButton(REPEAT_MINUTES.label, callback_data=Callback.REPEAT_SETTINGS)],
+        [InlineKeyboardButton(QUIET_HOURS.label, callback_data=Callback.QUIET_SETTINGS)],
         [InlineKeyboardButton("↩️ Back", callback_data=back)],
     ])
 
@@ -56,7 +55,7 @@ async def on_reminder_settings(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     if query.data in REMINDER_SETTINGS_ENTRIES:
         context.user_data[REMINDER_SETTINGS_BACK] = REMINDER_SETTINGS_ENTRIES[query.data]
-    back = context.user_data.get(REMINDER_SETTINGS_BACK, "menu:settings")
+    back = context.user_data.get(REMINDER_SETTINGS_BACK, Callback.SETTINGS_MENU)
 
     user = users.get_or_create(update.effective_user.id)
     text = reminder_settings_text(
@@ -72,15 +71,15 @@ def build_snooze_menu(current):
     rows = [
         [InlineKeyboardButton(
             ("✅ " if preset == current else "") + format_snooze_options(preset),
-            callback_data="snzopt:set:" + ",".join(map(str, preset)),
+            callback_data=option_callback(CallbackPrefix.SNOOZE_OPTION, OptionAction.SET, ",".join(map(str, preset))),
         )]
         for preset in SNOOZE_PRESETS
     ]
     rows.append([
-        InlineKeyboardButton("✏️ Custom", callback_data="snzopt:custom"),
-        InlineKeyboardButton("♻️ Default", callback_data="snzopt:default"),
+        InlineKeyboardButton("✏️ Custom", callback_data=option_callback(CallbackPrefix.SNOOZE_OPTION, OptionAction.CUSTOM)),
+        InlineKeyboardButton("♻️ Default", callback_data=option_callback(CallbackPrefix.SNOOZE_OPTION, OptionAction.DEFAULT)),
     ])
-    rows.append([InlineKeyboardButton("↩️ Back", callback_data="rset:show")])
+    rows.append([InlineKeyboardButton("↩️ Back", callback_data=Callback.REMINDER_SETTINGS_RETURN)])
     return InlineKeyboardMarkup(rows)
 
 
@@ -103,11 +102,11 @@ async def on_snooze_settings(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 async def on_snooze_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    action, _, arg = query.data.removeprefix("snzopt:").partition(":")
+    action, arg = split_option(query.data, CallbackPrefix.SNOOZE_OPTION)
     user = users.get_or_create(update.effective_user.id)
 
-    if action == "custom":
-        context.user_data["awaiting"] = AWAIT_SNOOZE_OPTIONS
+    if action == OptionAction.CUSTOM:
+        context.user_data[AWAITING] = Awaiting.SNOOZE_OPTIONS
         await query.answer()
         await query.message.reply_text(
             "Send up to 3 snooze times, e.g. “10m, 1h, 3h” or “5, 15, 60” (minutes)."
@@ -115,7 +114,7 @@ async def on_snooze_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        if action == "default":
+        if action == OptionAction.DEFAULT:
             settings.reset(user.id, SNOOZE_OPTIONS)
         else:
             settings.set(user.id, SNOOZE_OPTIONS, [int(m) for m in arg.split(",")])
@@ -138,11 +137,11 @@ async def on_snooze_text(update: Update, context: ContextTypes.DEFAULT_TYPE, tex
 
     user = users.get_or_create(update.effective_user.id)
     settings.set(user.id, SNOOZE_OPTIONS, minutes)
-    context.user_data.pop("awaiting", None)
+    context.user_data.pop(AWAITING, None)
     await update.effective_message.reply_text(
         f"💤 Snooze options set to {format_snooze_options(minutes)}.",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("↩️ Reminder settings", callback_data="rset:show"),
+            InlineKeyboardButton("↩️ Reminder settings", callback_data=Callback.REMINDER_SETTINGS_RETURN),
         ]]),
     )
 
@@ -151,11 +150,11 @@ async def on_snooze_text(update: Update, context: ContextTypes.DEFAULT_TYPE, tex
 
 def build_repeat_menu(current):
     buttons = [
-        InlineKeyboardButton(("✅ " if m == current else "") + format_minutes(m), callback_data=f"rptopt:set:{m}")
+        InlineKeyboardButton(("✅ " if m == current else "") + format_minutes(m), callback_data=option_callback(CallbackPrefix.REPEAT_OPTION, OptionAction.SET, m))
         for m in REPEAT_PRESETS
     ]
     rows = [buttons[i:i + 3] for i in range(0, len(buttons), 3)]
-    rows.append([InlineKeyboardButton("↩️ Back", callback_data="rset:show")])
+    rows.append([InlineKeyboardButton("↩️ Back", callback_data=Callback.REMINDER_SETTINGS_RETURN)])
     return InlineKeyboardMarkup(rows)
 
 
@@ -179,7 +178,7 @@ async def on_repeat_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = users.get_or_create(update.effective_user.id)
     try:
-        settings.set(user.id, REPEAT_MINUTES, int(query.data.removeprefix("rptopt:set:")))
+        settings.set(user.id, REPEAT_MINUTES, int(split_option(query.data, CallbackPrefix.REPEAT_OPTION)[1]))
     except ValueError as e:
         await query.answer(str(e), show_alert=True)
         return
@@ -192,16 +191,16 @@ def build_quiet_menu(current):
     rows = [
         [InlineKeyboardButton(
             ("✅ " if preset == current else "") + format_quiet_hours(preset),
-            callback_data="qhopt:set:" + "-".join(preset),
+            callback_data=option_callback(CallbackPrefix.QUIET_OPTION, OptionAction.SET, "-".join(preset)),
         )]
         for preset in QUIET_PRESETS
     ]
-    rows.append([InlineKeyboardButton(("✅ " if not current else "") + "🔔 Off", callback_data="qhopt:off")])
+    rows.append([InlineKeyboardButton(("✅ " if not current else "") + "🔔 Off", callback_data=option_callback(CallbackPrefix.QUIET_OPTION, OptionAction.OFF))])
     rows.append([
-        InlineKeyboardButton("✏️ Custom", callback_data="qhopt:custom"),
-        InlineKeyboardButton("♻️ Default", callback_data="qhopt:default"),
+        InlineKeyboardButton("✏️ Custom", callback_data=option_callback(CallbackPrefix.QUIET_OPTION, OptionAction.CUSTOM)),
+        InlineKeyboardButton("♻️ Default", callback_data=option_callback(CallbackPrefix.QUIET_OPTION, OptionAction.DEFAULT)),
     ])
-    rows.append([InlineKeyboardButton("↩️ Back", callback_data="rset:show")])
+    rows.append([InlineKeyboardButton("↩️ Back", callback_data=Callback.REMINDER_SETTINGS_RETURN)])
     return InlineKeyboardMarkup(rows)
 
 
@@ -225,19 +224,19 @@ async def on_quiet_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 async def on_quiet_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    action, _, arg = query.data.removeprefix("qhopt:").partition(":")
+    action, arg = split_option(query.data, CallbackPrefix.QUIET_OPTION)
     user = users.get_or_create(update.effective_user.id)
 
-    if action == "custom":
-        context.user_data["awaiting"] = AWAIT_QUIET_HOURS
+    if action == OptionAction.CUSTOM:
+        context.user_data[AWAITING] = Awaiting.QUIET_HOURS
         await query.answer()
         await query.message.reply_text("Send the quiet hours, e.g. “23:00-07:00” or “22 to 8”, or “off”.")
         return
 
     try:
-        if action == "default":
+        if action == OptionAction.DEFAULT:
             settings.reset(user.id, QUIET_HOURS)
-        elif action == "off":
+        elif action == OptionAction.OFF:
             settings.set(user.id, QUIET_HOURS, [])
         else:
             settings.set(user.id, QUIET_HOURS, arg.split("-"))
@@ -258,10 +257,10 @@ async def on_quiet_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text
 
     user = users.get_or_create(update.effective_user.id)
     settings.set(user.id, QUIET_HOURS, value)
-    context.user_data.pop("awaiting", None)
+    context.user_data.pop(AWAITING, None)
     await update.effective_message.reply_text(
         f"🌙 Quiet hours set to {format_quiet_hours(value)}.",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("↩️ Reminder settings", callback_data="rset:show"),
+            InlineKeyboardButton("↩️ Reminder settings", callback_data=Callback.REMINDER_SETTINGS_RETURN),
         ]]),
     )

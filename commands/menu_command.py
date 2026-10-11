@@ -1,6 +1,7 @@
 from    telegram                    import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from    telegram.ext                import ContextTypes
 
+from    enums                       import Callback
 from    helpers.chat_helper         import render_menu
 
 
@@ -9,8 +10,8 @@ MAIN_MENU_TEXT = "Menu:"
 
 def build_main_menu():
     keyboard = [
-        [InlineKeyboardButton("⏰ Reminders", callback_data="menu:reminders")],
-        [InlineKeyboardButton("⚙️ Settings", callback_data="menu:settings")],
+        [InlineKeyboardButton("⏰ Reminders", callback_data=Callback.REMINDERS_MENU)],
+        [InlineKeyboardButton("⚙️ Settings", callback_data=Callback.SETTINGS_MENU)],
     ]
     return InlineKeyboardMarkup(keyboard)
 

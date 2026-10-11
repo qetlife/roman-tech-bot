@@ -1,6 +1,8 @@
 from    telegram                    import Update
 from    telegram.ext                import ContextTypes
 
+from    enums                       import Awaiting
+from    helpers.awaiting            import AWAITING, EDIT_REMINDER_ID
 from    intents.registry            import INTENTS
 from    intents.router              import match_intent
 from    reminders                   import handlers as rh
@@ -17,23 +19,23 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Plain text in a private chat: trigger phrases, or the answer to a question."""
     text = update.effective_message.text or ""
     match = match_intent(text, INTENTS)
-    awaiting = context.user_data.get("awaiting")
+    awaiting = context.user_data.get(AWAITING)
 
     # A trigger phrase always wins, so "remind me ..." works at any point.
     if match is not None:
-        context.user_data.pop("awaiting", None)
+        context.user_data.pop(AWAITING, None)
         await match.intent.action(update, context, match.rest)
         return
 
-    if awaiting == rh.AWAIT_REMINDER:
+    if awaiting == Awaiting.REMINDER:
         await rh.create_reminder(update, context, text)
-    elif awaiting == rh.AWAIT_TIMEZONE:
+    elif awaiting == Awaiting.TIMEZONE:
         await rh.on_timezone_text(update, context, text)
-    elif awaiting == sh.AWAIT_SNOOZE_OPTIONS:
+    elif awaiting == Awaiting.SNOOZE_OPTIONS:
         await sh.on_snooze_text(update, context, text)
-    elif awaiting == sh.AWAIT_QUIET_HOURS:
+    elif awaiting == Awaiting.QUIET_HOURS:
         await sh.on_quiet_text(update, context, text)
-    elif awaiting and awaiting.startswith(rh.AWAIT_EDIT):
-        await rh.edit_reminder(update, context, int(awaiting[len(rh.AWAIT_EDIT):]), text)
+    elif awaiting == Awaiting.EDIT:
+        await rh.edit_reminder(update, context, context.user_data[EDIT_REMINDER_ID], text)
     else:
         await update.effective_message.reply_text(HELP_TEXT)

@@ -3,26 +3,16 @@ import uuid
 from datetime       import datetime, timezone
 from typing         import Optional
 
-from sqlalchemy     import BigInteger, ForeignKey, Index, Integer, String, Text, Uuid
+from sqlalchemy     import BigInteger, Enum, ForeignKey, Index, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
+from enums          import ReminderStatus
 from models.types   import UTCDateTime
 from models.user    import Base
 
 
 # SQLite only auto-increments INTEGER primary keys.
 BigIntId = BigInteger().with_variant(Integer, "sqlite")
-
-
-class ReminderStatus:
-    PENDING = "pending"     # waiting for remind_at
-    FIRING = "firing"       # sent, re-sent every few minutes until acknowledged
-    DONE = "done"           # user pressed OK
-    CANCELLED = "cancelled"
-    MISSED = "missed"       # no OK within the give-up window
-    FAILED = "failed"       # could not be delivered (e.g. the user blocked the bot)
-
-    ACTIVE = (PENDING, FIRING)
 
 
 def utcnow() -> datetime:
@@ -42,7 +32,12 @@ class Reminder(Base):
     remind_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     # When the delivery loop should send it next.
     next_fire_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default=ReminderStatus.PENDING)
+    # Stored as its value ("pending") in a plain VARCHAR(16), as before the enum.
+    status: Mapped[ReminderStatus] = mapped_column(
+        Enum(ReminderStatus, native_enum=False, create_constraint=False, length=16,
+             values_callable=lambda statuses: [s.value for s in statuses]),
+        nullable=False, default=ReminderStatus.PENDING,
+    )
     fire_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_message_id: Mapped[Optional[int]] = mapped_column(BigInteger)
     # Repeats on these days, e.g. "mon,fri@09:00" (reminders/recurrence.py); None = once.

@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 
 from    telegram.ext                import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from    dotenv                      import load_dotenv
@@ -9,10 +10,18 @@ from    menu.settings_button        import on_back_settings, on_my_id, on_settin
 from    commands.menu_command       import menu_cmd, on_main_menu
 from    commands.start_command      import start
 from    db.db                       import init_db
+from    enums                       import Callback, CallbackPrefix, ReminderAction
+from    helpers.callbacks           import exact, prefixed
 from    intents.text_handler        import on_text
 from    reminders                   import handlers as reminders
 from    reminders.delivery          import POLL_INTERVAL, deliver_due
 from    settings                    import handlers as user_settings
+
+# rem:<action>:<id>[:<minutes>]; "rem:new" etc. are separate buttons.
+REMINDER_BUTTON = (
+    "^" + re.escape(CallbackPrefix.REMINDER) + "(?:" + "|".join(ReminderAction) + r"):\d+"
+)
+
 
 def main():
     load_dotenv()
@@ -32,28 +41,29 @@ def main():
     app.add_handler(CommandHandler("menu", menu_cmd))
 
     # Main Menu
-    app.add_handler(CallbackQueryHandler(on_main_menu,    pattern=r"^menu:main$"))
-    app.add_handler(CallbackQueryHandler(on_reminders,    pattern=r"^menu:reminders$"))
-    app.add_handler(CallbackQueryHandler(on_settings,     pattern=r"^menu:settings$"))
+    app.add_handler(CallbackQueryHandler(on_main_menu,    pattern=exact(Callback.MAIN_MENU)))
+    app.add_handler(CallbackQueryHandler(on_reminders,    pattern=exact(Callback.REMINDERS_MENU)))
+    app.add_handler(CallbackQueryHandler(on_settings,     pattern=exact(Callback.SETTINGS_MENU)))
 
     # Settings
-    app.add_handler(CallbackQueryHandler(on_my_id,        pattern=r"^settings:my_id$"))
-    app.add_handler(CallbackQueryHandler(on_back_settings, pattern=r"^settings:back$"))
-    app.add_handler(CallbackQueryHandler(reminders.on_timezone_settings, pattern=r"^settings:timezone$"))
-    app.add_handler(CallbackQueryHandler(user_settings.on_reminder_settings,
-                                         pattern=r"^(settings:reminders|rem:settings|rset:show)$"))
-    app.add_handler(CallbackQueryHandler(user_settings.on_snooze_settings, pattern=r"^settings:snooze$"))
-    app.add_handler(CallbackQueryHandler(user_settings.on_snooze_button,   pattern=r"^snzopt:"))
-    app.add_handler(CallbackQueryHandler(user_settings.on_repeat_settings, pattern=r"^settings:repeat$"))
-    app.add_handler(CallbackQueryHandler(user_settings.on_repeat_button,   pattern=r"^rptopt:set:\d+$"))
-    app.add_handler(CallbackQueryHandler(user_settings.on_quiet_settings,  pattern=r"^settings:quiet$"))
-    app.add_handler(CallbackQueryHandler(user_settings.on_quiet_button,    pattern=r"^qhopt:"))
+    app.add_handler(CallbackQueryHandler(on_my_id,        pattern=exact(Callback.MY_ID)))
+    app.add_handler(CallbackQueryHandler(on_back_settings, pattern=exact(Callback.SETTINGS_BACK)))
+    app.add_handler(CallbackQueryHandler(reminders.on_timezone_settings, pattern=exact(Callback.TIMEZONE_SETTINGS)))
+    app.add_handler(CallbackQueryHandler(user_settings.on_reminder_settings, pattern=exact(
+        Callback.REMINDER_SETTINGS, Callback.REMINDER_SETTINGS_FROM_MENU, Callback.REMINDER_SETTINGS_RETURN,
+    )))
+    app.add_handler(CallbackQueryHandler(user_settings.on_snooze_settings, pattern=exact(Callback.SNOOZE_SETTINGS)))
+    app.add_handler(CallbackQueryHandler(user_settings.on_snooze_button,   pattern=prefixed(CallbackPrefix.SNOOZE_OPTION)))
+    app.add_handler(CallbackQueryHandler(user_settings.on_repeat_settings, pattern=exact(Callback.REPEAT_SETTINGS)))
+    app.add_handler(CallbackQueryHandler(user_settings.on_repeat_button,   pattern=prefixed(CallbackPrefix.REPEAT_OPTION)))
+    app.add_handler(CallbackQueryHandler(user_settings.on_quiet_settings,  pattern=exact(Callback.QUIET_SETTINGS)))
+    app.add_handler(CallbackQueryHandler(user_settings.on_quiet_button,    pattern=prefixed(CallbackPrefix.QUIET_OPTION)))
 
     # Reminders
-    app.add_handler(CallbackQueryHandler(reminders.on_new,              pattern=r"^rem:new$"))
-    app.add_handler(CallbackQueryHandler(reminders.list_reminders,      pattern=r"^rem:list$"))
-    app.add_handler(CallbackQueryHandler(reminders.on_reminder_button,  pattern=r"^rem:(ok|snz|undo|edit|del):\d+"))
-    app.add_handler(CallbackQueryHandler(reminders.on_timezone_button,  pattern=r"^tz:"))
+    app.add_handler(CallbackQueryHandler(reminders.on_new,              pattern=exact(Callback.NEW_REMINDER)))
+    app.add_handler(CallbackQueryHandler(reminders.list_reminders,      pattern=exact(Callback.LIST_REMINDERS)))
+    app.add_handler(CallbackQueryHandler(reminders.on_reminder_button,  pattern=REMINDER_BUTTON))
+    app.add_handler(CallbackQueryHandler(reminders.on_timezone_button,  pattern=prefixed(CallbackPrefix.TIMEZONE)))
 
     # Free text in private chats: trigger phrases ("remind me ...") and answers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, on_text))

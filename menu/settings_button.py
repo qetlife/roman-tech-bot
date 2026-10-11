@@ -2,6 +2,7 @@ from    telegram                import InlineKeyboardButton, InlineKeyboardMarku
 from    telegram.ext            import ContextTypes
 
 from    commands.menu_command   import MAIN_MENU_TEXT, build_main_menu
+from    enums                   import Callback
 from    helpers.chat_helper     import render_menu
 
 
@@ -10,10 +11,10 @@ SETTINGS_TEXT = "Settings:"
 
 def build_settings_menu():
     keyboard = [
-        [InlineKeyboardButton("🆔 My ID", callback_data="settings:my_id")],
-        [InlineKeyboardButton("🌍 Timezone", callback_data="settings:timezone")],
-        [InlineKeyboardButton("⏰ Reminders", callback_data="settings:reminders")],
-        [InlineKeyboardButton("↩️ Back", callback_data="settings:back")],
+        [InlineKeyboardButton("🆔 My ID", callback_data=Callback.MY_ID)],
+        [InlineKeyboardButton("🌍 Timezone", callback_data=Callback.TIMEZONE_SETTINGS)],
+        [InlineKeyboardButton("⏰ Reminders", callback_data=Callback.REMINDER_SETTINGS)],
+        [InlineKeyboardButton("↩️ Back", callback_data=Callback.SETTINGS_BACK)],
     ]
     return InlineKeyboardMarkup(keyboard)
 
