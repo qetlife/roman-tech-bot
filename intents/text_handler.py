@@ -4,6 +4,7 @@ from    telegram.ext                import ContextTypes
 from    intents.registry            import INTENTS
 from    intents.router              import match_intent
 from    reminders                   import handlers as rh
+from    settings                    import handlers as sh
 
 
 HELP_TEXT = (
@@ -28,6 +29,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await rh.create_reminder(update, context, text)
     elif awaiting == rh.AWAIT_TIMEZONE:
         await rh.on_timezone_text(update, context, text)
+    elif awaiting == sh.AWAIT_SNOOZE_OPTIONS:
+        await sh.on_snooze_text(update, context, text)
     elif awaiting and awaiting.startswith(rh.AWAIT_EDIT):
         await rh.edit_reminder(update, context, int(awaiting[len(rh.AWAIT_EDIT):]), text)
     else:

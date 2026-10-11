@@ -11,12 +11,11 @@ from    helpers.chat_helper             import render_menu
 from    models.reminder                 import ReminderStatus, utcnow
 from    reminders.parser                import ParseError, parse_reminder
 from    reminders.timezones             import COMMON_TIMEZONES, format_when, resolve_timezone
+from    settings.registry               import SNOOZE_MAX_MINUTES, SNOOZE_MIN_MINUTES, format_minutes
 
 
 users = UserRepository()
 reminders = ReminderRepository()
-
-SNOOZE_MINUTES = (10, 60)
 
 EXAMPLES = (
     "Examples:\n"
@@ -34,16 +33,13 @@ AWAIT_EDIT = "edit:"    # + reminder id
 
 # --- keyboards --------------------------------------------------------------
 
-def snooze_label(minutes: int) -> str:
-    return f"💤 {minutes} min" if minutes < 60 else f"💤 {minutes // 60} h"
-
-
-def build_fire_keyboard(reminder_id: int):
+def build_fire_keyboard(reminder_id: int, snooze_minutes):
+    """✅ OK plus one 💤 button per snooze option (the user's setting)."""
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ OK", callback_data=f"rem:ok:{reminder_id}"),
         *[
-            InlineKeyboardButton(snooze_label(m), callback_data=f"rem:snz:{reminder_id}:{m}")
-            for m in SNOOZE_MINUTES
+            InlineKeyboardButton(f"💤 {format_minutes(m)}", callback_data=f"rem:snz:{reminder_id}:{m}")
+            for m in snooze_minutes
         ],
     ]])
 
@@ -222,7 +218,9 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     elif action == "snz":
         user = users.get_or_create(update.effective_user.id)
-        until = utcnow() + timedelta(minutes=int(args[0]))
+        # Callback data comes from the client: keep it within the allowed range.
+        minutes = min(max(int(args[0]), SNOOZE_MIN_MINUTES), SNOOZE_MAX_MINUTES)
+        until = utcnow() + timedelta(minutes=minutes)
         if reminders.snooze(reminder_id, until) is None:
             await query.answer("This reminder has already finished.")
             await query.edit_message_reply_markup(reply_markup=None)

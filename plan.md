@@ -25,11 +25,17 @@ Status and next steps for `roman-tech-bot`.
   time parser (`reminders/parser.py`); confirmation with Undo / Edit.
 - Per-user timezone, asked on the first reminder and changeable in Settings;
   times stored in UTC.
-- Delivery job every 20 s: sends due reminders with OK / 💤 10 min / 💤 1 h,
+- Delivery job every 20 s: sends due reminders with OK and snooze buttons,
   re-sends every 5 min until OK, gives up after 24 h (`missed`); blocked
   users are marked `failed`.
 - List upcoming reminders with ❌ to cancel.
 - Reminders only for yourself, in private chats.
+
+### Settings
+
+- Per-user settings: definitions and defaults in code
+  (`settings/registry.py`), only changed values stored in `user_settings`.
+- 💤 Snooze options: presets or custom (up to 3, 1 min–24 h).
 
 Decisions made along the way (from the old “Open decisions” list):
 
@@ -43,7 +49,7 @@ Decisions made along the way (from the old “Open decisions” list):
 
 ### Reminders (phase 2)
 
-- Configurable snooze options (and possibly repeat interval) in Settings.
+- Configurable repeat interval (currently 5 min) as another setting.
 - Recurring reminders (daily, weekdays, every Monday, …) via a `recurrence`
   column.
 - Reminders for other users. The `reminders` table already has

@@ -7,7 +7,7 @@ The bot currently provides an inline-button menu UI, basic settings actions, and
 ## Current Features
 
 - `/start`, `/menu`
-- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`)
+- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`, `💤 Snooze options`)
 - Persistent user registration by `telegram_id` on first `/start`
 - Single-message menu UX (the menu message is edited in place as you navigate)
 - Reminders (see below)
@@ -26,8 +26,9 @@ The bot confirms with the parsed time and `↩️ Undo` / `✏️ Edit` buttons.
 cancel. The first reminder asks for your timezone (changeable under
 `⚙️ Settings → 🌍 Timezone`).
 
-When a reminder is due the bot sends it with `✅ OK`, `💤 10 min` and
-`💤 1 h`. Until OK is pressed it is re-sent every 5 minutes (the previous
+When a reminder is due the bot sends it with `✅ OK` and snooze buttons
+(`💤 10 min`, `💤 1 h` by default; up to 3 options of your choice under
+`⚙️ Settings → 💤 Snooze options`). Until OK is pressed it is re-sent every 5 minutes (the previous
 copy is deleted), and after 24 hours without a response it is marked missed.
 Only the reminder's owner can press its buttons.
 
@@ -43,6 +44,14 @@ How it works:
   every 20 seconds (`reminders/delivery.py`) and sends whatever is due, so
   reminders survive restarts and deploys; anything that came due while the
   bot was down is sent on startup.
+
+## Settings
+
+Per-user settings are defined in code in `settings/registry.py` (key,
+default, validation, label). The `user_settings` table stores only the values
+a user changed, so adding a setting needs a registry entry and a Settings
+screen, but no migration. `SettingsRepository` returns the user's value or the
+default.
 
 ## Tech Stack
 
@@ -64,9 +73,11 @@ How it works:
 - `alembic/` - schema migrations (`alembic.ini` at the repo root)
 - `db/repository/user_repository.py` - user repository methods
 - `db/repository/reminder_repository.py` - reminder repository methods
+- `db/repository/settings_repository.py` - per-user settings (value or default)
+- `settings/` - settings registry and Settings screens
 - `intents/` - trigger phrase → action mapping for free-text messages
 - `reminders/` - reminder parsing, handlers and the delivery job
-- `tests/` - unit tests (`pip install -r requirements-dev.txt && pytest`)
+- `tests/` - tests (`pip install -r requirements-dev.txt && pytest`; they use a throwaway SQLite database)
 - `scripts/migrate_sqlite_to_postgres.py` - one-off copy of legacy SQLite data into PostgreSQL
 
 ## Environment Variables
