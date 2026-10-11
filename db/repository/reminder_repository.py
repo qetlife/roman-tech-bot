@@ -11,7 +11,9 @@ from models.user    import User
 
 
 class ReminderRepository:
-    def create(self, user: User, chat_id: int, text: str, remind_at: datetime) -> Reminder:
+    def create(
+        self, user: User, chat_id: int, text: str, remind_at: datetime, recurrence: Optional[str] = None,
+    ) -> Reminder:
         with SessionLocal(expire_on_commit=False) as session:
             reminder = Reminder(
                 creator_user_id=user.id,
@@ -20,6 +22,7 @@ class ReminderRepository:
                 text=text,
                 remind_at=remind_at,
                 next_fire_at=remind_at,
+                recurrence=recurrence,
             )
             session.add(reminder)
             session.commit()
@@ -78,14 +81,23 @@ class ReminderRepository:
     def acknowledge(self, reminder_id: int) -> Optional[Reminder]:
         return self._update(reminder_id, status=ReminderStatus.DONE, acknowledged_at=utcnow())
 
+    def advance(self, reminder_id: int, remind_at: datetime, next_fire_at: datetime = None) -> Optional[Reminder]:
+        """Move a recurring reminder on to its next occurrence."""
+        return self._update(
+            reminder_id, status=ReminderStatus.PENDING, remind_at=remind_at,
+            next_fire_at=next_fire_at or remind_at, fire_count=0, last_message_id=None,
+        )
+
     def snooze(self, reminder_id: int, until: datetime) -> Optional[Reminder]:
         return self._update(
             reminder_id, status=ReminderStatus.PENDING, remind_at=until, next_fire_at=until, fire_count=0,
         )
 
-    def reschedule(self, reminder_id: int, text: str, remind_at: datetime) -> Optional[Reminder]:
+    def reschedule(
+        self, reminder_id: int, text: str, remind_at: datetime, recurrence: Optional[str] = None,
+    ) -> Optional[Reminder]:
         return self._update(
-            reminder_id, status=ReminderStatus.PENDING, text=text,
+            reminder_id, status=ReminderStatus.PENDING, text=text, recurrence=recurrence,
             remind_at=remind_at, next_fire_at=remind_at, fire_count=0, last_message_id=None,
         )
 

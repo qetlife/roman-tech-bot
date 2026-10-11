@@ -45,6 +45,8 @@ class Reminder(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=ReminderStatus.PENDING)
     fire_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_message_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    # Repeats on these days, e.g. "mon,fri@09:00" (reminders/recurrence.py); None = once.
+    recurrence: Mapped[Optional[str]] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime)
 

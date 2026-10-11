@@ -3,14 +3,17 @@
 import logging
 
 from    datetime                    import timedelta
+from    zoneinfo                    import ZoneInfo
 
 from    telegram.error              import Forbidden, TelegramError
 from    telegram.ext                import ContextTypes
 
 from    db.repository.reminder_repository import ReminderRepository
 from    db.repository.settings_repository import SettingsRepository
+from    db.repository.user_repository import UserRepository
 from    models.reminder             import ReminderStatus, utcnow
 from    reminders.handlers          import build_fire_keyboard
+from    reminders.recurrence        import Recurrence
 from    settings.registry           import REPEAT_MINUTES, SNOOZE_OPTIONS
 
 
@@ -18,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 reminders = ReminderRepository()
 settings = SettingsRepository()
+users = UserRepository()
 
 POLL_INTERVAL = timedelta(seconds=20)
 GIVE_UP_AFTER = timedelta(hours=24)
@@ -42,6 +46,7 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE):
     user_ids = {r.target_user_id for r in due}
     snooze_options = settings.get_for_users(user_ids, SNOOZE_OPTIONS)
     repeat_minutes = settings.get_for_users(user_ids, REPEAT_MINUTES)
+    timezones = users.get_timezones(user_ids)
 
     for reminder in due:
         try:
@@ -49,23 +54,51 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE):
                 bot, reminder, now,
                 snooze_options[reminder.target_user_id],
                 timedelta(minutes=repeat_minutes[reminder.target_user_id]),
+                ZoneInfo(timezones.get(reminder.target_user_id) or "UTC"),
             )
         except Exception:
             # One broken reminder must not stop the others; it is retried next poll.
             logger.exception("Failed to deliver reminder %s", reminder.id)
 
 
-async def _deliver(bot, reminder, now, snooze_minutes, repeat_every):
-    if reminder.status == ReminderStatus.FIRING and now - reminder.remind_at >= GIVE_UP_AFTER:
+async def _mark_message_missed(bot, reminder, reason):
+    if reminder.last_message_id is None:
+        return
+    try:
+        await bot.edit_message_text(
+            chat_id=reminder.chat_id,
+            message_id=reminder.last_message_id,
+            text=f"⏰ {reminder.text}\n\n❌ Missed: {reason}.",
+        )
+    except TelegramError:
+        pass
+
+
+def _catch_up(recurrence, reminder, now, tz):
+    """(latest occurrence after remind_at that is already due or None, the one after it)."""
+    latest = None
+    upcoming = recurrence.next_after(reminder.remind_at, tz)
+    while upcoming <= now:
+        latest, upcoming = upcoming, recurrence.next_after(upcoming, tz)
+    return latest, upcoming
+
+
+async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz):
+    firing = reminder.status == ReminderStatus.FIRING
+    gave_up = firing and now - reminder.remind_at >= GIVE_UP_AFTER
+
+    if reminder.recurrence:
+        latest, upcoming = _catch_up(Recurrence.parse(reminder.recurrence), reminder, now, tz)
+        if latest is not None or gave_up:
+            # This occurrence is over: move on. A due one is sent on the next poll.
+            if firing:
+                await _mark_message_missed(bot, reminder, "the next one is due" if latest else "no response for 24 h")
+            reminders.advance(reminder.id, latest or upcoming)
+            return
+
+    elif gave_up:
         reminders.mark_missed(reminder.id)
-        try:
-            await bot.edit_message_text(
-                chat_id=reminder.chat_id,
-                message_id=reminder.last_message_id,
-                text=f"⏰ {reminder.text}\n\n❌ Missed: no response for 24 h.",
-            )
-        except TelegramError:
-            pass
+        await _mark_message_missed(bot, reminder, "no response for 24 h")
         return
 
     text = f"⏰ {reminder.text}"

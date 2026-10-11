@@ -31,6 +31,14 @@ Status and next steps for `roman-tech-bot`.
 - List upcoming reminders with ❌ to cancel.
 - Reminders only for yourself, in private chats.
 
+### Reminders (phase 2)
+
+- Recurring reminders: “every day at 9”, “on weekdays”, “every mon and thu”,
+  “mondays”, “every evening at 7” (`reminders/recurrence.py`, stored in
+  `reminders.recurrence` as e.g. `mon,thu@18:00`, local time). OK or a missed
+  occurrence moves on to the next one; after downtime only the latest due
+  occurrence is sent.
+
 ### Settings
 
 - Per-user settings: definitions and defaults in code
@@ -44,14 +52,13 @@ Decisions made along the way (from the old “Open decisions” list):
   “friday 18:00”, “dec 24”); a bare “at 9” means the next 09:00 or 21:00.
 - Times are stored in UTC and shown in the user's timezone.
 - Editing reminders is supported (✏️ Edit after creating).
-- Recurring reminders were out of scope for phase 1.
+- Recurring reminders were out of scope for phase 1 (added in phase 2).
 
 ## Next
 
-### Reminders (phase 2)
+### Reminders (phase 3)
 
-- Recurring reminders (daily, weekdays, every Monday, …) via a `recurrence`
-  column.
+- Interval repeats (“every 2 hours”) and monthly ones.
 - Reminders for other users. The `reminders` table already has
   `creator_user_id` and `target_user_id`. Open questions:
   - how to pick the target (Telegram username, forwarded message, contact
