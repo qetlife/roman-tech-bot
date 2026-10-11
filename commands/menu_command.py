@@ -1,7 +1,7 @@
 from    telegram                    import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from    telegram.ext                import ContextTypes
 
-from    helpers.callbacks           import Callback
+from    enums                       import Callback
 from    helpers.chat_helper         import render_menu
 
 

@@ -2,7 +2,7 @@ from    telegram                import InlineKeyboardButton, InlineKeyboardMarku
 from    telegram.ext            import ContextTypes
 
 from    commands.menu_command   import MAIN_MENU_TEXT, build_main_menu
-from    helpers.callbacks       import Callback
+from    enums                   import Callback
 from    helpers.chat_helper     import render_menu
 
 

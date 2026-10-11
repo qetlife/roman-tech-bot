@@ -11,7 +11,8 @@ from    telegram.ext                import ContextTypes
 from    db.repository.reminder_repository import ReminderRepository
 from    db.repository.settings_repository import SettingsRepository
 from    db.repository.user_repository import UserRepository
-from    models.reminder             import ReminderStatus, utcnow
+from    enums                       import ReminderStatus
+from    models.reminder             import utcnow
 from    reminders.handlers          import build_fire_keyboard
 from    reminders                   import recurrence as recurrences
 from    reminders.quiet             import is_quiet, quiet_end, skip_quiet

@@ -32,10 +32,10 @@ import re
 
 from calendar       import Day
 from dataclasses    import dataclass
-from enum           import Enum
 from datetime       import date, datetime, time, timedelta
 from typing         import Optional
 
+from enums          import RepeatKind
 from reminders.recurrence import (
     EVERY_DAY, WEEKDAYS as WORKDAYS, WEEKENDS, Interval, Monthly, Recurrence, Weekly,
 )
@@ -432,12 +432,6 @@ def _read_weekday_list(tokens: list, i: int, plural: bool):
 # Ordinal day of the month in a monthly expression: "15th", "1st".
 MONTH_DAY_RE = re.compile(r"^(\d{1,2})(?:st|nd|rd|th)$")
 MONTH_WORDS = (["of", "every", "month"], ["of", "the", "month"], ["every", "month"])
-
-
-class RepeatKind(Enum):
-    WEEKLY = "weekly"       # on weekdays: "every day", "mondays"
-    MONTHLY = "monthly"     # on a day of the month: "every 15th"
-    INTERVAL = "interval"   # every N minutes/hours/days: "every 2 hours"
 
 
 @dataclass

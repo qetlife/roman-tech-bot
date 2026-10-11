@@ -6,7 +6,8 @@ from typing         import Optional
 from sqlalchemy     import select
 
 from db.db          import SessionLocal
-from models.reminder import ACTIVE_STATUSES, Reminder, ReminderStatus, utcnow
+from enums          import ACTIVE_STATUSES, ReminderStatus
+from models.reminder import Reminder, utcnow
 from models.user    import User
 
 

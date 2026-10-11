@@ -124,7 +124,7 @@ def test_one_off_fires_in_quiet_hours_but_repeats_wait(user):
 
 
 def test_interval_occurrence_in_quiet_hours_is_skipped(user):
-    from models.reminder import ReminderStatus
+    from enums import ReminderStatus
 
     reminder = _reminder(user, dt(11, 1, 30), recurrence="every:120m@2026-10-10T20:30Z")  # 23:30 Kyiv
     bot = _deliver(reminder, dt(11, 1, 30))

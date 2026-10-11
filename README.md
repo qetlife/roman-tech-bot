@@ -47,8 +47,9 @@ phrases.
 - `commands/` - slash command handlers
 - `menu/` - callback action handlers and inline submenu builders
 - `helpers/chat_helper.py` - `render_menu` in-place message edit/send helper
-- `helpers/callbacks.py` - callback data of every button (enums)
-- `helpers/awaiting.py` - what the next typed message answers (enum)
+- `enums.py` - every enum: reminder statuses, callback data of every button, conversation state, repeat kinds
+- `helpers/callbacks.py` - build, read and match callback data
+- `helpers/awaiting.py` - `user_data` keys for questions the bot asked
 - `models/` - SQLAlchemy models
 - `db/db.py` - DB engine/session setup
 - `db/migrations.py` - runs Alembic migrations on startup

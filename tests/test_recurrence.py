@@ -251,7 +251,7 @@ def _reload(reminder):
 
 
 def test_recurring_fires_like_a_one_off(user):
-    from models.reminder import ReminderStatus
+    from enums import ReminderStatus
 
     reminder = _reminder(user, dt(11, 9))
     bot = _deliver(reminder, dt(11, 9, 1))
@@ -260,7 +260,7 @@ def test_recurring_fires_like_a_one_off(user):
 
 
 def test_recurring_unanswered_moves_to_the_next_occurrence(user):
-    from models.reminder import ReminderStatus
+    from enums import ReminderStatus
 
     reminder = _reminder(user, dt(11, 9))
     _deliver(reminder, dt(11, 9, 1))
@@ -284,7 +284,7 @@ def test_recurring_catches_up_to_the_latest_occurrence(user):
 
 
 def test_weekly_gives_up_after_24_hours(user):
-    from models.reminder import ReminderStatus
+    from enums import ReminderStatus
 
     reminder = _reminder(user, dt(12, 9), recurrence="mon@09:00")
     _deliver(reminder, dt(12, 9, 1))
@@ -296,7 +296,7 @@ def test_weekly_gives_up_after_24_hours(user):
 
 
 def test_one_off_still_marked_missed(user):
-    from models.reminder import ReminderStatus
+    from enums import ReminderStatus
 
     reminder = _reminder(user, dt(12, 9), recurrence=None)
     _deliver(reminder, dt(12, 9, 1))

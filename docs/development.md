@@ -18,12 +18,13 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see the
 
 ```
 bot.py                      registers handlers and the delivery job, starts polling
+enums.py                    every enum (statuses, callback data, conversation state, …)
 commands/                   /start, /menu
 menu/                       ⏰ Reminders and ⚙️ Settings menu screens
 intents/                    free text: trigger phrases → actions, answers to questions
 reminders/                  parsing, handlers, recurrence, quiet hours, delivery job
 settings/                   setting definitions (registry) and their screens
-helpers/                    callback data, conversation state, render_menu
+helpers/                    callback data helpers, user_data keys, render_menu
 models/                     SQLAlchemy models
 db/                         engine/session, migrations runner, repositories
 alembic/                    schema migrations
@@ -48,7 +49,7 @@ sessions. They return detached model objects (`expire_on_commit=False`).
 **Menus** are a single long-lived message: `helpers/chat_helper.render_menu`
 edits it in place, or replaces it if it can't be edited.
 
-**Callback data** for every button is defined in `helpers/callbacks.py`:
+**Callback data** for every button is defined as enums in `enums.py`:
 
 | Enum             | For                                    | Example                 |
 | ---------------- | -------------------------------------- | ----------------------- |
@@ -58,7 +59,8 @@ edits it in place, or replaces it if it can't be edited.
 | `OptionAction`   | buttons on a setting screen            | `qhopt:set:23:00-07:00` |
 
 Build data with `reminder_callback()` / `option_callback()`, read it with
-`split_option()`, and register handlers with `exact(...)` / `prefixed(...)`.
+`split_option()`, and register handlers with `exact(...)` / `prefixed(...)`
+(all in `helpers/callbacks.py`).
 **Never change an existing value**: buttons on messages already in users'
 chats still carry it. `tests/test_callbacks.py` pins them.
 
@@ -69,7 +71,7 @@ chats still carry it. `tests/test_callbacks.py` pins them.
    `intents/router.py`; longest phrase wins, whole words only, polite filler
    like “please” allowed in front). This always wins.
 2. Otherwise, if the bot asked a question, `context.user_data["awaiting"]`
-   holds an `Awaiting` value (`helpers/awaiting.py`) and the message is the
+   holds an `Awaiting` value (`enums.py`; keys in `helpers/awaiting.py`) and the message is the
    answer. For `Awaiting.EDIT`, the reminder id is in
    `user_data["edit_reminder_id"]`.
 3. Otherwise the bot replies with a help text.
@@ -99,7 +101,7 @@ in `reminders.recurrence` (`NULL` = one-off):
 Each has `serialize()`, `next_after(after, tz)` (first occurrence strictly
 after `after`) and `describe(tz)`; `recurrence.parse()` reads a stored value.
 
-**Lifecycle** (`ReminderStatus` in `models/reminder.py`):
+**Lifecycle** (`ReminderStatus` in `enums.py`):
 
 ```
 PENDING ──due──▶ FIRING ──OK──▶ DONE          (recurring: back to PENDING at the next occurrence)
@@ -152,15 +154,19 @@ so `↩️ Back` returns there.
 
 ## Enums
 
-Use an enum instead of loose strings for any fixed set of values:
+Use an enum instead of loose strings for any fixed set of values. **All
+enums live in `enums.py`**, so they are easy to find and change; add new
+ones there too.
 
-| Enum                                    | Where |
-| --------------------------------------- | ----- |
-| `ReminderStatus` (`StrEnum`)            | `models/reminder.py`, stored as its value in a `VARCHAR(16)` (non-native SQLAlchemy `Enum`) |
-| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction` | `helpers/callbacks.py` |
-| `Awaiting`                              | `helpers/awaiting.py` |
-| `RepeatKind`                            | `reminders/parser.py` |
-| `calendar.Day`                          | weekdays in the parser and `Weekly` |
+| Enum                                    | For |
+| --------------------------------------- | --- |
+| `ReminderStatus` (+ `ACTIVE_STATUSES`)  | reminder lifecycle; stored as its value in `reminders.status`, a `VARCHAR(16)` (non-native SQLAlchemy `Enum` in `models/reminder.py`) |
+| `RepeatKind`                            | the kind of repeat the parser found |
+| `Awaiting`                              | what the next typed message answers |
+| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction` | callback data of every button |
+
+Weekdays use the standard library's `calendar.Day` (in the parser and
+`Weekly`).
 
 `StrEnum` members compare equal to their string values, which keeps stored
 data and callback data compatible.
@@ -194,7 +200,7 @@ delivery tests use a fake bot (`tests/test_recurrence.FakeBot`).
 **Add a trigger phrase or intent**: add it to `INTENTS` in
 `intents/registry.py`. An action takes `(update, context, rest_of_message)`.
 
-**Add a button**: add its callback data to `helpers/callbacks.py`, use it in
+**Add a button**: add its callback data to the enums in `enums.py`, use it in
 the keyboard, register the handler in `bot.py` with `exact()` / `prefixed()`,
 and add it to `tests/test_callbacks.py`.
 
@@ -205,7 +211,7 @@ and add it to `tests/test_callbacks.py`.
 **Add a setting**: add a `Setting` (and `validate`) to
 `settings/registry.py` and to `SETTINGS`, add a screen and handlers in
 `settings/handlers.py`, a button on the right settings screen, callbacks in
-`helpers/callbacks.py`, and handlers in `bot.py`. No migration needed.
+`enums.py`, and handlers in `bot.py`. No migration needed.
 
 **Change the schema**: edit `models/`, generate and review a migration (see
 the README).

@@ -1,7 +1,8 @@
 from    telegram                    import Update
 from    telegram.ext                import ContextTypes
 
-from    helpers.awaiting            import AWAITING, EDIT_REMINDER_ID, Awaiting
+from    enums                       import Awaiting
+from    helpers.awaiting            import AWAITING, EDIT_REMINDER_ID
 from    intents.registry            import INTENTS
 from    intents.router              import match_intent
 from    reminders                   import handlers as rh

@@ -10,9 +10,9 @@ Telegram bot (python-telegram-bot, SQLAlchemy, PostgreSQL, Alembic). Start with
   phrases, settings with defaults and options), `docs/development.md`
   (internals), the feature list in `README.md`, and `plan.md` (done / next).
 - **Use enums instead of loose strings** for any fixed set of values (statuses,
-  callback data, conversation state, kinds). See the Enums section in
-  `docs/development.md`.
-- **Never change existing callback data values** in `helpers/callbacks.py`:
+  callback data, conversation state, kinds). **All enums go in `enums.py`.**
+- **Never change existing callback data values** (`Callback`, `CallbackPrefix`,
+  `ReminderAction`, `OptionAction` in `enums.py`):
   buttons already in users' chats still send them.
 - Schema changes need an Alembic migration; settings don't (see
   `settings/registry.py`).

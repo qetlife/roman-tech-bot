@@ -1,32 +1,18 @@
 import uuid
 
-from enum           import StrEnum
-
 from datetime       import datetime, timezone
 from typing         import Optional
 
 from sqlalchemy     import BigInteger, Enum, ForeignKey, Index, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
+from enums          import ReminderStatus
 from models.types   import UTCDateTime
 from models.user    import Base
 
 
 # SQLite only auto-increments INTEGER primary keys.
 BigIntId = BigInteger().with_variant(Integer, "sqlite")
-
-
-class ReminderStatus(StrEnum):
-    PENDING = "pending"     # waiting for remind_at
-    FIRING = "firing"       # sent, re-sent every few minutes until acknowledged
-    DONE = "done"           # user pressed OK
-    CANCELLED = "cancelled"
-    MISSED = "missed"       # no OK within the give-up window
-    FAILED = "failed"       # could not be delivered (e.g. the user blocked the bot)
-
-
-# Reminders the delivery loop still works on.
-ACTIVE_STATUSES = (ReminderStatus.PENDING, ReminderStatus.FIRING)
 
 
 def utcnow() -> datetime:
