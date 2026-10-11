@@ -2,7 +2,7 @@ import os
 import tempfile
 
 # Tests always use a throwaway SQLite database, never the one in .env or the
-# environment. Must run before anything imports db.db.
+# environment. Must run before anything imports db.session.
 _tmpdir = tempfile.mkdtemp(prefix="roman-tech-bot-tests-")
 os.environ["DB_CONNECTION"] = f"sqlite:///{os.path.join(_tmpdir, 'test.db')}"
 
@@ -12,7 +12,7 @@ import pytest  # noqa: E402
 @pytest.fixture(scope="session")
 def db():
     """Database with all migrations applied."""
-    from db.db import init_db
+    from db.session import init_db
     init_db()
 
 
@@ -21,5 +21,5 @@ def user(db):
     """A fresh user for each test."""
     import random
 
-    from db.repository.user_repository import UserRepository
+    from db.repositories.user import UserRepository
     return UserRepository().get_or_create(random.randint(10**9, 10**12))

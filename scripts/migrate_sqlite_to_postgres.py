@@ -21,7 +21,7 @@ from sqlalchemy     import create_engine, func, inspect, make_url, select, text
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db.migrations  import upgrade_db  # noqa: E402
-from models.user    import Base  # noqa: E402
+from db.models.user import Base  # noqa: E402
 
 BATCH_SIZE = 1000
 

@@ -1,6 +1,6 @@
 import pytest
 
-from settings.registry import (
+from core.settings import (
     REPEAT_MINUTES, REPEAT_PRESETS, SNOOZE_OPTIONS, format_minutes, parse_snooze_options,
     validate_repeat_minutes, validate_snooze_options,
 )
@@ -55,9 +55,9 @@ def test_default_is_valid():
 # --- repository -------------------------------------------------------------
 
 def test_repository_default_set_reset(user):
-    from db.repository.settings_repository import SettingsRepository
-    from db.db import SessionLocal
-    from models.user_setting import UserSetting
+    from db.repositories.settings import SettingsRepository
+    from db.session import SessionLocal
+    from db.models.user_setting import UserSetting
 
     repo = SettingsRepository()
     assert repo.get(user.id, SNOOZE_OPTIONS) == [10, 60]
@@ -76,7 +76,7 @@ def test_repository_default_set_reset(user):
 
 
 def test_repository_rejects_invalid(user):
-    from db.repository.settings_repository import SettingsRepository
+    from db.repositories.settings import SettingsRepository
 
     repo = SettingsRepository()
     with pytest.raises(ValueError):
@@ -85,9 +85,9 @@ def test_repository_rejects_invalid(user):
 
 
 def test_repository_invalid_stored_value_falls_back(user):
-    from db.repository.settings_repository import SettingsRepository
-    from db.db import SessionLocal
-    from models.user_setting import UserSetting
+    from db.repositories.settings import SettingsRepository
+    from db.session import SessionLocal
+    from db.models.user_setting import UserSetting
 
     with SessionLocal() as s:
         s.add(UserSetting(user_id=user.id, key=SNOOZE_OPTIONS.key, value=[1, 2, 3, 4, 5]))
@@ -96,8 +96,8 @@ def test_repository_invalid_stored_value_falls_back(user):
 
 
 def test_repository_get_for_users(db):
-    from db.repository.settings_repository import SettingsRepository
-    from db.repository.user_repository import UserRepository
+    from db.repositories.settings import SettingsRepository
+    from db.repositories.user import UserRepository
 
     a, b = UserRepository().get_or_create(111), UserRepository().get_or_create(222)
     repo = SettingsRepository()
@@ -137,7 +137,7 @@ def test_reminder_settings_back_button(db, monkeypatch, entries, expected_back):
     import asyncio
     from unittest.mock import AsyncMock, MagicMock
 
-    from settings import handlers
+    from handlers import settings as handlers
 
     render = AsyncMock()
     monkeypatch.setattr(handlers, "render_menu", render)

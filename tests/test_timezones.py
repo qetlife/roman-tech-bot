@@ -2,7 +2,7 @@ from datetime   import datetime, timedelta, timezone
 
 import pytest
 
-from reminders.timezones import format_delta, format_when, resolve_timezone
+from core.timezones import format_delta, format_when, resolve_timezone
 
 
 @pytest.mark.parametrize("text, expected", [

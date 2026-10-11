@@ -7,16 +7,16 @@ from dotenv         import load_dotenv
 from sqlalchemy     import create_engine, pool
 
 # Import every model module here so autogenerate sees all tables.
-from models.user    import Base
-import models.reminder  # noqa: F401
-import models.user_setting  # noqa: F401
+from db.models.user import Base
+import db.models.reminder  # noqa: F401
+import db.models.user_setting  # noqa: F401
 
 load_dotenv()
 
 config = context.config
 
 # Only configure logging when run from the alembic CLI; when called from the
-# bot (db.db.init_db) this would override the bot's own logging setup.
+# bot (db.session.init_db) this would override the bot's own logging setup.
 if config.config_file_name is not None and not config.attributes.get("skip_logging"):
     fileConfig(config.config_file_name)
 
@@ -48,7 +48,7 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     connection = config.attributes.get("connection")
     if connection is not None:
-        # Connection handed over by db.db.init_db
+        # Connection handed over by db.session.init_db
         do_run_migrations(connection)
         return
 
@@ -60,7 +60,7 @@ def run_migrations_online() -> None:
 def render_item(type_, obj, autogen_context):
     """Render app-specific column types as plain SQLAlchemy types, so
     migrations don't import app code."""
-    from models.types import UTCDateTime
+    from db.models.types import UTCDateTime
 
     if type_ == "type" and isinstance(obj, UTCDateTime):
         return "sa.DateTime(timezone=True)"

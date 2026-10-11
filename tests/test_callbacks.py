@@ -5,7 +5,7 @@ import re
 import pytest
 
 from enums import Callback, CallbackPrefix, OptionAction, ReminderAction
-from helpers.callbacks import exact, option_callback, prefixed, reminder_callback, split_option
+from handlers.ui import exact, option_callback, prefixed, reminder_callback, split_option
 
 
 def test_fixed_values_are_stable():

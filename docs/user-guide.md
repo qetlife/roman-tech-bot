@@ -194,7 +194,7 @@ the selected option. `♻️ Default` restores the default.
 
 `⚙️ Settings → 🌍 Timezone`. All reminder times are in this timezone.
 
-- Pick a button (Europe/Kyiv, Europe/Warsaw, Europe/Berlin, Europe/London,
+- Pick a button (Europe/Lisbon, Europe/Kyiv, Europe/Warsaw, Europe/Berlin, Europe/London,
   America/New_York, UTC), or type a city (“Kyiv”, “New York”), an IANA
   name (“Europe/Kyiv”) or an offset (“UTC+3”).
 - Asked automatically before your first reminder.
