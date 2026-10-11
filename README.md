@@ -42,26 +42,22 @@ phrases.
 
 ## Project Structure
 
-- `bot.py` - app entrypoint, handlers, polling
-- `docs/` - user guide and development guide
-- `commands/` - slash command handlers
-- `menu/` - callback action handlers and inline submenu builders
-- `helpers/chat_helper.py` - `render_menu` in-place message edit/send helper
-- `enums.py` - every enum: reminder statuses, callback data of every button, conversation state, repeat kinds
-- `helpers/callbacks.py` - build, read and match callback data
-- `helpers/awaiting.py` - `user_data` keys for questions the bot asked
-- `models/` - SQLAlchemy models
-- `db/db.py` - DB engine/session setup
-- `db/migrations.py` - runs Alembic migrations on startup
-- `alembic/` - schema migrations (`alembic.ini` at the repo root)
-- `db/repository/user_repository.py` - user repository methods
-- `db/repository/reminder_repository.py` - reminder repository methods
-- `db/repository/settings_repository.py` - per-user settings (value or default)
-- `settings/` - settings registry and Settings screens
-- `intents/` - trigger phrase → action mapping for free-text messages
-- `reminders/` - reminder parsing, recurrence, quiet hours, handlers and the delivery job
-- `tests/` - tests (`pip install -r requirements-dev.txt && pytest`; they use a throwaway SQLite database)
-- `scripts/migrate_sqlite_to_postgres.py` - one-off copy of legacy SQLite data into PostgreSQL
+```
+bot.py          entry point: handlers, delivery job, polling
+config.py       environment variables
+enums.py        every enum
+handlers/       everything that talks to Telegram (commands, menus, reminders, settings, typed text)
+core/           the logic, no Telegram or database (parser, recurrence, quiet hours, timezones, settings)
+jobs/           the reminder delivery job
+db/             session, migrations runner, models/, repositories/
+alembic/        schema migrations (alembic.ini at the repo root)
+docs/           user guide and development guide
+scripts/        one-off scripts (migrate_sqlite_to_postgres.py)
+tests/          pytest (pip install -r requirements-dev.txt && pytest; throwaway SQLite database)
+```
+
+See the [development guide](docs/development.md#architecture) for what each
+file does.
 
 ## Environment Variables
 
@@ -92,14 +88,14 @@ startup (`init_db()` in `bot.py`). See [Database Migrations](#database-migration
 
 ## Database Migrations
 
-The schema lives in the SQLAlchemy models (`models/`) and in versioned
+The schema lives in the SQLAlchemy models (`db/models/`) and in versioned
 migrations under `alembic/versions/`. On every startup the bot runs
 `alembic upgrade head`, so merging a migration to `master` applies it on the
 next deploy.
 
 To change the schema:
 
-1. Edit or add a model in `models/`. New model modules must also be imported
+1. Edit or add a model in `db/models/`. New model modules must also be imported
    in `alembic/env.py` so autogenerate sees them.
 2. Generate a migration against a database that is at the latest revision:
 

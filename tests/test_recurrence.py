@@ -5,8 +5,8 @@ from zoneinfo   import ZoneInfo
 
 import pytest
 
-from reminders.parser       import ParseError, parse_recurrence, parse_reminder
-from reminders.recurrence   import EVERY_DAY, WEEKDAYS, WEEKENDS, Interval, Monthly, Weekly, parse
+from core.parser       import ParseError, parse_recurrence, parse_reminder
+from core.recurrence   import EVERY_DAY, WEEKDAYS, WEEKENDS, Interval, Monthly, Weekly, parse
 
 TZ = ZoneInfo("Europe/Kyiv")
 # Saturday 10 Oct 2026, 23:30
@@ -231,7 +231,7 @@ class FakeBot:
 
 
 def _deliver(reminder, now):
-    from reminders.delivery import _deliver as deliver
+    from jobs.delivery import _deliver as deliver
 
     bot = FakeBot()
     asyncio.run(deliver(bot, reminder, now, [10], timedelta(minutes=5), TZ))
@@ -239,13 +239,13 @@ def _deliver(reminder, now):
 
 
 def _reminder(user, remind_at, recurrence="mon,tue,wed,thu,fri,sat,sun@09:00"):
-    from db.repository.reminder_repository import ReminderRepository
+    from db.repositories.reminder import ReminderRepository
     return ReminderRepository().create(user, 1, "take pills", remind_at, recurrence)
 
 
 def _reload(reminder):
-    from db.db import SessionLocal
-    from models.reminder import Reminder
+    from db.session import SessionLocal
+    from db.models.reminder import Reminder
     with SessionLocal() as s:
         return s.get(Reminder, reminder.id)
 

@@ -16,13 +16,13 @@ Status and next steps for `roman-tech-bot`.
 
 - Inline-keyboard menus with callback-based navigation; callback data is
   defined as enums in `enums.py`; menu messages are edited in place.
-- Trigger phrases → actions for free text (`intents/registry.py`), e.g.
+- Trigger phrases → actions for free text (`handlers/intents.py`), e.g.
   “remind me …”, “set a reminder …”, “my reminders”.
 
 ### Reminders (phase 1)
 
 - Create by free text or `⏰ Reminders → ➕ New`, parsed by a small English
-  time parser (`reminders/parser.py`); confirmation with Undo / Edit.
+  time parser (`core/parser.py`); confirmation with Undo / Edit.
 - Per-user timezone, asked on the first reminder and changeable in Settings;
   times stored in UTC.
 - Delivery job every 20 s: sends due reminders with OK and snooze buttons,
@@ -34,7 +34,7 @@ Status and next steps for `roman-tech-bot`.
 ### Reminders (phase 2)
 
 - Recurring reminders: “every day at 9”, “on weekdays”, “every mon and thu”,
-  “mondays”, “every evening at 7” (`reminders/recurrence.py`, stored in
+  “mondays”, “every evening at 7” (`core/recurrence.py`, stored in
   `reminders.recurrence` as e.g. `mon,thu@18:00`, local time). OK or a missed
   occurrence moves on to the next one; after downtime only the latest due
   occurrence is sent.
@@ -45,6 +45,8 @@ Status and next steps for `roman-tech-bot`.
 
 - Enums for reminder statuses, callback data, conversation state and repeat
   kinds, all in `enums.py`.
+- Project structure by kind of code: `handlers/` (Telegram), `core/`
+  (logic), `jobs/`, `db/` (models, repositories), `config.py`.
 - Documentation: `docs/user-guide.md` (features and settings for users),
   `docs/development.md` (internals), kept up to date with every change
   (`CLAUDE.md`).
@@ -52,7 +54,7 @@ Status and next steps for `roman-tech-bot`.
 ### Settings
 
 - Per-user settings: definitions and defaults in code
-  (`settings/registry.py`), only changed values stored in `user_settings`.
+  (`core/settings.py`), only changed values stored in `user_settings`.
 - 💤 Snooze options: presets or custom (up to 3, 1 min–24 h).
 - 🔁 Repeat interval for unanswered reminders: 2 min–1 h presets (default 5 min).
 - 🌙 Quiet hours (default 00:00–07:00, presets, custom or off): interval
@@ -86,4 +88,5 @@ Decisions made along the way (from the old “Open decisions” list):
 
 ### General
 
-- Tests for the handlers (currently covered only by manual end-to-end runs).
+- More handler tests (`tests/test_handlers.py` covers the main flows).
+- Run pyflakes in CI to catch missing imports.

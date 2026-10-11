@@ -14,6 +14,9 @@ Telegram bot (python-telegram-bot, SQLAlchemy, PostgreSQL, Alembic). Start with
 - **Never change existing callback data values** (`Callback`, `CallbackPrefix`,
   `ReminderAction`, `OptionAction` in `enums.py`):
   buttons already in users' chats still send them.
+- **Keep the structure**: Telegram code in `handlers/` (and `jobs/`), logic in
+  `core/` (no Telegram, no database), models and queries in `db/`. See
+  Architecture in `docs/development.md`.
 - Schema changes need an Alembic migration; settings don't (see
-  `settings/registry.py`).
+  `core/settings.py`).
 - Run `pytest` before pushing; every push to `master` deploys.

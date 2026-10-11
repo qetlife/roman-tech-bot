@@ -1,6 +1,6 @@
 import pytest
 
-from intents.router import Intent, match_intent
+from core.intents import Intent, match_intent
 
 
 async def noop(update, context, rest):

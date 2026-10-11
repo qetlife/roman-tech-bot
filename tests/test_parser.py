@@ -3,7 +3,7 @@ from zoneinfo   import ZoneInfo
 
 import pytest
 
-from reminders.parser import ParseError, parse_reminder, parse_when
+from core.parser import ParseError, parse_reminder, parse_when
 
 TZ = ZoneInfo("Europe/Kyiv")
 # Saturday 10 Oct 2026, 23:30

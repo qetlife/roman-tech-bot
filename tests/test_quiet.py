@@ -5,9 +5,9 @@ from zoneinfo   import ZoneInfo
 
 import pytest
 
-from reminders.quiet        import is_quiet, quiet_end, skip_quiet
-from reminders.recurrence   import EVERY_DAY, Interval, Weekly
-from settings.registry      import (
+from core.quiet        import is_quiet, quiet_end, skip_quiet
+from core.recurrence   import EVERY_DAY, Interval, Weekly
+from core.settings      import (
     QUIET_HOURS, format_quiet_hours, parse_quiet_hours, quiet_window, validate_quiet_hours,
 )
 
@@ -104,7 +104,7 @@ from tests.test_recurrence import FakeBot, _reload, _reminder   # noqa: E402
 
 
 def _deliver(reminder, now, quiet=NIGHT):
-    from reminders.delivery import _deliver as deliver
+    from jobs.delivery import _deliver as deliver
 
     bot = FakeBot()
     asyncio.run(deliver(bot, reminder, now, [10], timedelta(minutes=5), TZ, quiet))
@@ -145,7 +145,7 @@ def test_daily_at_explicit_time_fires_in_quiet_hours(user):
 
 
 def test_repository_stores_off(user):
-    from db.repository.settings_repository import SettingsRepository
+    from db.repositories.settings import SettingsRepository
 
     repo = SettingsRepository()
     assert repo.get(user.id, QUIET_HOURS) == ["00:00", "07:00"]

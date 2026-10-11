@@ -17,36 +17,65 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see the
 ## Architecture
 
 ```
-bot.py                      registers handlers and the delivery job, starts polling
-enums.py                    every enum (statuses, callback data, conversation state, …)
-commands/                   /start, /menu
-menu/                       ⏰ Reminders and ⚙️ Settings menu screens
-intents/                    free text: trigger phrases → actions, answers to questions
-reminders/                  parsing, handlers, recurrence, quiet hours, delivery job
-settings/                   setting definitions (registry) and their screens
-helpers/                    callback data helpers, user_data keys, render_menu
-models/                     SQLAlchemy models
-db/                         engine/session, migrations runner, repositories
-alembic/                    schema migrations
-tests/                      pytest, throwaway SQLite database
+bot.py              entry point: registers handlers and the delivery job, starts polling
+config.py           BOT_TOKEN / DB_CONNECTION from the environment (.env)
+enums.py            every enum
+
+handlers/           everything that talks to Telegram (messages, buttons)
+    commands.py     /start, /menu
+    menus.py        main, ⏰ Reminders and ⚙️ Settings menu screens
+    reminders.py    create, edit, list; OK / snooze / undo / edit / delete buttons
+    settings.py     🌍 timezone and ⏰ reminder settings screens
+    text.py         typed messages: trigger phrases, answers to questions
+    intents.py      trigger phrase → handler table
+    ui.py           render_menu, callback data helpers, user_data keys
+
+core/               the logic: no Telegram, no database sessions
+    parser.py       "in 2 hours to call mom" → time + text
+    recurrence.py   Weekly / Monthly / Interval
+    quiet.py        quiet hours
+    timezones.py    resolving and formatting timezones
+    settings.py     setting definitions and validation
+    intents.py      trigger phrase matching
+
+jobs/
+    delivery.py     sends due reminders every 20 seconds
+
+db/
+    session.py      engine, sessions, init_db
+    migrations.py   runs Alembic on startup
+    models/         user, reminder, user_setting, types (UTCDateTime)
+    repositories/   user, reminder, settings: the only code that opens sessions
+
+alembic/            schema migrations
+docs/               this guide and the user guide
+scripts/            one-off scripts
+tests/              pytest, throwaway SQLite database
 ```
+
+**Dependencies go one way**: `handlers/` and `jobs/` use `core/` and `db/`;
+`core/` imports neither Telegram nor the database (it's plain Python, tested
+without mocks); `db/` uses only `enums` and the `Setting` type from `core/`.
+The one exception is `handlers/settings.py`, which imports
+`handlers.reminders.create_reminder` inside a function to resume a reminder
+after the user picks a timezone (a module-level import would be circular).
 
 `python-telegram-bot` delivers updates to the handlers registered in
 `bot.py`:
 
-- **Commands** → `commands/`.
+- **Commands** → `handlers/commands.py`.
 - **Button presses** (callback queries) → handlers matched by callback data
   (see [Messages and buttons](#messages-and-buttons)).
-- **Text in private chats** → `intents/text_handler.on_text`.
-- **Delivery job** → `reminders/delivery.deliver_due`, every 20 seconds via
+- **Text in private chats** → `handlers/text.on_text`.
+- **Delivery job** → `jobs/delivery.deliver_due`, every 20 seconds via
   the job queue.
 
-Repositories in `db/repository/` are the only code that opens database
+Repositories in `db/repositories/` are the only code that opens database
 sessions. They return detached model objects (`expire_on_commit=False`).
 
 ## Messages and buttons
 
-**Menus** are a single long-lived message: `helpers/chat_helper.render_menu`
+**Menus** are a single long-lived message: `handlers/ui.render_menu`
 edits it in place, or replaces it if it can't be edited.
 
 **Callback data** for every button is defined as enums in `enums.py`:
@@ -60,18 +89,18 @@ edits it in place, or replaces it if it can't be edited.
 
 Build data with `reminder_callback()` / `option_callback()`, read it with
 `split_option()`, and register handlers with `exact(...)` / `prefixed(...)`
-(all in `helpers/callbacks.py`).
+(all in `handlers/ui.py`).
 **Never change an existing value**: buttons on messages already in users'
 chats still carry it. `tests/test_callbacks.py` pins them.
 
-**Free text** (`intents/text_handler.py`):
+**Free text** (`handlers/text.py`):
 
 1. A message starting with a trigger phrase runs that intent's action with
-   the rest of the message (`intents/registry.py`, matched by
-   `intents/router.py`; longest phrase wins, whole words only, polite filler
+   the rest of the message (`handlers/intents.py`, matched by
+   `core/intents.py`; longest phrase wins, whole words only, polite filler
    like “please” allowed in front). This always wins.
 2. Otherwise, if the bot asked a question, `context.user_data["awaiting"]`
-   holds an `Awaiting` value (`enums.py`; keys in `helpers/awaiting.py`) and the message is the
+   holds an `Awaiting` value (`enums.py`; keys in `handlers/ui.py`) and the message is the
    answer. For `Awaiting.EDIT`, the reminder id is in
    `user_data["edit_reminder_id"]`.
 3. Otherwise the bot replies with a help text.
@@ -80,7 +109,7 @@ chats still carry it. `tests/test_callbacks.py` pins them.
 
 ## Reminders
 
-**Parsing** (`reminders/parser.py`): `parse_reminder(request, now)` splits
+**Parsing** (`core/parser.py`): `parse_reminder(request, now)` splits
 the text after the trigger phrase into a time and a text. It tries the
 longest time expression at the start or the end of the message
 (`parse_when` for one-offs, `parse_recurrence` for repeats) whose leftover is
@@ -89,7 +118,7 @@ docstring and [user guide](user-guide.md#time-expressions)) and raises
 `ParseError` with a user-facing message otherwise. `now` is timezone-aware
 in the user's timezone.
 
-**Recurrence** (`reminders/recurrence.py`): three types, stored as a string
+**Recurrence** (`core/recurrence.py`): three types, stored as a string
 in `reminders.recurrence` (`NULL` = one-off):
 
 | Type       | Stored as                       | Meaning |
@@ -114,7 +143,7 @@ any active ──cancel──▶ CANCELLED      blocked by user ──▶ FAILED
 when the delivery job should send it next (moved by repeats and quiet
 hours). Both are UTC.
 
-**Delivery** (`reminders/delivery.py`), for each active reminder whose
+**Delivery** (`jobs/delivery.py`), for each active reminder whose
 `next_fire_at` has passed:
 
 1. Recurring: if a later occurrence is already due (or it has been firing
@@ -126,14 +155,14 @@ hours). Both are UTC.
 4. Otherwise send it with ✅ OK and snooze buttons, delete the previous copy,
    and set the next repeat (`now + repeat interval`).
 
-**Quiet hours** (`reminders/quiet.py`): `is_quiet`, `quiet_end` and
+**Quiet hours** (`core/quiet.py`): `is_quiet`, `quiet_end` and
 `skip_quiet`. Only sub-day `Interval`s are skipped; other reminders have an
 explicit time and always fire. `skip_quiet` is also applied when creating,
 editing and acknowledging, so the shown next time is right.
 
 ## Settings
 
-Each setting is a `Setting` in `settings/registry.py`: a key, a default, a
+Each setting is a `Setting` in `core/settings.py`: a key, a default, a
 `validate` function (returns the normalized value or raises `ValueError` with
 a user-facing message) and a label. `SettingsRepository` returns the user's
 value or the default, and falls back to the default if a stored value no
@@ -148,7 +177,7 @@ default, as JSON, so adding a setting needs no migration.
 
 The timezone is a column on `users`, not a setting.
 
-Screens live in `settings/handlers.py`. The ⏰ Reminder settings screen
+Screens live in `handlers/settings.py`. The ⏰ Reminder settings screen
 remembers where it was opened from (`user_data["reminder_settings_back"]`)
 so `↩️ Back` returns there.
 
@@ -160,7 +189,7 @@ ones there too.
 
 | Enum                                    | For |
 | --------------------------------------- | --- |
-| `ReminderStatus` (+ `ACTIVE_STATUSES`)  | reminder lifecycle; stored as its value in `reminders.status`, a `VARCHAR(16)` (non-native SQLAlchemy `Enum` in `models/reminder.py`) |
+| `ReminderStatus` (+ `ACTIVE_STATUSES`)  | reminder lifecycle; stored as its value in `reminders.status`, a `VARCHAR(16)` (non-native SQLAlchemy `Enum` in `db/models/reminder.py`) |
 | `RepeatKind`                            | the kind of repeat the parser found |
 | `Awaiting`                              | what the next typed message answers |
 | `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction` | callback data of every button |
@@ -174,7 +203,7 @@ data and callback data compatible.
 ## Database
 
 PostgreSQL in production, SQLite in tests. Times are `UTCDateTime`
-(`models/types.py`): timezone-aware, stored and returned in UTC. Schema
+(`db/models/types.py`): timezone-aware, stored and returned in UTC. Schema
 changes go through Alembic; see [Database Migrations](../README.md#database-migrations).
 
 | Table           | Holds |
@@ -193,12 +222,18 @@ pytest
 Tests use a throwaway SQLite database (`tests/conftest.py`) with all
 migrations applied. CI runs them on every pull request and before every
 deploy. Parser, recurrence, quiet hours and settings tests are pure;
-delivery tests use a fake bot (`tests/test_recurrence.FakeBot`).
+delivery tests use a fake bot (`tests/test_recurrence.FakeBot`);
+`tests/test_handlers.py` drives the handlers with mocked Telegram objects.
 
 ## How to…
 
+**Add a feature** (say, notes): `handlers/notes.py` for its screens and
+buttons, `core/notes.py` if it has logic worth testing on its own, a model
+in `db/models/` (imported in `alembic/env.py`) with a migration, and a
+repository in `db/repositories/`. Register its handlers in `bot.py`.
+
 **Add a trigger phrase or intent**: add it to `INTENTS` in
-`intents/registry.py`. An action takes `(update, context, rest_of_message)`.
+`handlers/intents.py`. An action takes `(update, context, rest_of_message)`.
 
 **Add a button**: add its callback data to the enums in `enums.py`, use it in
 the keyboard, register the handler in `bot.py` with `exact()` / `prefixed()`,
@@ -206,14 +241,14 @@ and add it to `tests/test_callbacks.py`.
 
 **Ask the user a question**: add a value to `Awaiting`, set
 `context.user_data[AWAITING]` when asking, handle it in
-`intents/text_handler.py`, and pop it once answered.
+`handlers/text.py`, and pop it once answered.
 
 **Add a setting**: add a `Setting` (and `validate`) to
-`settings/registry.py` and to `SETTINGS`, add a screen and handlers in
-`settings/handlers.py`, a button on the right settings screen, callbacks in
+`core/settings.py` and to `SETTINGS`, add a screen and handlers in
+`handlers/settings.py`, a button on the right settings screen, callbacks in
 `enums.py`, and handlers in `bot.py`. No migration needed.
 
-**Change the schema**: edit `models/`, generate and review a migration (see
+**Change the schema**: edit `db/models/`, generate and review a migration (see
 the README).
 
 ## Keeping docs up to date
