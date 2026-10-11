@@ -41,10 +41,6 @@ Decisions made along the way (from the old “Open decisions” list):
 
 ## Next
 
-### Small fixes and cleanup
-
-- Run the tests in the deploy workflow before rebuilding.
-
 ### Reminders (phase 2)
 
 - Configurable snooze options (and possibly repeat interval) in Settings.
