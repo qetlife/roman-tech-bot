@@ -13,9 +13,13 @@ SQLAlchemy and PostgreSQL, running on a Raspberry Pi.
 
 - **Menus**: `/start` and `/menu` open an inline-button menu that updates in
   place: `⏰ Reminders` and `⚙️ Settings`.
-- **Reminders by typing**: “remind me in 2 hours to call mom”, “remind me
-  tomorrow at 9 to pay rent”, or `⏰ Reminders → ➕ New`. Natural English
-  times: relative, clock times, weekdays, dates, parts of the day.
+- **Reminders by typing or voice**: “remind me in 2 hours to call mom”,
+  “remind me tomorrow at 9 to pay rent”, or `⏰ Reminders → ➕ New`. Natural
+  English times: relative, clock times, weekdays, dates, parts of the day,
+  numbers as words (“at half past six”, “in twenty five minutes”).
+- **Voice messages**: say anything you could type; transcribed offline by
+  [speech-service](https://github.com/qetlife/speech-service) (Vosk) on the
+  Pi, never sent to a third party.
 - **Recurring reminders**: daily, weekdays/weekends, certain weekdays
   (“every mon and thu”), every N minutes/hours/days/weeks (“every 2 hours”),
   and monthly (“on the 1st of every month”).
@@ -49,6 +53,7 @@ enums.py        every enum
 handlers/       everything that talks to Telegram (commands, menus, reminders, settings, typed text)
 core/           the logic, no Telegram or database (parser, recurrence, quiet hours, timezones, settings)
 jobs/           the reminder delivery job
+services/       clients for other services (speech-service for voice messages)
 db/             session, migrations runner, models/, repositories/
 alembic/        schema migrations (alembic.ini at the repo root)
 docs/           user guide and development guide
@@ -66,7 +71,13 @@ Copy `.env.example` to `.env` (gitignored, never commit it) and fill it in:
 ```env
 BOT_TOKEN=<your telegram bot token>
 DB_CONNECTION=postgresql+psycopg://<user>:<password>@<host>:<port>/<database>
+# Optional: voice messages (https://github.com/qetlife/speech-service)
+SPEECH_URL=http://speech:8000
+# SPEECH_TOKEN=<only if the speech-service has API_TOKEN set>
 ```
+
+Without `SPEECH_URL`, voice messages are off (the bot replies that they
+aren't set up); everything else works.
 
 `DB_CONNECTION` is a SQLAlchemy URL and must use the `postgresql+psycopg://`
 scheme. Plain `postgresql://` makes SQLAlchemy look for psycopg2, which is not

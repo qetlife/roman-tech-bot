@@ -5,6 +5,7 @@ Everything you can do with the bot, and how. For how the code works, see
 
 - [Getting started](#getting-started)
 - [Menus](#menus)
+- [Voice messages](#voice-messages)
 - [Reminders](#reminders)
   - [Creating a reminder](#creating-a-reminder)
   - [Time expressions](#time-expressions)
@@ -25,6 +26,8 @@ Everything you can do with the bot, and how. For how the code works, see
    and shows the menu.
 2. Create your first reminder, e.g. type “remind me in 2 hours to call mom”.
 3. The first time, the bot asks for your timezone. Pick one or type a city.
+
+Anything you can type, you can also say in a [voice message](#voice-messages).
 
 Commands:
 
@@ -54,6 +57,31 @@ Menu
 
 `↩️ Back` always returns to the screen you came from; ⏰ Reminder settings
 returns to whichever menu you opened it from.
+
+## Voice messages
+
+Send a voice message instead of typing. The bot transcribes it and handles
+the words exactly as if you had typed them: create reminders, list them,
+answer its questions (✏️ Edit, timezone, custom snooze options or quiet
+hours).
+
+```
+🎤 (voice) “remind me tomorrow at nine thirty to call mom”
+🎙 “remind me tomorrow at nine thirty to call mom”
+⏰ Got it: call mom
+🗓 Tomorrow, 09:30 (in 18 h)
+```
+
+The first reply shows what the bot heard, so a misheard word is obvious; fix
+it with ✏️ Edit or send it again.
+
+- Speak naturally; numbers can be words: “in twenty five minutes”, “at half
+  past six”, “at a quarter to five”, “at nine thirty pm”, “on the fifteenth”
+  (see [Time expressions](#time-expressions)).
+- English only, up to 2 minutes per message.
+- Transcription runs on the bot's own server (offline, with Vosk): your audio
+  is never sent to Google or any other company.
+- If voice isn't available, the bot says so; typing always works.
 
 ## Reminders
 
@@ -95,17 +123,26 @@ All times are in your timezone.
 | Kind            | Examples |
 | --------------- | -------- |
 | In some time    | “in 2 hours”, “in two hours”, “in 30 min”, “in 1.5 hours”, “in 1h30m”, “in half an hour”, “in an hour and a half”, “in 3 days”, “in a week” |
-| At a time       | “at 9”, “at 9am”, “at 9:30pm”, “at 18:00”, “18:00”, “noon”, “midnight” |
+| At a time       | “at 9”, “at 9am”, “at 9:30pm”, “at 18:00”, “18:00”, “noon”, “midnight”, “at 9 o'clock” |
+| Spoken times    | “at nine”, “at nine thirty”, “at nine oh five”, “at half past six”, “at a quarter past nine”, “at quarter to five”, “at ten to five”, “at nine p m” |
 | On a day        | “today”, “tonight”, “tomorrow”, “day after tomorrow”, “monday”, “on friday”, “next friday”, “next week” |
-| On a date       | “24.12”, “24/12”, “2026-12-24”, “dec 24”, “24th of december 2026” |
+| On a date       | “24.12”, “24/12”, “2026-12-24”, “dec 24”, “24th of december 2026”, “december twenty fourth”, “on the 15th” / “on the fifteenth” (the next 15th) |
 | Part of the day | “morning” (09:00), “afternoon” (15:00), “evening” (19:00), “night” (21:00), “tonight” (20:00) |
-| Combined        | “tomorrow at 9”, “friday 18:00”, “at 9 tomorrow”, “tomorrow morning”, “on dec 24 at 10am” |
+| Combined        | “tomorrow at 9”, “friday 18:00”, “at 9 tomorrow”, “tomorrow morning”, “on dec 24 at 10am”, “tonight at 9”, “at 7 in the evening”, “tomorrow at 9 in the morning” |
+
+Numbers can be written as words everywhere (“in twenty five minutes”, “every
+two hours”), which is what voice messages produce.
 
 Rules:
 
 - A day without a time means **09:00** (“tomorrow” = tomorrow 09:00).
 - A bare “at 9” means the **next** 09:00 or 21:00, whichever comes first.
-  “9:00”, “09” and “18:00” are taken as written.
+  So do spoken times like “at nine thirty” or “at half past six”. Typed
+  “9:30”, “09” and “18:00” are taken as written.
+- “tonight”, “in the afternoon”, “in the evening” and “at night” make the
+  time pm: “tonight at 9” and “at 7 in the evening” are 21:00 and 19:00.
+- “On the 15th” without a month means the next 15th (this month or next;
+  months without that day are skipped).
 - Before 04:00, “tomorrow” means the coming day (at 01:00 on Sunday,
   “tomorrow at 9” is Sunday 09:00).
 - A weekday that has already passed today means next week; a date that has
@@ -212,7 +249,7 @@ reminder.
 | --- | --- |
 | Default | 10 min · 1 h |
 | Presets | 5 min · 15 min · 1 h — 10 min · 1 h — 10 min · 30 min · 2 h |
-| Custom  | Up to 3 options, each 1 minute – 24 hours. Send e.g. “10m, 1h, 3h”, “5, 15, 60” (minutes) or “10 min, 1 hour” |
+| Custom  | Up to 3 options, each 1 minute – 24 hours. Send e.g. “10m, 1h, 3h”, “5, 15, 60” (minutes), “10 min, 1 hour” or say “ten minutes and one hour” |
 
 ### 🔁 Repeat interval
 
@@ -240,11 +277,11 @@ interruptions:
 | --- | --- |
 | Default | 00:00–07:00 |
 | Presets | 00:00–07:00, 23:00–07:00, 22:00–08:00, 🔔 Off |
-| Custom  | Send e.g. “23:00-07:00”, “22 to 8” or “off”. Start and end must differ; windows across midnight are fine |
+| Custom  | Send e.g. “23:00-07:00”, “22 to 8”, “11 pm to 7” or “off” (or say “eleven pm to seven”). Start and end must differ; windows across midnight are fine |
 
 ## Good to know
 
-- Typed messages work in **private chats** only.
+- Typed and voice messages work in **private chats** only.
 - Only the person a reminder is for can press its buttons.
 - If the bot doesn't understand a message, it suggests an example and
   `/menu`.

@@ -15,8 +15,11 @@ Telegram bot (python-telegram-bot, SQLAlchemy, PostgreSQL, Alembic). Start with
   `ReminderAction`, `OptionAction` in `enums.py`):
   buttons already in users' chats still send them.
 - **Keep the structure**: Telegram code in `handlers/` (and `jobs/`), logic in
-  `core/` (no Telegram, no database), models and queries in `db/`. See
-  Architecture in `docs/development.md`.
+  `core/` (no Telegram, no database), models and queries in `db/`, clients for
+  other services in `services/`. See Architecture in `docs/development.md`.
+- **Voice and text share one path**: voice messages are transcribed and passed
+  to `handlers/text.handle_text`. New text features work by voice for free;
+  spoken numbers are handled by `core/numbers.py`.
 - Schema changes need an Alembic migration; settings don't (see
   `core/settings.py`).
 - Run pyflakes and `pytest` before pushing (commands in `docs/development.md`,

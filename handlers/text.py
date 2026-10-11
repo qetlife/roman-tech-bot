@@ -1,4 +1,4 @@
-"""Typed messages in private chats: trigger phrases, or the answer to a question."""
+"""Typed (and transcribed) messages in private chats: trigger phrases, or the answer to a question."""
 
 from    telegram                    import Update
 from    telegram.ext                import ContextTypes
@@ -18,8 +18,12 @@ HELP_TEXT = (
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Plain text in a private chat: trigger phrases, or the answer to a question."""
-    text = update.effective_message.text or ""
+    """Plain text in a private chat."""
+    await handle_text(update, context, update.effective_message.text or "")
+
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """Trigger phrases, or the answer to a question. Also used for transcribed voice messages."""
     match = match_intent(text, INTENTS)
     awaiting = context.user_data.get(AWAITING)
 
