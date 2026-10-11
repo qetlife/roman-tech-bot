@@ -10,6 +10,9 @@ TZ = ZoneInfo("Europe/Kyiv")
 NOW = datetime(2026, 10, 10, 23, 30, tzinfo=TZ)
 # Saturday 10 Oct 2026, 14:00
 AFTERNOON = datetime(2026, 10, 10, 14, 0, tzinfo=TZ)
+# Saturday 10 Oct 2026, 01:30 and 04:00
+LATE_NIGHT = datetime(2026, 10, 10, 1, 30, tzinfo=TZ)
+EARLY_MORNING = datetime(2026, 10, 10, 4, 0, tzinfo=TZ)
 
 
 def dt(day, hour, minute=0, month=10, year=2026):
@@ -57,6 +60,14 @@ def dt(day, hour, minute=0, month=10, year=2026):
     ("on december 24th at 10am",  NOW, dt(24, 10, month=12)),
     ("24th of december",          NOW, dt(24, 9, month=12)),
     ("jan 3",                     NOW, datetime(2027, 1, 3, 9, tzinfo=TZ)),
+    # Shortly after midnight "tomorrow" is the coming day
+    ("tomorrow",                  LATE_NIGHT, dt(10, 9)),
+    ("tomorrow at 9",             LATE_NIGHT, dt(10, 9)),
+    ("tomorrow evening",          LATE_NIGHT, dt(10, 19)),
+    ("day after tomorrow",        LATE_NIGHT, dt(11, 9)),
+    ("today at 9",                LATE_NIGHT, dt(10, 9)),
+    ("in 2 hours",                LATE_NIGHT, dt(10, 3, 30)),
+    ("tomorrow at 9",             EARLY_MORNING, dt(11, 9)),
 ])
 def test_parse_when(phrase, now, expected):
     assert parse_when(phrase, now) == expected

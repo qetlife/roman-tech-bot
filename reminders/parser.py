@@ -9,6 +9,7 @@ Supported "when" expressions (case-insensitive):
     in an hour and a half / in 3 days / in a week
     at 9 / at 9am / at 9:30pm / at 18:00 / 18:00 / noon / midnight
     today / tonight / tomorrow / day after tomorrow
+      (before 04:00, "tomorrow" means the coming day, not the day after)
     morning / afternoon / evening / night
     monday / on friday / next friday / next week
     24.12 / 24/12 / 2026-12-24 / dec 24 / 24th of december 2026
@@ -34,6 +35,10 @@ class ParsedReminder:
 
 
 DEFAULT_TIME = time(9, 0)
+
+# Before this time, "tomorrow" still means the coming day: at 01:00 on Sunday,
+# "tomorrow at 9" is Sunday 09:00, not Monday.
+LATE_NIGHT_END = time(4, 0)
 
 NUMBER_WORDS = {
     "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
@@ -227,6 +232,13 @@ def _tokenize(phrase: str) -> list:
     return tokens
 
 
+def _tomorrow(now: datetime) -> date:
+    if now.time() < LATE_NIGHT_END:
+        # Still "last night": the user hasn't slept yet.
+        return now.date()
+    return now.date() + timedelta(days=1)
+
+
 def _parse_when_tokens(tokens: list, now: datetime) -> Optional[_When]:
     """Parse tokens that must form one complete time expression."""
     w = _When()
@@ -265,10 +277,10 @@ def _parse_when_tokens(tokens: list, now: datetime) -> Optional[_When]:
                     w.clock = time(20, 0)
                 continue
             if tok == "tomorrow":
-                w.day, i = today + timedelta(days=1), i + 1
+                w.day, i = _tomorrow(now), i + 1
                 continue
             if tokens[i:i + 3] == ["day", "after", "tomorrow"]:
-                w.day, i = today + timedelta(days=2), i + 3
+                w.day, i = _tomorrow(now) + timedelta(days=1), i + 3
                 continue
             if tok == "next" and i + 1 < len(tokens) and tokens[i + 1] in WEEKDAYS:
                 w.weekday, w.next_week, i = WEEKDAYS[tokens[i + 1]], True, i + 2
