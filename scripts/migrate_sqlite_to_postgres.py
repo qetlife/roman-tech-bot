@@ -3,7 +3,7 @@
 Usage:
     python scripts/migrate_sqlite_to_postgres.py <sqlite-url> [<postgres-url>]
 
-    python scripts/migrate_sqlite_to_postgres.py sqlite:////app/data/bot.db "$DB_CONNECTION"
+    python scripts/migrate_sqlite_to_postgres.py sqlite:////path/to/bot.db "$DB_CONNECTION"
 
 If <postgres-url> is omitted or empty, DB_CONNECTION from the environment is used.
 
