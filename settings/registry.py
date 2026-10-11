@@ -6,6 +6,8 @@ user changed. To add a setting, add a Setting below (no migration needed).
 
 import re
 
+from datetime         import time
+
 from dataclasses        import dataclass
 from typing             import Any, Callable
 
@@ -106,4 +108,61 @@ REPEAT_MINUTES = Setting(
 REPEAT_PRESETS = [2, 5, 10, 15, 30, 60]
 
 
-SETTINGS = {s.key: s for s in [SNOOZE_OPTIONS, REPEAT_MINUTES]}
+# --- quiet hours ------------------------------------------------------------
+# Stored as ["00:00", "07:00"] (local start, end); [] = off.
+
+CLOCK_RE = re.compile(r"^([01]?\d|2[0-3])(?::([0-5]\d))?$")
+
+
+def _clock(text: str) -> time:
+    m = CLOCK_RE.match(text.strip())
+    if not m:
+        raise ValueError(f"“{text.strip()}” isn't a time like 23:00.")
+    return time(int(m.group(1)), int(m.group(2) or 0))
+
+
+def validate_quiet_hours(value) -> list:
+    if value == []:
+        return []
+    if not isinstance(value, (list, tuple)) or len(value) != 2 \
+            or not all(isinstance(v, str) for v in value):
+        raise ValueError("Quiet hours need a start and an end.")
+    start, end = (_clock(v) for v in value)
+    if start == end:
+        raise ValueError("Quiet hours must start and end at different times.")
+    return [f"{start:%H:%M}", f"{end:%H:%M}"]
+
+
+def parse_quiet_hours(text: str) -> list:
+    """"23:00-07:00" / "23 to 7" / "22:30 - 8" / "off" -> stored value."""
+    text = text.strip().lower()
+    if text in ("off", "none", "no", "disable", "disabled"):
+        return []
+    parts = re.split(r"\s*(?:-|–|—|to|until|till)\s*", text)
+    if len(parts) != 2:
+        raise ValueError("Send a start and an end, e.g. “23:00-07:00”.")
+    return validate_quiet_hours(parts)
+
+
+def quiet_window(value):
+    """Stored value -> (start, end) times, or None when off."""
+    if not value:
+        return None
+    return _clock(value[0]), _clock(value[1])
+
+
+def format_quiet_hours(value) -> str:
+    return f"{value[0]}–{value[1]}" if value else "Off"
+
+
+QUIET_HOURS = Setting(
+    key="reminders.quiet_hours",
+    default=["00:00", "07:00"],
+    validate=validate_quiet_hours,
+    label="🌙 Quiet hours",
+)
+
+QUIET_PRESETS = [["00:00", "07:00"], ["23:00", "07:00"], ["22:00", "08:00"]]
+
+
+SETTINGS = {s.key: s for s in [SNOOZE_OPTIONS, REPEAT_MINUTES, QUIET_HOURS]}

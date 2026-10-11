@@ -7,7 +7,7 @@ The bot currently provides an inline-button menu UI, basic settings actions, and
 ## Current Features
 
 - `/start`, `/menu`
-- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`, `⏰ Reminders` → `💤 Snooze options`, `🔁 Repeat interval`)
+- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`, `⏰ Reminders` → `💤 Snooze options`, `🔁 Repeat interval`, `🌙 Quiet hours`)
 - Reminder settings are also reachable from `⏰ Reminders → ⚙️ Settings`
 - Persistent user registration by `telegram_id` on first `/start`
 - Single-message menu UX (the menu message is edited in place as you navigate)
@@ -42,7 +42,12 @@ Only the reminder's owner can press its buttons.
 
 Recurring reminders work the same way; pressing OK (or not answering before
 the next occurrence or within 24 hours) moves them on to the next occurrence.
-Cancelling one cancels the whole series. Their time stays in local time, so
+Cancelling one cancels the whole series.
+
+Quiet hours (`⚙️ Settings → ⏰ Reminders → 🌙 Quiet hours`, default
+00:00–07:00, can be turned off): “every 2 hours”-style occurrences that fall
+in them are skipped, and unanswered reminders stop re-sending until they end.
+Reminders set for a specific time still go off. Their time stays in local time, so
 “every day at 9” is 09:00 across DST changes.
 
 How it works:

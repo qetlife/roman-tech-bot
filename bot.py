@@ -46,6 +46,8 @@ def main():
     app.add_handler(CallbackQueryHandler(user_settings.on_snooze_button,   pattern=r"^snzopt:"))
     app.add_handler(CallbackQueryHandler(user_settings.on_repeat_settings, pattern=r"^settings:repeat$"))
     app.add_handler(CallbackQueryHandler(user_settings.on_repeat_button,   pattern=r"^rptopt:set:\d+$"))
+    app.add_handler(CallbackQueryHandler(user_settings.on_quiet_settings,  pattern=r"^settings:quiet$"))
+    app.add_handler(CallbackQueryHandler(user_settings.on_quiet_button,    pattern=r"^qhopt:"))
 
     # Reminders
     app.add_handler(CallbackQueryHandler(reminders.on_new,              pattern=r"^rem:new$"))

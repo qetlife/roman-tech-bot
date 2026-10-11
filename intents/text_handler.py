@@ -31,6 +31,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await rh.on_timezone_text(update, context, text)
     elif awaiting == sh.AWAIT_SNOOZE_OPTIONS:
         await sh.on_snooze_text(update, context, text)
+    elif awaiting == sh.AWAIT_QUIET_HOURS:
+        await sh.on_quiet_text(update, context, text)
     elif awaiting and awaiting.startswith(rh.AWAIT_EDIT):
         await rh.edit_reminder(update, context, int(awaiting[len(rh.AWAIT_EDIT):]), text)
     else:
