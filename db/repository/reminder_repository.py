@@ -86,7 +86,7 @@ class ReminderRepository:
     def reschedule(self, reminder_id: int, text: str, remind_at: datetime) -> Optional[Reminder]:
         return self._update(
             reminder_id, status=ReminderStatus.PENDING, text=text,
-            remind_at=remind_at, next_fire_at=remind_at, fire_count=0,
+            remind_at=remind_at, next_fire_at=remind_at, fire_count=0, last_message_id=None,
         )
 
     def cancel(self, reminder_id: int) -> Optional[Reminder]:

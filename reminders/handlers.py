@@ -2,12 +2,13 @@ from    datetime                        import datetime, timedelta
 from    zoneinfo                        import ZoneInfo
 
 from    telegram                        import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from    telegram.error                  import TelegramError
 from    telegram.ext                    import ContextTypes
 
 from    db.repository.reminder_repository import ReminderRepository
 from    db.repository.user_repository   import UserRepository
 from    helpers.chat_helper             import render_menu
-from    models.reminder                 import utcnow
+from    models.reminder                 import ReminderStatus, utcnow
 from    reminders.parser                import ParseError, parse_reminder
 from    reminders.timezones             import COMMON_TIMEZONES, format_when, resolve_timezone
 
@@ -78,6 +79,25 @@ def shorten(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
+async def retire_fired_message(context: ContextTypes.DEFAULT_TYPE, reminder, note: str):
+    """Remove OK/snooze from a reminder's last delivered message.
+
+    Used when a reminder that is currently firing is edited or cancelled from
+    somewhere else, so the old buttons can't act on it any more.
+    """
+    if reminder.status != ReminderStatus.FIRING or reminder.last_message_id is None:
+        return
+    try:
+        await context.bot.edit_message_text(
+            chat_id=reminder.chat_id,
+            message_id=reminder.last_message_id,
+            text=f"⏰ {reminder.text}\n\n{note}",
+        )
+    except TelegramError:
+        # Message already deleted or too old to edit.
+        pass
+
+
 # --- creating ---------------------------------------------------------------
 
 def user_now(tz_name: str) -> datetime:
@@ -136,6 +156,7 @@ async def edit_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
     if updated is None:
         await update.effective_message.reply_text("That reminder has already finished.")
         return
+    await retire_fired_message(context, reminder, "✏️ Edited, see the updated reminder below.")
     await update.effective_message.reply_text(
         f"✏️ Updated: {updated.text}\n🗓 {format_when(updated.remind_at, user.timezone, utcnow())}",
         reply_markup=build_created_keyboard(updated.id),
@@ -217,6 +238,7 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         await query.answer("Cancelled")
         await query.edit_message_text(f"↩️ Cancelled: {reminder.text}")
+        await retire_fired_message(context, reminder, "↩️ Cancelled.")
 
     elif action == "edit":
         context.user_data["awaiting"] = f"{AWAIT_EDIT}{reminder_id}"
@@ -226,7 +248,8 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
     elif action == "del":
-        reminders.cancel(reminder_id)
+        if reminders.cancel(reminder_id) is not None:
+            await retire_fired_message(context, reminder, "↩️ Cancelled.")
         await list_reminders(update, context, toast="Cancelled")
 
 
