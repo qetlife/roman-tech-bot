@@ -82,4 +82,28 @@ SNOOZE_OPTIONS = Setting(
 SNOOZE_PRESETS = [[5, 15, 60], [10, 60], [10, 30, 120]]
 
 
-SETTINGS = {s.key: s for s in [SNOOZE_OPTIONS]}
+# --- repeat interval --------------------------------------------------------
+
+REPEAT_MIN_MINUTES = 1
+REPEAT_MAX_MINUTES = 60
+
+
+def validate_repeat_minutes(value) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError("The repeat interval must be whole minutes.")
+    if not REPEAT_MIN_MINUTES <= value <= REPEAT_MAX_MINUTES:
+        raise ValueError("The repeat interval must be between 1 and 60 minutes.")
+    return value
+
+
+REPEAT_MINUTES = Setting(
+    key="reminders.repeat_minutes",
+    default=5,
+    validate=validate_repeat_minutes,
+    label="🔁 Repeat interval",
+)
+
+REPEAT_PRESETS = [2, 5, 10, 15, 30, 60]
+
+
+SETTINGS = {s.key: s for s in [SNOOZE_OPTIONS, REPEAT_MINUTES]}

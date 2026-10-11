@@ -36,6 +36,7 @@ Status and next steps for `roman-tech-bot`.
 - Per-user settings: definitions and defaults in code
   (`settings/registry.py`), only changed values stored in `user_settings`.
 - 💤 Snooze options: presets or custom (up to 3, 1 min–24 h).
+- 🔁 Repeat interval for unanswered reminders: 2 min–1 h presets (default 5 min).
 
 Decisions made along the way (from the old “Open decisions” list):
 
@@ -49,7 +50,6 @@ Decisions made along the way (from the old “Open decisions” list):
 
 ### Reminders (phase 2)
 
-- Configurable repeat interval (currently 5 min) as another setting.
 - Recurring reminders (daily, weekdays, every Monday, …) via a `recurrence`
   column.
 - Reminders for other users. The `reminders` table already has

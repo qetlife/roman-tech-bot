@@ -11,7 +11,7 @@ from    db.repository.reminder_repository import ReminderRepository
 from    db.repository.settings_repository import SettingsRepository
 from    models.reminder             import ReminderStatus, utcnow
 from    reminders.handlers          import build_fire_keyboard
-from    settings.registry           import SNOOZE_OPTIONS
+from    settings.registry           import REPEAT_MINUTES, SNOOZE_OPTIONS
 
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,6 @@ reminders = ReminderRepository()
 settings = SettingsRepository()
 
 POLL_INTERVAL = timedelta(seconds=20)
-REPEAT_EVERY = timedelta(minutes=5)
 GIVE_UP_AFTER = timedelta(hours=24)
 
 
@@ -40,17 +39,23 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE):
     now = utcnow()
 
     due = reminders.get_due(now)
-    snooze_options = settings.get_for_users((r.target_user_id for r in due), SNOOZE_OPTIONS)
+    user_ids = {r.target_user_id for r in due}
+    snooze_options = settings.get_for_users(user_ids, SNOOZE_OPTIONS)
+    repeat_minutes = settings.get_for_users(user_ids, REPEAT_MINUTES)
 
     for reminder in due:
         try:
-            await _deliver(bot, reminder, now, snooze_options[reminder.target_user_id])
+            await _deliver(
+                bot, reminder, now,
+                snooze_options[reminder.target_user_id],
+                timedelta(minutes=repeat_minutes[reminder.target_user_id]),
+            )
         except Exception:
             # One broken reminder must not stop the others; it is retried next poll.
             logger.exception("Failed to deliver reminder %s", reminder.id)
 
 
-async def _deliver(bot, reminder, now, snooze_minutes):
+async def _deliver(bot, reminder, now, snooze_minutes, repeat_every):
     if reminder.status == ReminderStatus.FIRING and now - reminder.remind_at >= GIVE_UP_AFTER:
         reminders.mark_missed(reminder.id)
         try:
@@ -80,6 +85,6 @@ async def _deliver(bot, reminder, now, snooze_minutes):
     # Only one copy on screen: remove the previous repeat.
     await _delete(bot, reminder.chat_id, reminder.last_message_id)
 
-    if reminders.mark_fired(reminder.id, message.message_id, now + REPEAT_EVERY) is None:
+    if reminders.mark_fired(reminder.id, message.message_id, now + repeat_every) is None:
         # Acknowledged or cancelled while we were sending.
         await _delete(bot, reminder.chat_id, message.message_id)

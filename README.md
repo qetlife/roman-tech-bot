@@ -7,7 +7,7 @@ The bot currently provides an inline-button menu UI, basic settings actions, and
 ## Current Features
 
 - `/start`, `/menu`
-- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`, `💤 Snooze options`)
+- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`, `💤 Snooze options`, `🔁 Repeat interval`)
 - Persistent user registration by `telegram_id` on first `/start`
 - Single-message menu UX (the menu message is edited in place as you navigate)
 - Reminders (see below)
@@ -28,8 +28,8 @@ cancel. The first reminder asks for your timezone (changeable under
 
 When a reminder is due the bot sends it with `✅ OK` and snooze buttons
 (`💤 10 min`, `💤 1 h` by default; up to 3 options of your choice under
-`⚙️ Settings → 💤 Snooze options`). Until OK is pressed it is re-sent every 5 minutes (the previous
-copy is deleted), and after 24 hours without a response it is marked missed.
+`⚙️ Settings → 💤 Snooze options`). Until OK is pressed it is re-sent every 5 minutes (changeable under
+`⚙️ Settings → 🔁 Repeat interval`; the previous copy is deleted), and after 24 hours without a response it is marked missed.
 Only the reminder's owner can press its buttons.
 
 How it works:
