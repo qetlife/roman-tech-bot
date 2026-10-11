@@ -35,6 +35,7 @@ from dataclasses     import dataclass
 from datetime        import date, datetime, time, timedelta
 from typing          import Optional
 
+from core.numbers     import SPOKEN, normalize_numbers
 from enums           import RepeatKind
 from core.recurrence import (
     EVERY_DAY, WEEKDAYS as WORKDAYS, WEEKENDS, Interval, Monthly, Recurrence, Weekly,
@@ -101,6 +102,9 @@ DAY_PARTS = {
 # Shortest "every N minutes" reminder.
 MIN_INTERVAL = timedelta(minutes=15)
 
+# Parts of the day that make "at 9" mean 21:00.
+EVENING_PARTS = {"tonight", "afternoon", "evening", "night"}
+
 # Words that may sit between parts of a time expression ("on friday at 9").
 CONNECTORS = {"at", "on", "by", "for", "this", "the", "of", "and"}
 
@@ -113,6 +117,7 @@ TIME_RE = re.compile(r"^(\d{1,2})(?::(\d{2}))?(am|pm|a\.m\.|p\.m\.)?$")
 NUMERIC_DATE_RE = re.compile(r"^(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?$")
 ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
 ORDINAL_RE = re.compile(r"^(\d{1,2})(?:st|nd|rd|th)?$")
+MONTH_DAY_ONLY_RE = re.compile(r"^(\d{1,2})(?:st|nd|rd|th)$")
 
 
 @dataclass
@@ -124,6 +129,8 @@ class _When:
     clock: Optional[time] = None
     clock_ambiguous: bool = False   # "at 9": could be 09:00 or 21:00
     explicit_year: bool = False
+    part: Optional[str] = None      # "tonight", or "in the evening" etc.: applied to the clock at the end
+    month_day: Optional[int] = None # "on the 15th": a day of whichever month comes next
 
 
 def _number(token: str) -> Optional[float]:
@@ -179,7 +186,10 @@ def _read_clock(tokens: list, i: int, after_at: bool):
     if tok in DAY_PARTS:
         return i + 1, DAY_PARTS[tok], False
 
-    m = TIME_RE.match(tok)
+    # Spoken clock times ("nine thirty" → "9:30~", see core/numbers.py) are
+    # ambiguous like "at 9": the next 09:30 or 21:30.
+    spoken = tok.endswith(SPOKEN)
+    m = TIME_RE.match(tok.removesuffix(SPOKEN))
     if not m:
         return i, None, False
 
@@ -199,8 +209,8 @@ def _read_clock(tokens: list, i: int, after_at: bool):
         hour = hour % 12 + (12 if suffix.startswith("p") else 0)
         ambiguous = False
     else:
-        # "at 9" could be 09:00 or 21:00; "9:30", "09" and "18:00" are taken as written.
-        ambiguous = m.group(2) is None and 1 <= hour <= 11 and not m.group(1).startswith("0")
+        # "at 9" could be 09:00 or 21:00; typed "9:30", "09" and "18:00" are taken as written.
+        ambiguous = (m.group(2) is None or spoken) and 1 <= hour <= 11 and not m.group(1).startswith("0")
 
     if hour > 23 or minute > 59:
         return i, None, False
@@ -235,6 +245,19 @@ def _read_date(tokens: list, i: int, today: date):
     return i, None, False
 
 
+def _next_month_day(start: date, day: int) -> Optional[date]:
+    """The first date on or after `start` that is that day of a month (skipping short months)."""
+    if not 1 <= day <= 31:
+        return None
+    year, month = start.year, start.month
+    for _ in range(13):
+        candidate = _safe_date(year, month, day)
+        if candidate is not None and candidate >= start:
+            return candidate
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return None
+
+
 def _with_year(tokens, j, today, month, day):
     if j < len(tokens) and re.fullmatch(r"\d{4}", tokens[j]):
         return j + 1, _safe_date(int(tokens[j]), month, day), True
@@ -257,7 +280,7 @@ def _tokenize(phrase: str) -> list:
             tok = tok[:-1]
         if tok:
             tokens.append(tok)
-    return tokens
+    return normalize_numbers(tokens)
 
 
 def _tomorrow(now: datetime) -> date:
@@ -283,9 +306,9 @@ def _parse_when_tokens(tokens: list, now: datetime) -> Optional[_When]:
                 w.delta, i = delta, j
                 continue
             if tokens[i + 1:i + 2] == ["the"] and i + 2 < len(tokens) \
-                    and tokens[i + 2] in DAY_PARTS and w.clock is None:
-                # "in the morning"
-                w.clock = DAY_PARTS[tokens[i + 2]]
+                    and tokens[i + 2] in DAY_PARTS and w.part is None:
+                # "in the morning"; after a time, "at 7 in the evening" means 19:00
+                w.part = tokens[i + 2]
                 i += 3
                 continue
             return None
@@ -300,9 +323,7 @@ def _parse_when_tokens(tokens: list, now: datetime) -> Optional[_When]:
                 w.day, i = today, i + 1
                 continue
             if tok == "tonight":
-                w.day, i = today, i + 1
-                if w.clock is None:
-                    w.clock = time(20, 0)
+                w.day, w.part, i = today, "tonight", i + 1
                 continue
             if tok == "tomorrow":
                 w.day, i = _tomorrow(now), i + 1
@@ -318,6 +339,14 @@ def _parse_when_tokens(tokens: list, now: datetime) -> Optional[_When]:
                 continue
             if tok in WEEKDAYS:
                 w.weekday, i = WEEKDAYS[tok], i + 1
+                continue
+            # "on the 15th" (no month): the next 15th
+            if (m := MONTH_DAY_ONLY_RE.match(tok)) and tokens[i + 1:i + 2] != ["of"] \
+                    and not (i + 1 < len(tokens) and tokens[i + 1] in MONTHS):
+                w.month_day = int(m.group(1))
+                w.day, i = _next_month_day(today, w.month_day), i + 1
+                if w.day is None:
+                    return None
                 continue
             j, d, explicit_year = _read_date(tokens, i, today)
             if j != i:
@@ -338,6 +367,15 @@ def _parse_when_tokens(tokens: list, now: datetime) -> Optional[_When]:
     if tokens[-1] in CONNECTORS:
         # "tomorrow at" is not a complete time
         return None
+    if w.part is not None:
+        if w.delta is not None:
+            return None
+        if w.clock is None:
+            w.clock = time(20, 0) if w.part == "tonight" else DAY_PARTS[w.part]
+        elif w.part in EVENING_PARTS and w.clock.hour < 12:
+            # "tonight at 9", "at 7 in the evening"
+            w.clock = time(w.clock.hour + 12, w.clock.minute)
+        w.clock_ambiguous = False
     if w.delta is None and w.day is None and w.weekday is None and w.clock is None:
         return None
     if w.delta is not None and (w.day or w.weekday is not None or w.clock):
@@ -384,6 +422,10 @@ def _resolve(w: _When, now: datetime) -> datetime:
         if w.weekday is not None:
             # "friday 9:00" said on Friday at 10:00 means next Friday
             result += timedelta(days=7)
+        elif w.month_day is not None:
+            # "the 15th" said on the 15th after that time means next month's
+            nxt = _next_month_day(day + timedelta(days=1), w.month_day)
+            result = at(nxt, clock)
         elif day < today and not w.explicit_year:
             # "dec 24" said on dec 25 means next year
             result = result.replace(year=result.year + 1)

@@ -18,7 +18,7 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see the
 
 ```
 bot.py              entry point: registers handlers and the delivery job, starts polling
-config.py           BOT_TOKEN / DB_CONNECTION from the environment (.env)
+config.py           BOT_TOKEN, DB_CONNECTION, SPEECH_URL, SPEECH_TOKEN from the environment (.env)
 enums.py            every enum
 
 handlers/           everything that talks to Telegram (messages, buttons)
@@ -27,11 +27,13 @@ handlers/           everything that talks to Telegram (messages, buttons)
     reminders.py    create, edit, list; OK / snooze / undo / edit / delete buttons
     settings.py     🌍 timezone and ⏰ reminder settings screens
     text.py         typed messages: trigger phrases, answers to questions
+    voice.py        voice messages: transcribe, then handle like text
     intents.py      trigger phrase → handler table
     ui.py           render_menu, callback data helpers, user_data keys
 
 core/               the logic: no Telegram, no database sessions
     parser.py       "in 2 hours to call mom" → time + text
+    numbers.py      spoken numbers → digits ("nine thirty" → 9:30), used by the parser
     recurrence.py   Weekly / Monthly / Interval
     quiet.py        quiet hours
     timezones.py    resolving and formatting timezones
@@ -40,6 +42,9 @@ core/               the logic: no Telegram, no database sessions
 
 jobs/
     delivery.py     sends due reminders every 20 seconds
+
+services/           clients for other services (no Telegram)
+    speech.py       speech-service: audio → text
 
 db/
     session.py      engine, sessions, init_db
@@ -53,7 +58,8 @@ scripts/            one-off scripts
 tests/              pytest, throwaway SQLite database
 ```
 
-**Dependencies go one way**: `handlers/` and `jobs/` use `core/` and `db/`;
+**Dependencies go one way**: `handlers/` and `jobs/` use `core/`, `db/` and
+`services/`;
 `core/` imports neither Telegram nor the database (it's plain Python, tested
 without mocks); `db/` uses only `enums` and the `Setting` type from `core/`.
 The one exception is `handlers/settings.py`, which imports
@@ -67,6 +73,9 @@ after the user picks a timezone (a module-level import would be circular).
 - **Button presses** (callback queries) → handlers matched by callback data
   (see [Messages and buttons](#messages-and-buttons)).
 - **Text in private chats** → `handlers/text.on_text`.
+- **Voice messages in private chats** → `handlers/voice.on_voice`, which
+  transcribes them and passes the words to `handlers/text.handle_text`
+  (see [Voice messages](#voice-messages)).
 - **Delivery job** → `jobs/delivery.deliver_due`, every 20 seconds via
   the job queue.
 
@@ -160,6 +169,34 @@ hours). Both are UTC.
 explicit time and always fire. `skip_quiet` is also applied when creating,
 editing and acknowledging, so the shown next time is right.
 
+## Voice messages
+
+Transcription runs in a separate service,
+[speech-service](https://github.com/qetlife/speech-service) (Vosk + ffmpeg,
+offline), so other projects can use it and this bot's image stays small. It
+runs on the Pi's `shared-network` as `http://speech:8000`.
+
+1. `handlers/voice.on_voice` refuses messages over 2 minutes, downloads the
+   voice message (OGG/Opus) and calls `services/speech.transcribe`.
+2. `services/speech.py` POSTs the audio as it is to `SPEECH_URL/transcribe`
+   (with `Authorization: Bearer SPEECH_TOKEN` if set) and returns the text.
+   It raises `SpeechUnavailable` (not configured, unreachable, server error)
+   or `InvalidAudio` (400), which the handler turns into short replies.
+3. The handler replies `🎙 “<text>”` so misheard words are visible, then
+   calls `handlers/text.handle_text`, the same path as typed text.
+
+Vosk returns lowercase words without punctuation and spells numbers out
+(“nine thirty”, “twenty five”). `core/numbers.normalize_numbers` runs at
+the end of the parser's tokenizer and turns them into digits and clock
+times (“9:30”, “25”, “6:30” from “half past six”, “15th” from “the
+fifteenth”). Spoken clock times are marked (`"9:30~"`) so they are
+ambiguous like “at 9” (the next 09:30 or 21:30), unlike typed “9:30”. The
+reminder text keeps the original words. The settings parsers (snooze
+options, quiet hours) normalize spoken numbers too.
+
+Without `SPEECH_URL`, voice is off and the bot replies that it isn't set up.
+Tests fake the service with an `httpx.MockTransport` (`services.speech.transport`).
+
 ## Settings
 
 Each setting is a `Setting` in `core/settings.py`: a key, a default, a
@@ -216,7 +253,7 @@ changes go through Alembic; see [Database Migrations](../README.md#database-migr
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts tests
+python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts services tests
 pytest
 ```
 
@@ -226,7 +263,8 @@ Tests use a throwaway SQLite database (`tests/conftest.py`) with all
 migrations applied. CI runs pyflakes and the tests on every pull request
 and before every deploy. Parser, recurrence, quiet hours and settings tests are pure;
 delivery tests use a fake bot (`tests/test_recurrence.FakeBot`);
-`tests/test_handlers.py` drives the handlers with mocked Telegram objects.
+`tests/test_handlers.py` and `tests/test_voice.py` drive the handlers with
+mocked Telegram objects; `tests/test_numbers.py` covers spoken phrases.
 
 ## How to…
 
@@ -234,6 +272,11 @@ delivery tests use a fake bot (`tests/test_recurrence.FakeBot`);
 buttons, `core/notes.py` if it has logic worth testing on its own, a model
 in `db/models/` (imported in `alembic/env.py`) with a migration, and a
 repository in `db/repositories/`. Register its handlers in `bot.py`.
+
+**Use another service**: add a client in `services/` (plain Python: no
+Telegram, configured through `config.py`), with its own exceptions for
+"unavailable" and "bad input", and fake it in tests with
+`httpx.MockTransport`.
 
 **Add a trigger phrase or intent**: add it to `INTENTS` in
 `handlers/intents.py`. An action takes `(update, context, rest_of_message)`.

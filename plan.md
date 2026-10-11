@@ -48,6 +48,17 @@ Status and next steps for `roman-tech-bot`.
 - Project structure by kind of code: `handlers/` (Telegram), `core/`
   (logic), `jobs/`, `db/` (models, repositories), `config.py`.
 - CI runs pyflakes (undefined names, unused imports) before the tests.
+
+### Voice
+
+- Voice messages, transcribed offline by the separate
+  [speech-service](https://github.com/qetlife/speech-service) (Vosk + ffmpeg
+  on the Pi) and handled like typed text (`handlers/voice.py`,
+  `services/speech.py`).
+- Spoken numbers in the parser and settings (`core/numbers.py`): “at nine
+  thirty”, “half past six”, “quarter to five”, “in twenty five minutes”,
+  “on the fifteenth”; also “tonight at 9”, “at 7 in the evening”, “on the
+  15th”.
 - Documentation: `docs/user-guide.md` (features and settings for users),
   `docs/development.md` (internals), kept up to date with every change
   (`CLAUDE.md`).
@@ -73,6 +84,20 @@ Decisions made along the way (from the old “Open decisions” list):
 - Recurring reminders were out of scope for phase 1 (added in phase 2).
 
 ## Next
+
+### Parser (next)
+
+- Typo tolerance: “remid me”, “tomorow”, “wensday” (edit distance against
+  the known vocabulary, only in the trigger and time words).
+- Log messages the bot couldn't understand (typed and voice) and list them
+  with `/missed`, to drive the next phrasings.
+- More phrasings (“don't let me forget to…”, “in a fortnight”, “next month”,
+  “every 2nd tuesday”), replying to a reminder (“snooze 20 min”, “move it to
+  10”, “done”), plain-language commands (“cancel the dentist reminder”,
+  “what do I have tomorrow?”, “set my timezone to Lisbon”), and asking
+  instead of failing (“When should I remind you to call mom?”).
+- Split the parser into a pipeline: tokenize → fix typos → normalize →
+  intent → time.
 
 ### Reminders (phase 3)
 

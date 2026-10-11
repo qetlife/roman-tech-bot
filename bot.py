@@ -13,6 +13,7 @@ from    handlers.commands           import menu_cmd, start
 from    handlers.menus              import on_main_menu, on_my_id, on_reminders, on_settings
 from    handlers.text               import on_text
 from    handlers.ui                 import exact, prefixed
+from    handlers.voice              import on_voice
 from    jobs.delivery               import POLL_INTERVAL, deliver_due
 
 # rem:<action>:<id>[:<minutes>]; "rem:new" etc. are separate buttons.
@@ -60,6 +61,9 @@ def main():
 
     # Free text in private chats: trigger phrases ("remind me ...") and answers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, on_text))
+
+    # Voice messages in private chats: transcribed, then handled like text
+    app.add_handler(MessageHandler(filters.VOICE & filters.ChatType.PRIVATE, on_voice))
 
     # Sends due reminders; also catches up on anything due while the bot was down
     app.job_queue.run_repeating(deliver_due, interval=POLL_INTERVAL, first=1)

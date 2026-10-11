@@ -11,7 +11,8 @@ from datetime    import time
 from dataclasses import dataclass
 from typing      import Any, Callable
 
-from core.parser import parse_duration
+from core.numbers import SPOKEN, normalize_numbers
+from core.parser  import parse_duration
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,9 @@ def validate_snooze_options(value) -> list:
 
 
 def parse_snooze_options(text: str) -> list:
-    """"10m, 1h, 3h" / "5 15 60" / "10 min, 1 hour" -> sorted minutes."""
+    """"10m, 1h, 3h" / "5 15 60" / "10 min, 1 hour" / "ten minutes and one hour" -> sorted minutes."""
+    # Spoken numbers (voice messages): "ten" → "10"
+    text = " ".join(normalize_numbers(text.lower().replace(",", " , ").split(), clocks=False))
     parts = [p.strip() for p in re.split(r"[,;]|\band\b", text) if p.strip()]
     if len(parts) == 1 and len(parts[0].split()) > 1:
         # "5 15 60" or "10m 1h": no commas, so each word is an option
@@ -133,15 +136,32 @@ def validate_quiet_hours(value) -> list:
     return [f"{start:%H:%M}", f"{end:%H:%M}"]
 
 
+SPOKEN_CLOCK_RE = re.compile(r"^(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?$")
+
+
+def _to_24h(part: str) -> str:
+    """"11 pm" / "eleven thirty p m" / "23" -> "23" / "23:30" / "23"; anything else unchanged."""
+    words = " ".join(normalize_numbers(part.split())).replace(SPOKEN, "")
+    m = SPOKEN_CLOCK_RE.match(words)
+    if not m or not m.group(3):
+        return words
+    hour, minute = int(m.group(1)), int(m.group(2) or 0)
+    if not 1 <= hour <= 12:
+        return part
+    hour = hour % 12 + (12 if m.group(3).startswith("p") else 0)
+    return f"{hour}:{minute:02d}"
+
+
 def parse_quiet_hours(text: str) -> list:
-    """"23:00-07:00" / "23 to 7" / "22:30 - 8" / "off" -> stored value."""
+    """"23:00-07:00" / "23 to 7" / "22:30 - 8" / "eleven pm to seven" / "off" -> stored value."""
     text = text.strip().lower()
     if text in ("off", "none", "no", "disable", "disabled"):
         return []
-    parts = re.split(r"\s*(?:-|–|—|to|until|till)\s*", text)
+    # Split first: in "ten to five", "to" separates the start and the end.
+    parts = re.split(r"\s*(?:-|–|—|\bto\b|\buntil\b|\btill\b)\s*", text)
     if len(parts) != 2:
         raise ValueError("Send a start and an end, e.g. “23:00-07:00”.")
-    return validate_quiet_hours(parts)
+    return validate_quiet_hours([_to_24h(p) for p in parts])
 
 
 def quiet_window(value):

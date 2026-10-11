@@ -8,6 +8,9 @@ services:
       # SQLAlchemy URL of the PostgreSQL database, read from the shell or .env
       # e.g. postgresql+psycopg://roman_tech_bot:<password>@postgres:5432/roman_tech_bot
       DB_CONNECTION: ${DB_CONNECTION}
+      # speech-service for voice messages, e.g. http://speech:8000 (optional)
+      SPEECH_URL: ${SPEECH_URL:-}
+      SPEECH_TOKEN: ${SPEECH_TOKEN:-}
     networks:
       # Shared with the `postgres` container
       - shared-network
