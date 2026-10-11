@@ -47,6 +47,7 @@ Status and next steps for `roman-tech-bot`.
   kinds, all in `enums.py`.
 - Project structure by kind of code: `handlers/` (Telegram), `core/`
   (logic), `jobs/`, `db/` (models, repositories), `config.py`.
+- CI runs pyflakes (undefined names, unused imports) before the tests.
 - Documentation: `docs/user-guide.md` (features and settings for users),
   `docs/development.md` (internals), kept up to date with every change
   (`CLAUDE.md`).
@@ -89,4 +90,3 @@ Decisions made along the way (from the old “Open decisions” list):
 ### General
 
 - More handler tests (`tests/test_handlers.py` covers the main flows).
-- Run pyflakes in CI to catch missing imports.

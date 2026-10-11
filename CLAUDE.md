@@ -19,4 +19,5 @@ Telegram bot (python-telegram-bot, SQLAlchemy, PostgreSQL, Alembic). Start with
   Architecture in `docs/development.md`.
 - Schema changes need an Alembic migration; settings don't (see
   `core/settings.py`).
-- Run `pytest` before pushing; every push to `master` deploys.
+- Run pyflakes and `pytest` before pushing (commands in `docs/development.md`,
+  Tests); every push to `master` deploys.

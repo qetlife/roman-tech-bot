@@ -216,12 +216,15 @@ changes go through Alembic; see [Database Migrations](../README.md#database-migr
 
 ```bash
 pip install -r requirements-dev.txt
+python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts tests
 pytest
 ```
 
+pyflakes catches undefined names and unused imports, which tests can miss.
+
 Tests use a throwaway SQLite database (`tests/conftest.py`) with all
-migrations applied. CI runs them on every pull request and before every
-deploy. Parser, recurrence, quiet hours and settings tests are pure;
+migrations applied. CI runs pyflakes and the tests on every pull request
+and before every deploy. Parser, recurrence, quiet hours and settings tests are pure;
 delivery tests use a fake bot (`tests/test_recurrence.FakeBot`);
 `tests/test_handlers.py` drives the handlers with mocked Telegram objects.
 

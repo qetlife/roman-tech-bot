@@ -197,7 +197,7 @@ python scripts/migrate_sqlite_to_postgres.py sqlite:////path/to/bot.db "$DB_CONN
 Every push to `master` runs the tests and, if they pass, auto-deploys to the
 Raspberry Pi via the `.github/workflows/deploy.yml` workflow:
 
-1. `test` runs `pytest` on a GitHub-hosted runner (`.github/workflows/tests.yml`).
+1. `test` runs `pyflakes` and `pytest` on a GitHub-hosted runner (`.github/workflows/tests.yml`).
 2. `deploy` runs only if the tests pass, on a self-hosted runner (label
    `roman-tech-bot`) on the Pi. It resets `/home/apps/roman-tech-bot` to the
    tested commit, runs `docker compose up -d --build`, and fails if the `bot`
