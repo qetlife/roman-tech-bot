@@ -1,6 +1,7 @@
 from    telegram                import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from    telegram.ext            import ContextTypes
 
+from    helpers.callbacks       import Callback
 from    helpers.chat_helper     import render_menu
 
 
@@ -12,10 +13,10 @@ REMINDERS_TEXT = (
 
 def build_reminders_menu():
     keyboard = [
-        [InlineKeyboardButton("➕ New", callback_data="rem:new")],
-        [InlineKeyboardButton("📋 My reminders", callback_data="rem:list")],
-        [InlineKeyboardButton("⚙️ Settings", callback_data="rem:settings")],
-        [InlineKeyboardButton("↩️ Back", callback_data="menu:main")],
+        [InlineKeyboardButton("➕ New", callback_data=Callback.NEW_REMINDER)],
+        [InlineKeyboardButton("📋 My reminders", callback_data=Callback.LIST_REMINDERS)],
+        [InlineKeyboardButton("⚙️ Settings", callback_data=Callback.REMINDER_SETTINGS_FROM_MENU)],
+        [InlineKeyboardButton("↩️ Back", callback_data=Callback.MAIN_MENU)],
     ]
     return InlineKeyboardMarkup(keyboard)
 

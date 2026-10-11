@@ -8,6 +8,8 @@ from    telegram.ext                    import ContextTypes
 from    db.repository.reminder_repository import ReminderRepository
 from    db.repository.settings_repository import SettingsRepository
 from    db.repository.user_repository   import UserRepository
+from    helpers.awaiting                import AWAITING, EDIT_REMINDER_ID, Awaiting
+from    helpers.callbacks               import Callback, CallbackPrefix, ReminderAction, reminder_callback
 from    helpers.chat_helper             import render_menu
 from    models.reminder                 import ReminderStatus, utcnow
 from    reminders.parser                import ParseError, parse_reminder
@@ -35,20 +37,14 @@ EXAMPLES = (
     "• on the 1st of every month to pay rent"
 )
 
-# context.user_data["awaiting"] values: what the next plain message means
-AWAIT_REMINDER = "reminder"
-AWAIT_TIMEZONE = "timezone"
-AWAIT_EDIT = "edit:"    # + reminder id
-
-
 # --- keyboards --------------------------------------------------------------
 
 def build_fire_keyboard(reminder_id: int, snooze_minutes):
     """✅ OK plus one 💤 button per snooze option (the user's setting)."""
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ OK", callback_data=f"rem:ok:{reminder_id}"),
+        InlineKeyboardButton("✅ OK", callback_data=reminder_callback(ReminderAction.OK, reminder_id)),
         *[
-            InlineKeyboardButton(f"💤 {format_minutes(m)}", callback_data=f"rem:snz:{reminder_id}:{m}")
+            InlineKeyboardButton(f"💤 {format_minutes(m)}", callback_data=reminder_callback(ReminderAction.SNOOZE, reminder_id, m))
             for m in snooze_minutes
         ],
     ]])
@@ -56,14 +52,14 @@ def build_fire_keyboard(reminder_id: int, snooze_minutes):
 
 def build_created_keyboard(reminder_id: int):
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("↩️ Undo", callback_data=f"rem:undo:{reminder_id}"),
-        InlineKeyboardButton("✏️ Edit", callback_data=f"rem:edit:{reminder_id}"),
+        InlineKeyboardButton("↩️ Undo", callback_data=reminder_callback(ReminderAction.UNDO, reminder_id)),
+        InlineKeyboardButton("✏️ Edit", callback_data=reminder_callback(ReminderAction.EDIT, reminder_id)),
     ]])
 
 
 def build_timezone_keyboard():
     rows = [
-        [InlineKeyboardButton(tz, callback_data=f"tz:{tz}") for tz in COMMON_TIMEZONES[i:i + 2]]
+        [InlineKeyboardButton(tz, callback_data=f"{CallbackPrefix.TIMEZONE}{tz}") for tz in COMMON_TIMEZONES[i:i + 2]]
         for i in range(0, len(COMMON_TIMEZONES), 2)
     ]
     return InlineKeyboardMarkup(rows)
@@ -71,12 +67,12 @@ def build_timezone_keyboard():
 
 def build_reminders_list_keyboard(items):
     rows = [
-        [InlineKeyboardButton(f"❌ {shorten(r.text, 28)}", callback_data=f"rem:del:{r.id}")]
+        [InlineKeyboardButton(f"❌ {shorten(r.text, 28)}", callback_data=reminder_callback(ReminderAction.DELETE, r.id))]
         for r in items
     ]
     rows.append([
-        InlineKeyboardButton("➕ New", callback_data="rem:new"),
-        InlineKeyboardButton("↩️ Back", callback_data="menu:reminders"),
+        InlineKeyboardButton("➕ New", callback_data=Callback.NEW_REMINDER),
+        InlineKeyboardButton("↩️ Back", callback_data=Callback.REMINDERS_MENU),
     ])
     return InlineKeyboardMarkup(rows)
 
@@ -127,7 +123,7 @@ def outside_quiet_hours(user, recurrence, when: datetime) -> datetime:
 
 
 async def ask_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, intro: str = ""):
-    context.user_data["awaiting"] = AWAIT_TIMEZONE
+    context.user_data[AWAITING] = Awaiting.TIMEZONE
     await update.effective_message.reply_text(
         f"{intro}Which timezone are you in? Pick one or type a city "
         "(e.g. Kyiv, New York) or an offset (e.g. UTC+3).",
@@ -147,11 +143,11 @@ async def create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, re
     try:
         parsed = parse_reminder(request, user_now(user.timezone))
     except ParseError as e:
-        context.user_data["awaiting"] = AWAIT_REMINDER
+        context.user_data[AWAITING] = Awaiting.REMINDER
         await update.effective_message.reply_text(f"{e} Send it again, e.g. “in 2 hours to call mom”.\n\n{EXAMPLES}")
         return
 
-    context.user_data.pop("awaiting", None)
+    context.user_data.pop(AWAITING, None)
     recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
     when = outside_quiet_hours(user, parsed.recurrence, parsed.when)
     reminder = reminders.create(user, update.effective_chat.id, parsed.text, when, recurrence)
@@ -165,7 +161,7 @@ async def edit_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
     user = users.get_or_create(update.effective_user.id)
     reminder = reminders.get_for_user(reminder_id, update.effective_user.id)
     if reminder is None:
-        context.user_data.pop("awaiting", None)
+        context.user_data.pop(AWAITING, None)
         await update.effective_message.reply_text("That reminder no longer exists.")
         return
 
@@ -175,7 +171,7 @@ async def edit_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
         await update.effective_message.reply_text(f"{e} Try again, e.g. “tomorrow at 10 to call mom”.")
         return
 
-    context.user_data.pop("awaiting", None)
+    context.user_data.pop(AWAITING, None)
     recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
     when = outside_quiet_hours(user, parsed.recurrence, parsed.when)
     updated = reminders.reschedule(reminder.id, parsed.text, when, recurrence)
@@ -192,7 +188,7 @@ async def edit_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
 async def on_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Menu button: ➕ New reminder."""
     await update.callback_query.answer()
-    context.user_data["awaiting"] = AWAIT_REMINDER
+    context.user_data[AWAITING] = Awaiting.REMINDER
     await update.effective_message.reply_text(f"What should I remind you about, and when?\n\n{EXAMPLES}")
 
 
@@ -234,14 +230,14 @@ async def _own_reminder(update: Update, reminder_id: int):
 
 async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    _, action, reminder_id, *args = query.data.split(":")
-    reminder_id = int(reminder_id)
+    action, reminder_id, *args = query.data.removeprefix(CallbackPrefix.REMINDER).split(":")
+    action, reminder_id = ReminderAction(action), int(reminder_id)
 
     reminder = await _own_reminder(update, reminder_id)
     if reminder is None:
         return
 
-    if action == "ok" and reminder.recurrence:
+    if action == ReminderAction.OK and reminder.recurrence:
         if reminder.status != ReminderStatus.FIRING:
             # A stale message; the reminder has already moved on.
             await query.answer("Already done.")
@@ -259,12 +255,12 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         await query.edit_message_text(f"✅ {reminder.text}\n\nNext: {format_when(next_at, tz_name, utcnow())}")
 
-    elif action == "ok":
+    elif action == ReminderAction.OK:
         reminders.acknowledge(reminder_id)
         await query.answer("Done!")
         await query.edit_message_text(f"✅ {reminder.text}")
 
-    elif action == "snz":
+    elif action == ReminderAction.SNOOZE:
         user = users.get_or_create(update.effective_user.id)
         # Callback data comes from the client: keep it within the allowed range.
         minutes = min(max(int(args[0]), SNOOZE_MIN_MINUTES), SNOOZE_MAX_MINUTES)
@@ -278,7 +274,7 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"💤 {reminder.text}\nSnoozed until {format_when(until, user.timezone or 'UTC', utcnow())}"
         )
 
-    elif action == "undo":
+    elif action == ReminderAction.UNDO:
         if reminders.cancel(reminder_id) is None:
             await query.answer("This reminder has already finished.")
             return
@@ -286,14 +282,15 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text(f"↩️ Cancelled: {reminder.text}")
         await retire_fired_message(context, reminder, "↩️ Cancelled.")
 
-    elif action == "edit":
-        context.user_data["awaiting"] = f"{AWAIT_EDIT}{reminder_id}"
+    elif action == ReminderAction.EDIT:
+        context.user_data[AWAITING] = Awaiting.EDIT
+        context.user_data[EDIT_REMINDER_ID] = reminder_id
         await query.answer()
         await query.message.reply_text(
             f"Send the new time and text for “{reminder.text}”, e.g. “tomorrow at 10 to {reminder.text}”."
         )
 
-    elif action == "del":
+    elif action == ReminderAction.DELETE:
         if reminders.cancel(reminder_id) is not None:
             await retire_fired_message(context, reminder, "↩️ Cancelled.")
         await list_reminders(update, context, toast="Cancelled")
@@ -304,7 +301,7 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def apply_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, tz_name: str):
     users.get_or_create(update.effective_user.id)
     users.set_timezone(update.effective_user.id, tz_name)
-    context.user_data.pop("awaiting", None)
+    context.user_data.pop(AWAITING, None)
     local = user_now(tz_name)
     await update.effective_message.reply_text(f"🌍 Timezone set to {tz_name} (local time {local:%H:%M}).")
 
@@ -316,7 +313,7 @@ async def apply_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, tz_
 async def on_timezone_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tz_name = query.data.split(":", 1)[1]
+    tz_name = query.data.removeprefix(CallbackPrefix.TIMEZONE)
     await query.edit_message_reply_markup(reply_markup=None)
     await apply_timezone(update, context, tz_name)
 

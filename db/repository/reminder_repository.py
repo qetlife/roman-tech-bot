@@ -6,7 +6,7 @@ from typing         import Optional
 from sqlalchemy     import select
 
 from db.db          import SessionLocal
-from models.reminder import Reminder, ReminderStatus, utcnow
+from models.reminder import ACTIVE_STATUSES, Reminder, ReminderStatus, utcnow
 from models.user    import User
 
 
@@ -42,7 +42,7 @@ class ReminderRepository:
         with SessionLocal(expire_on_commit=False) as session:
             stmt = (
                 select(Reminder)
-                .where(Reminder.target_user_id == user_id, Reminder.status.in_(ReminderStatus.ACTIVE))
+                .where(Reminder.target_user_id == user_id, Reminder.status.in_(ACTIVE_STATUSES))
                 .order_by(Reminder.remind_at)
             )
             return list(session.scalars(stmt))
@@ -51,7 +51,7 @@ class ReminderRepository:
         with SessionLocal(expire_on_commit=False) as session:
             stmt = (
                 select(Reminder)
-                .where(Reminder.status.in_(ReminderStatus.ACTIVE), Reminder.next_fire_at <= now)
+                .where(Reminder.status.in_(ACTIVE_STATUSES), Reminder.next_fire_at <= now)
                 .order_by(Reminder.next_fire_at)
             )
             return list(session.scalars(stmt))
@@ -59,7 +59,7 @@ class ReminderRepository:
     def _update(self, reminder_id: int, only_active: bool = True, **values) -> Optional[Reminder]:
         with SessionLocal(expire_on_commit=False) as session:
             reminder = session.get(Reminder, reminder_id, with_for_update=True)
-            if reminder is None or (only_active and reminder.status not in ReminderStatus.ACTIVE):
+            if reminder is None or (only_active and reminder.status not in ACTIVE_STATUSES):
                 return None
             for key, value in values.items():
                 setattr(reminder, key, value)
@@ -69,7 +69,7 @@ class ReminderRepository:
     def mark_fired(self, reminder_id: int, message_id: int, next_fire_at: datetime) -> Optional[Reminder]:
         with SessionLocal(expire_on_commit=False) as session:
             reminder = session.get(Reminder, reminder_id, with_for_update=True)
-            if reminder is None or reminder.status not in ReminderStatus.ACTIVE:
+            if reminder is None or reminder.status not in ACTIVE_STATUSES:
                 return None
             reminder.status = ReminderStatus.FIRING
             reminder.fire_count += 1

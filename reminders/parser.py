@@ -30,7 +30,9 @@ e.g. "every day at 9", "at 8:30 on weekdays", "every friday 18:00",
 
 import re
 
+from calendar       import Day
 from dataclasses    import dataclass
+from enum           import Enum
 from datetime       import date, datetime, time, timedelta
 from typing         import Optional
 
@@ -72,9 +74,13 @@ UNITS = {
 }
 
 WEEKDAYS = {
-    "monday": 0, "mon": 0, "tuesday": 1, "tue": 1, "tues": 1, "wednesday": 2, "wed": 2,
-    "thursday": 3, "thu": 3, "thur": 3, "thurs": 3, "friday": 4, "fri": 4,
-    "saturday": 5, "sat": 5, "sunday": 6, "sun": 6,
+    "monday": Day.MONDAY, "mon": Day.MONDAY,
+    "tuesday": Day.TUESDAY, "tue": Day.TUESDAY, "tues": Day.TUESDAY,
+    "wednesday": Day.WEDNESDAY, "wed": Day.WEDNESDAY,
+    "thursday": Day.THURSDAY, "thu": Day.THURSDAY, "thur": Day.THURSDAY, "thurs": Day.THURSDAY,
+    "friday": Day.FRIDAY, "fri": Day.FRIDAY,
+    "saturday": Day.SATURDAY, "sat": Day.SATURDAY,
+    "sunday": Day.SUNDAY, "sun": Day.SUNDAY,
 }
 
 MONTHS = {
@@ -428,9 +434,15 @@ MONTH_DAY_RE = re.compile(r"^(\d{1,2})(?:st|nd|rd|th)$")
 MONTH_WORDS = (["of", "every", "month"], ["of", "the", "month"], ["every", "month"])
 
 
+class RepeatKind(Enum):
+    WEEKLY = "weekly"       # on weekdays: "every day", "mondays"
+    MONTHLY = "monthly"     # on a day of the month: "every 15th"
+    INTERVAL = "interval"   # every N minutes/hours/days: "every 2 hours"
+
+
 @dataclass
 class _Repeat:
-    kind: str                           # "weekly", "monthly" or "interval"
+    kind: RepeatKind
     days: frozenset = None              # weekly
     day: Optional[int] = None           # monthly; None = to be found, or today's
     every: Optional[timedelta] = None   # interval
@@ -459,48 +471,48 @@ def _read_recurrence(tokens: list, i: int, now: datetime):
     nxt = tokens[i + 1] if i + 1 < len(tokens) else None
 
     if tok in ("daily", "everyday"):
-        return i + 1, _Repeat("weekly", days=EVERY_DAY)
+        return i + 1, _Repeat(RepeatKind.WEEKLY, days=EVERY_DAY)
     if tok == "weekdays":
-        return i + 1, _Repeat("weekly", days=WORKDAYS)
+        return i + 1, _Repeat(RepeatKind.WEEKLY, days=WORKDAYS)
     if tok == "weekends":
-        return i + 1, _Repeat("weekly", days=WEEKENDS)
+        return i + 1, _Repeat(RepeatKind.WEEKLY, days=WEEKENDS)
     if tok == "monthly":
-        return i + 1, _Repeat("monthly")
+        return i + 1, _Repeat(RepeatKind.MONTHLY)
     j, days = _read_weekday_list(tokens, i, plural=True)
     if days:
-        return j, _Repeat("weekly", days=frozenset(days))
+        return j, _Repeat(RepeatKind.WEEKLY, days=frozenset(days))
     # "the 1st of every month"
     if (day := _month_day(tok)) is not None and (j := _skip_month_words(tokens, i + 1)) > i + 1:
-        return j, _Repeat("monthly", day=day)
+        return j, _Repeat(RepeatKind.MONTHLY, day=day)
 
     if tok != "every" or nxt is None:
         return i, None
     if nxt == "day":
-        return i + 2, _Repeat("weekly", days=EVERY_DAY)
+        return i + 2, _Repeat(RepeatKind.WEEKLY, days=EVERY_DAY)
     if nxt == "weekday":
-        return i + 2, _Repeat("weekly", days=WORKDAYS)
+        return i + 2, _Repeat(RepeatKind.WEEKLY, days=WORKDAYS)
     if nxt == "weekend":
-        return i + 2, _Repeat("weekly", days=WEEKENDS)
+        return i + 2, _Repeat(RepeatKind.WEEKLY, days=WEEKENDS)
     if nxt == "week":
-        return i + 2, _Repeat("weekly", days=frozenset({now.weekday()}))
+        return i + 2, _Repeat(RepeatKind.WEEKLY, days=frozenset({Day(now.weekday())}))
     if nxt == "month":
-        return i + 2, _Repeat("monthly")
+        return i + 2, _Repeat(RepeatKind.MONTHLY)
     if nxt in ("morning", "afternoon", "evening", "night"):
-        return i + 2, _Repeat("weekly", days=EVERY_DAY, clock=DAY_PARTS[nxt])
+        return i + 2, _Repeat(RepeatKind.WEEKLY, days=EVERY_DAY, clock=DAY_PARTS[nxt])
     # "every 15th [of the month]"
     if (day := _month_day(nxt)) is not None:
-        return _skip_month_words(tokens, i + 2), _Repeat("monthly", day=day)
+        return _skip_month_words(tokens, i + 2), _Repeat(RepeatKind.MONTHLY, day=day)
     j, days = _read_weekday_list(tokens, i + 1, plural=False)
     if days:
-        return j, _Repeat("weekly", days=frozenset(days))
+        return j, _Repeat(RepeatKind.WEEKLY, days=frozenset(days))
     # "every hour" / "every other day" / "every 2 hours"
     if nxt in UNITS and UNITS[nxt] != "seconds":
-        return i + 2, _Repeat("interval", every=timedelta(**{UNITS[nxt]: 1}))
+        return i + 2, _Repeat(RepeatKind.INTERVAL, every=timedelta(**{UNITS[nxt]: 1}))
     if nxt == "other" and i + 2 < len(tokens) and UNITS.get(tokens[i + 2]) in ("days", "weeks"):
-        return i + 3, _Repeat("interval", every=timedelta(**{UNITS[tokens[i + 2]]: 2}))
+        return i + 3, _Repeat(RepeatKind.INTERVAL, every=timedelta(**{UNITS[tokens[i + 2]]: 2}))
     j, delta = _read_duration(tokens, i + 1)
     if delta is not None:
-        return j, _Repeat("interval", every=delta)
+        return j, _Repeat(RepeatKind.INTERVAL, every=delta)
     return i, None
 
 
@@ -533,7 +545,7 @@ def parse_recurrence(phrase: str, now: datetime) -> Optional[tuple]:
         return None
 
     rest = tokens[:i] + tokens[j:]
-    if repeat.kind == "monthly" and repeat.day is None:
+    if repeat.kind == RepeatKind.MONTHLY and repeat.day is None:
         # "every month on the 15th"
         for k, tok in enumerate(rest):
             if (day := _month_day(tok)) is not None:
@@ -545,9 +557,9 @@ def parse_recurrence(phrase: str, now: datetime) -> Optional[tuple]:
     if not ok:
         return None
 
-    if repeat.kind == "weekly":
+    if repeat.kind == RepeatKind.WEEKLY:
         recurrence = Weekly(repeat.days, clock or DEFAULT_TIME)
-    elif repeat.kind == "monthly":
+    elif repeat.kind == RepeatKind.MONTHLY:
         recurrence = Monthly(repeat.day or now.day, clock or DEFAULT_TIME)
     else:
         every = repeat.every

@@ -12,6 +12,7 @@ Intervals of whole days keep the local time of their start the same way.
 
 import calendar
 
+from calendar       import Day
 from dataclasses    import dataclass
 from datetime       import date, datetime, time, timedelta, timezone, tzinfo
 from typing         import Union
@@ -19,9 +20,9 @@ from typing         import Union
 
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
-EVERY_DAY = frozenset(range(7))
-WEEKDAYS = frozenset(range(5))
-WEEKENDS = frozenset({5, 6})
+EVERY_DAY = frozenset(Day)
+WEEKENDS = frozenset({Day.SATURDAY, Day.SUNDAY})
+WEEKDAYS = EVERY_DAY - WEEKENDS
 
 ANCHOR_FORMAT = "%Y-%m-%dT%H:%MZ"
 
@@ -48,7 +49,7 @@ def format_interval(every: timedelta) -> str:
 
 @dataclass(frozen=True)
 class Weekly:
-    days: frozenset     # weekday numbers, Monday = 0
+    days: frozenset     # calendar.Day values (Monday = 0)
     clock: time         # local time of day
 
     def serialize(self) -> str:
@@ -153,4 +154,4 @@ def parse(value: str) -> Recurrence:
     clock = time(int(hour), int(minute))
     if rule.startswith("month:"):
         return Monthly(int(rule.removeprefix("month:")), clock)
-    return Weekly(frozenset(DAY_NAMES.index(d) for d in rule.split(",")), clock)
+    return Weekly(frozenset(Day(DAY_NAMES.index(d)) for d in rule.split(",")), clock)
