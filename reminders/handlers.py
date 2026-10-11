@@ -10,7 +10,7 @@ from    db.repository.user_repository   import UserRepository
 from    helpers.chat_helper             import render_menu
 from    models.reminder                 import ReminderStatus, utcnow
 from    reminders.parser                import ParseError, parse_reminder
-from    reminders.recurrence            import Recurrence
+from    reminders                       import recurrence as recurrences
 from    reminders.timezones             import COMMON_TIMEZONES, format_when, resolve_timezone
 from    settings.registry               import SNOOZE_MAX_MINUTES, SNOOZE_MIN_MINUTES, format_minutes
 
@@ -25,7 +25,9 @@ EXAMPLES = (
     "• to stretch at 18:30\n"
     "• friday 10am: dentist\n"
     "• every day at 9 to take pills\n"
-    "• on weekdays at 8:30: standup"
+    "• on weekdays at 8:30: standup\n"
+    "• every 2 hours to drink water\n"
+    "• on the 1st of every month to pay rent"
 )
 
 # context.user_data["awaiting"] values: what the next plain message means
@@ -101,7 +103,7 @@ def schedule_text(reminder, tz_name: str) -> str:
     """"🗓 Tomorrow, 09:00 (in 9 h)" plus "🔁 every day at 09:00" if recurring."""
     text = f"🗓 {format_when(reminder.remind_at, tz_name, utcnow())}"
     if reminder.recurrence:
-        text += f"\n🔁 {Recurrence.parse(reminder.recurrence).describe()}"
+        text += f"\n🔁 {recurrences.parse(reminder.recurrence).describe(ZoneInfo(tz_name))}"
     return text
 
 
@@ -232,7 +234,7 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         user = users.get_or_create(update.effective_user.id)
         tz_name = user.timezone or "UTC"
-        next_at = Recurrence.parse(reminder.recurrence).next_after(
+        next_at = recurrences.parse(reminder.recurrence).next_after(
             max(utcnow(), reminder.remind_at), ZoneInfo(tz_name),
         )
         updated = reminders.advance(reminder_id, next_at)

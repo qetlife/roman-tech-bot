@@ -1,12 +1,20 @@
-"""Recurring reminders: which weekdays, and at what local time.
+"""Recurring reminders: when the next occurrence is.
 
-Stored in `reminders.recurrence` as e.g. "mon,tue,wed,thu,fri@08:30". The
-time is local to the user, so a daily 09:00 reminder stays at 09:00 across
-DST changes and if the user changes their timezone.
+Stored in `reminders.recurrence` as one of:
+    "mon,tue,wed,thu,fri@08:30"     Weekly: these weekdays at a local time
+    "month:15@09:00"                Monthly: this day of the month at a local time
+    "every:120m@2026-10-11T07:00Z"  Interval: every N minutes from a start (UTC)
+
+Weekly and monthly times are local to the user, so a daily 09:00 reminder
+stays at 09:00 across DST changes and if the user changes their timezone.
+Intervals of whole days keep the local time of their start the same way.
 """
 
+import calendar
+
 from dataclasses    import dataclass
-from datetime       import datetime, time, timedelta, tzinfo
+from datetime       import date, datetime, time, timedelta, timezone, tzinfo
+from typing         import Union
 
 
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -15,20 +23,36 @@ EVERY_DAY = frozenset(range(7))
 WEEKDAYS = frozenset(range(5))
 WEEKENDS = frozenset({5, 6})
 
+ANCHOR_FORMAT = "%Y-%m-%dT%H:%MZ"
+
+
+def ordinal(n: int) -> str:
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def format_interval(every: timedelta) -> str:
+    """"30 min", "2 h", "1 h 30 min", "3 days", "2 weeks"."""
+    minutes = int(every.total_seconds() // 60)
+    days, rest = divmod(minutes, 24 * 60)
+    if days and not rest:
+        if days % 7 == 0:
+            weeks = days // 7
+            return "week" if weeks == 1 else f"{weeks} weeks"
+        return "day" if days == 1 else f"{days} days"
+    hours, mins = divmod(minutes, 60)
+    if not hours:
+        return f"{mins} min"
+    return f"{hours} h" if not mins else f"{hours} h {mins} min"
+
 
 @dataclass(frozen=True)
-class Recurrence:
+class Weekly:
     days: frozenset     # weekday numbers, Monday = 0
     clock: time         # local time of day
 
     def serialize(self) -> str:
         return ",".join(DAY_NAMES[d] for d in sorted(self.days)) + f"@{self.clock:%H:%M}"
-
-    @classmethod
-    def parse(cls, value: str) -> "Recurrence":
-        days, _, clock = value.partition("@")
-        hour, minute = clock.split(":")
-        return cls(frozenset(DAY_NAMES.index(d) for d in days.split(",")), time(int(hour), int(minute)))
 
     def next_after(self, after: datetime, tz: tzinfo) -> datetime:
         """The first occurrence strictly after `after`, in the user's timezone."""
@@ -41,7 +65,7 @@ class Recurrence:
                     return candidate
         raise ValueError(f"Recurrence without days: {self.serialize()}")
 
-    def describe(self) -> str:
+    def describe(self, tz: tzinfo) -> str:
         """"every day at 09:00", "weekdays at 08:30", "every Mon, Thu at 18:00"."""
         if self.days == EVERY_DAY:
             days = "every day"
@@ -52,3 +76,81 @@ class Recurrence:
         else:
             days = "every " + ", ".join(DAY_NAMES[d].capitalize() for d in sorted(self.days))
         return f"{days} at {self.clock:%H:%M}"
+
+
+@dataclass(frozen=True)
+class Monthly:
+    day: int            # 1-31; in shorter months, the last day
+    clock: time
+
+    def serialize(self) -> str:
+        return f"month:{self.day}@{self.clock:%H:%M}"
+
+    def next_after(self, after: datetime, tz: tzinfo) -> datetime:
+        local = after.astimezone(tz)
+        year, month = local.year, local.month
+        for _ in range(3):
+            day = min(self.day, calendar.monthrange(year, month)[1])
+            candidate = datetime.combine(date(year, month, day), self.clock, tzinfo=tz)
+            if candidate > after:
+                return candidate
+            year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+        raise AssertionError("unreachable")
+
+    def describe(self, tz: tzinfo) -> str:
+        return f"monthly on the {ordinal(self.day)} at {self.clock:%H:%M}"
+
+
+@dataclass(frozen=True)
+class Interval:
+    every: timedelta
+    anchor: datetime    # the first occurrence (aware)
+
+    @property
+    def whole_days(self) -> bool:
+        return self.every % timedelta(days=1) == timedelta()
+
+    def serialize(self) -> str:
+        minutes = int(self.every.total_seconds() // 60)
+        return f"every:{minutes}m@{self.anchor.astimezone(timezone.utc):{ANCHOR_FORMAT}}"
+
+    def next_after(self, after: datetime, tz: tzinfo) -> datetime:
+        if after < self.anchor:
+            return self.anchor.astimezone(tz)
+        steps = (after - self.anchor) // self.every
+        if not self.whole_days:
+            return (self.anchor + (steps + 1) * self.every).astimezone(tz)
+
+        # Whole days: step in local dates so the clock time survives DST.
+        start = self.anchor.astimezone(tz)
+        step_days = self.every.days
+        n = max(0, steps - 1)
+        while True:
+            candidate = datetime.combine(start.date() + timedelta(days=n * step_days), start.time(), tzinfo=tz)
+            if candidate > after:
+                return candidate
+            n += 1
+
+    def describe(self, tz: tzinfo) -> str:
+        text = f"every {format_interval(self.every)}"
+        if self.whole_days:
+            text += f" at {self.anchor.astimezone(tz):%H:%M}"
+        return text
+
+
+Recurrence = Union[Weekly, Monthly, Interval]
+
+
+def parse(value: str) -> Recurrence:
+    """Read a stored recurrence (see the module docstring)."""
+    rule, _, at = value.partition("@")
+    if rule.startswith("every:"):
+        minutes = int(rule.removeprefix("every:").removesuffix("m"))
+        anchor = datetime.strptime(at, ANCHOR_FORMAT).replace(tzinfo=timezone.utc)
+        return Interval(timedelta(minutes=minutes), anchor)
+
+    hour, minute = at.split(":")
+    clock = time(int(hour), int(minute))
+    if rule.startswith("month:"):
+        return Monthly(int(rule.removeprefix("month:")), clock)
+    return Weekly(frozenset(DAY_NAMES.index(d) for d in rule.split(",")), clock)

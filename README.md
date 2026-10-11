@@ -24,6 +24,10 @@ Create a reminder by typing in a private chat with the bot, or via
 - “remind me every day at 9 to take pills”
 - “remind me on weekdays at 8:30: standup” (also “every monday and
   thursday”, “every weekend”, “mondays”, “every evening at 7”)
+- “remind me every 2 hours to drink water” (also “every 30 minutes”,
+  “every other day at 20:00”, “every 2 weeks”; at least 15 minutes apart)
+- “remind me on the 1st of every month to pay rent” (also “monthly”,
+  “every month on the 15th at 10”; in shorter months the 31st is the last day)
 
 The bot confirms with the parsed time and `↩️ Undo` / `✏️ Edit` buttons.
 “my reminders” (or `📋 My reminders`) lists upcoming reminders with `❌` to
