@@ -13,6 +13,12 @@ class UserRepository:
         with SessionLocal() as session:
             return session.get(User, user_id)
 
+    def get_timezones(self, user_ids) -> dict:
+        """{user_id: timezone or None} for many users at once."""
+        with SessionLocal() as session:
+            rows = session.execute(select(User.id, User.timezone).where(User.id.in_(set(user_ids))))
+            return dict(rows.all())
+
     def get_by_telegram_id(self, telegram_id: int) -> Optional[User]:
         with SessionLocal() as session:
             stmt = select(User).where(User.telegram_id == telegram_id)

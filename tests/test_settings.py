@@ -1,7 +1,8 @@
 import pytest
 
 from settings.registry import (
-    SNOOZE_OPTIONS, format_minutes, parse_snooze_options, validate_snooze_options,
+    REPEAT_MINUTES, REPEAT_PRESETS, SNOOZE_OPTIONS, format_minutes, parse_snooze_options,
+    validate_repeat_minutes, validate_snooze_options,
 )
 
 
@@ -102,3 +103,22 @@ def test_repository_get_for_users(db):
     repo = SettingsRepository()
     repo.set(a.id, SNOOZE_OPTIONS, [5])
     assert repo.get_for_users([a.id, b.id, a.id], SNOOZE_OPTIONS) == {a.id: [5], b.id: [10, 60]}
+
+
+# --- repeat interval --------------------------------------------------------
+
+@pytest.mark.parametrize("value", [1, 5, 60])
+def test_validate_repeat_minutes(value):
+    assert validate_repeat_minutes(value) == value
+
+
+@pytest.mark.parametrize("value", [0, 61, 5.0, "5", True, None])
+def test_validate_repeat_minutes_rejects(value):
+    with pytest.raises(ValueError):
+        validate_repeat_minutes(value)
+
+
+def test_repeat_defaults_and_presets_are_valid():
+    assert validate_repeat_minutes(REPEAT_MINUTES.default) == 5
+    for minutes in REPEAT_PRESETS:
+        validate_repeat_minutes(minutes)

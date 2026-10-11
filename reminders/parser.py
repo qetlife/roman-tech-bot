@@ -15,6 +15,13 @@ Supported "when" expressions (case-insensitive):
     24.12 / 24/12 / 2026-12-24 / dec 24 / 24th of december 2026
 and combinations of a day and a time, e.g. "tomorrow at 9", "friday 18:00",
 "at 9 tomorrow", "tomorrow morning", "on dec 24 at 10am".
+
+Recurring expressions, optionally with a time (09:00 if none is given; a
+bare "at 9" is 09:00 unless a day part says otherwise):
+    every day / daily / every morning / every evening at 7
+    every weekday / on weekdays / every weekend / weekends
+    every monday / every mon and thu / mondays and fridays / every week
+e.g. "every day at 9", "at 8:30 on weekdays", "every friday 18:00".
 """
 
 import re
@@ -23,6 +30,8 @@ from dataclasses    import dataclass
 from datetime       import date, datetime, time, timedelta
 from typing         import Optional
 
+from reminders.recurrence import EVERY_DAY, WEEKDAYS as WORKDAYS, WEEKENDS, Recurrence
+
 
 class ParseError(ValueError):
     """The request could not be understood; the message is shown to the user."""
@@ -30,8 +39,9 @@ class ParseError(ValueError):
 
 @dataclass
 class ParsedReminder:
-    when: datetime   # timezone-aware, in the user's timezone
+    when: datetime   # timezone-aware, in the user's timezone; first occurrence if recurring
     text: str
+    recurrence: Optional[Recurrence] = None
 
 
 DEFAULT_TIME = time(9, 0)
@@ -67,6 +77,9 @@ MONTHS = {
     "august": 8, "aug": 8, "september": 9, "sep": 9, "sept": 9, "october": 10, "oct": 10,
     "november": 11, "nov": 11, "december": 12, "dec": 12,
 }
+
+# Only full names have plurals ("mondays"); "tues" is not "tue" + s.
+FULL_WEEKDAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
 
 DAY_PARTS = {
     "morning": time(9, 0), "afternoon": time(15, 0), "evening": time(19, 0),
@@ -385,6 +398,95 @@ def parse_when(phrase: str, now: datetime) -> Optional[datetime]:
     return _resolve(w, now)
 
 
+def _read_weekday_list(tokens: list, i: int, plural: bool):
+    """Read "monday and thursday" / "mondays, fridays" starting at i."""
+    def weekday(tok):
+        if plural:
+            return WEEKDAYS[tok[:-1]] if tok.endswith("s") and tok[:-1] in FULL_WEEKDAYS else None
+        return WEEKDAYS.get(tok)
+
+    days = set()
+    while i < len(tokens) and (d := weekday(tokens[i])) is not None:
+        days.add(d)
+        i += 1
+        if tokens[i:i + 1] == ["and"] and i + 1 < len(tokens) and weekday(tokens[i + 1]) is not None:
+            i += 1
+    return i, days
+
+
+def _read_recurrence(tokens: list, i: int, now: datetime):
+    """Read "every day", "daily", "on weekdays", "mondays" starting at i.
+
+    Returns (next index, days, clock from a day part or None), or (i, None, None).
+    """
+    tok = tokens[i]
+    nxt = tokens[i + 1] if i + 1 < len(tokens) else None
+
+    if tok in ("daily", "everyday"):
+        return i + 1, EVERY_DAY, None
+    if tok == "weekdays":
+        return i + 1, WORKDAYS, None
+    if tok == "weekends":
+        return i + 1, WEEKENDS, None
+    j, days = _read_weekday_list(tokens, i, plural=True)
+    if days:
+        return j, frozenset(days), None
+
+    if tok != "every" or nxt is None:
+        return i, None, None
+    if nxt == "day":
+        return i + 2, EVERY_DAY, None
+    if nxt == "weekday":
+        return i + 2, WORKDAYS, None
+    if nxt == "weekend":
+        return i + 2, WEEKENDS, None
+    if nxt == "week":
+        return i + 2, frozenset({now.weekday()}), None
+    if nxt in ("morning", "afternoon", "evening", "night"):
+        return i + 2, EVERY_DAY, DAY_PARTS[nxt]
+    j, days = _read_weekday_list(tokens, i + 1, plural=False)
+    if days:
+        return j, frozenset(days), None
+    return i, None, None
+
+
+def parse_recurrence(phrase: str, now: datetime) -> Optional[tuple]:
+    """Parse a complete recurring expression: (first occurrence, Recurrence) or None."""
+    tokens = _tokenize(phrase)
+    for i in range(len(tokens)):
+        j, days, part_clock = _read_recurrence(tokens, i, now)
+        if days is not None:
+            break
+    else:
+        return None
+
+    rest = tokens[:i] + tokens[j:]
+    if not rest or all(t in CONNECTORS for t in rest):
+        if rest and rest[-1] == "at":
+            return None
+        clock = part_clock or DEFAULT_TIME
+    else:
+        w = _parse_when_tokens(rest, now)
+        if w is None or w.clock is None or w.delta is not None \
+                or w.day is not None or w.weekday is not None or w.next_week:
+            return None
+        clock = w.clock
+        if w.clock_ambiguous and part_clock is not None and part_clock.hour >= 12:
+            # "every evening at 7" is 19:00
+            clock = time(clock.hour + 12, clock.minute)
+
+    recurrence = Recurrence(days, clock)
+    return recurrence.next_after(now, now.tzinfo), recurrence
+
+
+def _parse_time(phrase: str, now: datetime) -> Optional[tuple]:
+    """A one-off or recurring time expression: (when, Recurrence or None)."""
+    when = parse_when(phrase, now)
+    if when is not None:
+        return when, None
+    return parse_recurrence(phrase, now)
+
+
 def _clean_text(text: str) -> str:
     text = text.strip()
     lowered = text.lower()
@@ -398,7 +500,7 @@ def _clean_text(text: str) -> str:
 def _is_text(text: str, now: datetime) -> bool:
     # Leftover words that are themselves a time ("tomorrow" in
     # "tomorrow at 9") mean the split was wrong.
-    return bool(text) and parse_when(text, now) is None
+    return bool(text) and _parse_time(text, now) is None
 
 
 def parse_reminder(request: str, now: datetime) -> ParsedReminder:
@@ -411,29 +513,29 @@ def parse_reminder(request: str, now: datetime) -> ParsedReminder:
     if not words:
         raise ParseError("What should I remind you about, and when?")
 
-    best = None   # (number of words used for the time, when, text)
+    best = None   # (number of words used for the time, (when, recurrence), text)
     for k in range(len(words), 0, -1):
         # Time expression at the start: "tomorrow at 9 to pay rent"
-        when = parse_when(" ".join(words[:k]), now)
-        if when is not None:
+        parsed = _parse_time(" ".join(words[:k]), now)
+        if parsed is not None:
             text = _clean_text(" ".join(words[k:]))
             if _is_text(text, now) and (best is None or k > best[0]):
-                best = (k, when, text)
+                best = (k, parsed, text)
         # Time expression at the end: "to pay rent tomorrow at 9"
-        when = parse_when(" ".join(words[-k:]), now)
-        if when is not None:
+        parsed = _parse_time(" ".join(words[-k:]), now)
+        if parsed is not None:
             text = _clean_text(" ".join(words[:-k]))
             if _is_text(text, now) and (best is None or k > best[0]):
-                best = (k, when, text)
+                best = (k, parsed, text)
         if best is not None:
             break
 
     if best is None:
-        if parse_when(request, now) is not None:
+        if _parse_time(request, now) is not None:
             raise ParseError("What should I remind you about?")
         raise ParseError("I couldn't understand when.")
 
-    _, when, text = best
+    _, (when, recurrence), text = best
     if when <= now:
         raise ParseError("That time has already passed.")
-    return ParsedReminder(when=when, text=text)
+    return ParsedReminder(when=when, text=text, recurrence=recurrence)

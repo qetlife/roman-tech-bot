@@ -10,6 +10,7 @@ from    db.repository.user_repository   import UserRepository
 from    helpers.chat_helper             import render_menu
 from    models.reminder                 import ReminderStatus, utcnow
 from    reminders.parser                import ParseError, parse_reminder
+from    reminders.recurrence            import Recurrence
 from    reminders.timezones             import COMMON_TIMEZONES, format_when, resolve_timezone
 from    settings.registry               import SNOOZE_MAX_MINUTES, SNOOZE_MIN_MINUTES, format_minutes
 
@@ -22,7 +23,9 @@ EXAMPLES = (
     "• in 2 hours to call mom\n"
     "• tomorrow at 9 to pay rent\n"
     "• to stretch at 18:30\n"
-    "• friday 10am: dentist"
+    "• friday 10am: dentist\n"
+    "• every day at 9 to take pills\n"
+    "• on weekdays at 8:30: standup"
 )
 
 # context.user_data["awaiting"] values: what the next plain message means
@@ -94,6 +97,14 @@ async def retire_fired_message(context: ContextTypes.DEFAULT_TYPE, reminder, not
         pass
 
 
+def schedule_text(reminder, tz_name: str) -> str:
+    """"🗓 Tomorrow, 09:00 (in 9 h)" plus "🔁 every day at 09:00" if recurring."""
+    text = f"🗓 {format_when(reminder.remind_at, tz_name, utcnow())}"
+    if reminder.recurrence:
+        text += f"\n🔁 {Recurrence.parse(reminder.recurrence).describe()}"
+    return text
+
+
 # --- creating ---------------------------------------------------------------
 
 def user_now(tz_name: str) -> datetime:
@@ -126,9 +137,10 @@ async def create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, re
         return
 
     context.user_data.pop("awaiting", None)
-    reminder = reminders.create(user, update.effective_chat.id, parsed.text, parsed.when)
+    recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
+    reminder = reminders.create(user, update.effective_chat.id, parsed.text, parsed.when, recurrence)
     await update.effective_message.reply_text(
-        f"⏰ Got it: {reminder.text}\n🗓 {format_when(reminder.remind_at, user.timezone, utcnow())}",
+        f"⏰ Got it: {reminder.text}\n{schedule_text(reminder, user.timezone)}",
         reply_markup=build_created_keyboard(reminder.id),
     )
 
@@ -148,13 +160,14 @@ async def edit_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
         return
 
     context.user_data.pop("awaiting", None)
-    updated = reminders.reschedule(reminder.id, parsed.text, parsed.when)
+    recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
+    updated = reminders.reschedule(reminder.id, parsed.text, parsed.when, recurrence)
     if updated is None:
         await update.effective_message.reply_text("That reminder has already finished.")
         return
     await retire_fired_message(context, reminder, "✏️ Edited, see the updated reminder below.")
     await update.effective_message.reply_text(
-        f"✏️ Updated: {updated.text}\n🗓 {format_when(updated.remind_at, user.timezone, utcnow())}",
+        f"✏️ Updated: {updated.text}\n{schedule_text(updated, user.timezone)}",
         reply_markup=build_created_keyboard(updated.id),
     )
 
@@ -171,10 +184,10 @@ async def on_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def reminders_list_text(user, items) -> str:
     if not items:
         return "You have no upcoming reminders."
-    now = utcnow()
     lines = ["Your reminders (tap ❌ to cancel):", ""]
     for n, r in enumerate(items, 1):
-        lines.append(f"{n}. {r.text}\n    🗓 {format_when(r.remind_at, user.timezone or 'UTC', now)}")
+        schedule = schedule_text(r, user.timezone or "UTC").replace("\n", "\n    ")
+        lines.append(f"{n}. {r.text}\n    {schedule}")
     return "\n".join(lines)
 
 
@@ -211,7 +224,25 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if reminder is None:
         return
 
-    if action == "ok":
+    if action == "ok" and reminder.recurrence:
+        if reminder.status != ReminderStatus.FIRING:
+            # A stale message; the reminder has already moved on.
+            await query.answer("Already done.")
+            await query.edit_message_reply_markup(reply_markup=None)
+            return
+        user = users.get_or_create(update.effective_user.id)
+        tz_name = user.timezone or "UTC"
+        next_at = Recurrence.parse(reminder.recurrence).next_after(
+            max(utcnow(), reminder.remind_at), ZoneInfo(tz_name),
+        )
+        updated = reminders.advance(reminder_id, next_at)
+        await query.answer("Done!")
+        if updated is None:
+            await query.edit_message_text(f"✅ {reminder.text}")
+            return
+        await query.edit_message_text(f"✅ {reminder.text}\n\nNext: {format_when(next_at, tz_name, utcnow())}")
+
+    elif action == "ok":
         reminders.acknowledge(reminder_id)
         await query.answer("Done!")
         await query.edit_message_text(f"✅ {reminder.text}")

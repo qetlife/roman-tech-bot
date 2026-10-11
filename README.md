@@ -7,7 +7,7 @@ The bot currently provides an inline-button menu UI, basic settings actions, and
 ## Current Features
 
 - `/start`, `/menu`
-- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`, `💤 Snooze options`)
+- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`, `💤 Snooze options`, `🔁 Repeat interval`)
 - Persistent user registration by `telegram_id` on first `/start`
 - Single-message menu UX (the menu message is edited in place as you navigate)
 - Reminders (see below)
@@ -20,6 +20,9 @@ Create a reminder by typing in a private chat with the bot, or via
 - “remind me in 2 hours to call mom”
 - “set a reminder for tomorrow at 9: pay rent”
 - “remind me to stretch at 18:30”
+- “remind me every day at 9 to take pills”
+- “remind me on weekdays at 8:30: standup” (also “every monday and
+  thursday”, “every weekend”, “mondays”, “every evening at 7”)
 
 The bot confirms with the parsed time and `↩️ Undo` / `✏️ Edit` buttons.
 “my reminders” (or `📋 My reminders`) lists upcoming reminders with `❌` to
@@ -28,9 +31,14 @@ cancel. The first reminder asks for your timezone (changeable under
 
 When a reminder is due the bot sends it with `✅ OK` and snooze buttons
 (`💤 10 min`, `💤 1 h` by default; up to 3 options of your choice under
-`⚙️ Settings → 💤 Snooze options`). Until OK is pressed it is re-sent every 5 minutes (the previous
-copy is deleted), and after 24 hours without a response it is marked missed.
+`⚙️ Settings → 💤 Snooze options`). Until OK is pressed it is re-sent every 5 minutes (changeable under
+`⚙️ Settings → 🔁 Repeat interval`; the previous copy is deleted), and after 24 hours without a response it is marked missed.
 Only the reminder's owner can press its buttons.
+
+Recurring reminders work the same way; pressing OK (or not answering before
+the next occurrence or within 24 hours) moves them on to the next occurrence.
+Cancelling one cancels the whole series. Their time stays in local time, so
+“every day at 9” is 09:00 across DST changes.
 
 How it works:
 

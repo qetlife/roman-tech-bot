@@ -13,6 +13,7 @@ def build_settings_menu():
         [InlineKeyboardButton("🆔 My ID", callback_data="settings:my_id")],
         [InlineKeyboardButton("🌍 Timezone", callback_data="settings:timezone")],
         [InlineKeyboardButton("💤 Snooze options", callback_data="settings:snooze")],
+        [InlineKeyboardButton("🔁 Repeat interval", callback_data="settings:repeat")],
         [InlineKeyboardButton("↩️ Back", callback_data="settings:back")],
     ]
     return InlineKeyboardMarkup(keyboard)

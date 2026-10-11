@@ -5,7 +5,7 @@ from    db.repository.settings_repository import SettingsRepository
 from    db.repository.user_repository import UserRepository
 from    helpers.chat_helper         import render_menu
 from    settings.registry           import (
-    SNOOZE_OPTIONS, SNOOZE_PRESETS, format_minutes, parse_snooze_options,
+    REPEAT_MINUTES, REPEAT_PRESETS, SNOOZE_OPTIONS, SNOOZE_PRESETS, format_minutes, parse_snooze_options,
 )
 
 
@@ -97,3 +97,42 @@ async def on_snooze_text(update: Update, context: ContextTypes.DEFAULT_TYPE, tex
             InlineKeyboardButton("↩️ Settings", callback_data="menu:settings"),
         ]]),
     )
+
+
+# --- repeat interval --------------------------------------------------------
+
+def build_repeat_menu(current):
+    buttons = [
+        InlineKeyboardButton(("✅ " if m == current else "") + format_minutes(m), callback_data=f"rptopt:set:{m}")
+        for m in REPEAT_PRESETS
+    ]
+    rows = [buttons[i:i + 3] for i in range(0, len(buttons), 3)]
+    rows.append([InlineKeyboardButton("↩️ Back", callback_data="menu:settings")])
+    return InlineKeyboardMarkup(rows)
+
+
+def repeat_menu_text(current) -> str:
+    return (
+        f"{REPEAT_MINUTES.label}\n\n"
+        f"Current: every {format_minutes(current)}\n\n"
+        "Until you press OK, a reminder is sent again this often."
+    )
+
+
+async def on_repeat_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, toast: str = None):
+    """⚙️ Settings → 🔁 Repeat interval."""
+    await update.callback_query.answer(toast)
+    user = users.get_or_create(update.effective_user.id)
+    current = settings.get(user.id, REPEAT_MINUTES)
+    await render_menu(update, context, repeat_menu_text(current), build_repeat_menu(current))
+
+
+async def on_repeat_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = users.get_or_create(update.effective_user.id)
+    try:
+        settings.set(user.id, REPEAT_MINUTES, int(query.data.removeprefix("rptopt:set:")))
+    except ValueError as e:
+        await query.answer(str(e), show_alert=True)
+        return
+    await on_repeat_settings(update, context, toast="Saved")
