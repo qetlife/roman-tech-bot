@@ -12,6 +12,7 @@ from    db.db                       import init_db
 from    intents.text_handler        import on_text
 from    reminders                   import handlers as reminders
 from    reminders.delivery          import POLL_INTERVAL, deliver_due
+from    settings                    import handlers as user_settings
 
 def main():
     load_dotenv()
@@ -39,6 +40,8 @@ def main():
     app.add_handler(CallbackQueryHandler(on_my_id,        pattern=r"^settings:my_id$"))
     app.add_handler(CallbackQueryHandler(on_back_settings, pattern=r"^settings:back$"))
     app.add_handler(CallbackQueryHandler(reminders.on_timezone_settings, pattern=r"^settings:timezone$"))
+    app.add_handler(CallbackQueryHandler(user_settings.on_snooze_settings, pattern=r"^settings:snooze$"))
+    app.add_handler(CallbackQueryHandler(user_settings.on_snooze_button,   pattern=r"^snzopt:"))
 
     # Reminders
     app.add_handler(CallbackQueryHandler(reminders.on_new,              pattern=r"^rem:new$"))

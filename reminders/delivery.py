@@ -8,13 +8,16 @@ from    telegram.error              import Forbidden, TelegramError
 from    telegram.ext                import ContextTypes
 
 from    db.repository.reminder_repository import ReminderRepository
+from    db.repository.settings_repository import SettingsRepository
 from    models.reminder             import ReminderStatus, utcnow
 from    reminders.handlers          import build_fire_keyboard
+from    settings.registry           import SNOOZE_OPTIONS
 
 
 logger = logging.getLogger(__name__)
 
 reminders = ReminderRepository()
+settings = SettingsRepository()
 
 POLL_INTERVAL = timedelta(seconds=20)
 REPEAT_EVERY = timedelta(minutes=5)
@@ -36,15 +39,18 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE):
     bot = context.bot
     now = utcnow()
 
-    for reminder in reminders.get_due(now):
+    due = reminders.get_due(now)
+    snooze_options = settings.get_for_users((r.target_user_id for r in due), SNOOZE_OPTIONS)
+
+    for reminder in due:
         try:
-            await _deliver(bot, reminder, now)
+            await _deliver(bot, reminder, now, snooze_options[reminder.target_user_id])
         except Exception:
             # One broken reminder must not stop the others; it is retried next poll.
             logger.exception("Failed to deliver reminder %s", reminder.id)
 
 
-async def _deliver(bot, reminder, now):
+async def _deliver(bot, reminder, now, snooze_minutes):
     if reminder.status == ReminderStatus.FIRING and now - reminder.remind_at >= GIVE_UP_AFTER:
         reminders.mark_missed(reminder.id)
         try:
@@ -63,7 +69,7 @@ async def _deliver(bot, reminder, now):
 
     try:
         message = await bot.send_message(
-            chat_id=reminder.chat_id, text=text, reply_markup=build_fire_keyboard(reminder.id),
+            chat_id=reminder.chat_id, text=text, reply_markup=build_fire_keyboard(reminder.id, snooze_minutes),
         )
     except Forbidden:
         # The user blocked the bot or deleted the chat; retrying won't help.

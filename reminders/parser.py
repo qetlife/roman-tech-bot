@@ -363,6 +363,17 @@ def _resolve(w: _When, now: datetime) -> datetime:
     return result
 
 
+def parse_duration(phrase: str) -> Optional[timedelta]:
+    """Parse a complete duration like "10m", "1 hour", "1h30m" or "half an hour"."""
+    tokens = _tokenize(phrase)
+    if not tokens:
+        return None
+    j, delta = _read_duration(tokens, 0)
+    if delta is None or j != len(tokens):
+        return None
+    return delta
+
+
 def parse_when(phrase: str, now: datetime) -> Optional[datetime]:
     """Parse a complete time expression, or return None."""
     tokens = _tokenize(phrase)

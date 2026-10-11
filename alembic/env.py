@@ -9,6 +9,7 @@ from sqlalchemy     import create_engine, pool
 # Import every model module here so autogenerate sees all tables.
 from models.user    import Base
 import models.reminder  # noqa: F401
+import models.user_setting  # noqa: F401
 
 load_dotenv()
 
