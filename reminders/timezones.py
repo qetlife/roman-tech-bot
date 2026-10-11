@@ -7,7 +7,7 @@ from zoneinfo   import ZoneInfo, available_timezones
 
 # Offered as buttons; anything else can be typed.
 COMMON_TIMEZONES = [
-    "Europe/Kyiv", "Europe/Warsaw", "Europe/Berlin",
+    "Europe/Lisbon", "Europe/Kyiv", "Europe/Warsaw", "Europe/Berlin",
     "Europe/London", "America/New_York", "UTC",
 ]
 
