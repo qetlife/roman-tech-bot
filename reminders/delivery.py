@@ -13,7 +13,7 @@ from    db.repository.settings_repository import SettingsRepository
 from    db.repository.user_repository import UserRepository
 from    models.reminder             import ReminderStatus, utcnow
 from    reminders.handlers          import build_fire_keyboard
-from    reminders.recurrence        import Recurrence
+from    reminders                   import recurrence as recurrences
 from    settings.registry           import REPEAT_MINUTES, SNOOZE_OPTIONS
 
 
@@ -88,7 +88,7 @@ async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz):
     gave_up = firing and now - reminder.remind_at >= GIVE_UP_AFTER
 
     if reminder.recurrence:
-        latest, upcoming = _catch_up(Recurrence.parse(reminder.recurrence), reminder, now, tz)
+        latest, upcoming = _catch_up(recurrences.parse(reminder.recurrence), reminder, now, tz)
         if latest is not None or gave_up:
             # This occurrence is over: move on. A due one is sent on the next poll.
             if firing:

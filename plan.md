@@ -38,6 +38,8 @@ Status and next steps for `roman-tech-bot`.
   `reminders.recurrence` as e.g. `mon,thu@18:00`, local time). OK or a missed
   occurrence moves on to the next one; after downtime only the latest due
   occurrence is sent.
+- Interval repeats (“every 2 hours”, “every other day”, at least 15 min) and
+  monthly ones (“on the 1st of every month”).
 
 ### Settings
 
@@ -58,7 +60,7 @@ Decisions made along the way (from the old “Open decisions” list):
 
 ### Reminders (phase 3)
 
-- Interval repeats (“every 2 hours”) and monthly ones.
+- Quiet hours for interval repeats, so “every 2 hours” skips the night.
 - Reminders for other users. The `reminders` table already has
   `creator_user_id` and `target_user_id`. Open questions:
   - how to pick the target (Telegram username, forwarded message, contact

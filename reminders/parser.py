@@ -21,7 +21,11 @@ bare "at 9" is 09:00 unless a day part says otherwise):
     every day / daily / every morning / every evening at 7
     every weekday / on weekdays / every weekend / weekends
     every monday / every mon and thu / mondays and fridays / every week
-e.g. "every day at 9", "at 8:30 on weekdays", "every friday 18:00".
+    every 2 hours / every 30 minutes / every hour        (from now, at least 15 min)
+    every 3 days / every other day / every 2 weeks       (optionally "at 9")
+    monthly / every month on the 15th / every 1st / the 1st of every month
+e.g. "every day at 9", "at 8:30 on weekdays", "every friday 18:00",
+"every 2 hours", "every month on the 1st at 10".
 """
 
 import re
@@ -30,7 +34,9 @@ from dataclasses    import dataclass
 from datetime       import date, datetime, time, timedelta
 from typing         import Optional
 
-from reminders.recurrence import EVERY_DAY, WEEKDAYS as WORKDAYS, WEEKENDS, Recurrence
+from reminders.recurrence import (
+    EVERY_DAY, WEEKDAYS as WORKDAYS, WEEKENDS, Interval, Monthly, Recurrence, Weekly,
+)
 
 
 class ParseError(ValueError):
@@ -85,6 +91,9 @@ DAY_PARTS = {
     "morning": time(9, 0), "afternoon": time(15, 0), "evening": time(19, 0),
     "night": time(21, 0), "noon": time(12, 0), "midday": time(12, 0), "midnight": time(0, 0),
 }
+
+# Shortest "every N minutes" reminder.
+MIN_INTERVAL = timedelta(minutes=15)
 
 # Words that may sit between parts of a time expression ("on friday at 9").
 CONNECTORS = {"at", "on", "by", "for", "this", "the", "of", "and"}
@@ -414,68 +423,148 @@ def _read_weekday_list(tokens: list, i: int, plural: bool):
     return i, days
 
 
-def _read_recurrence(tokens: list, i: int, now: datetime):
-    """Read "every day", "daily", "on weekdays", "mondays" starting at i.
+# Ordinal day of the month in a monthly expression: "15th", "1st".
+MONTH_DAY_RE = re.compile(r"^(\d{1,2})(?:st|nd|rd|th)$")
+MONTH_WORDS = (["of", "every", "month"], ["of", "the", "month"], ["every", "month"])
 
-    Returns (next index, days, clock from a day part or None), or (i, None, None).
+
+@dataclass
+class _Repeat:
+    kind: str                           # "weekly", "monthly" or "interval"
+    days: frozenset = None              # weekly
+    day: Optional[int] = None           # monthly; None = to be found, or today's
+    every: Optional[timedelta] = None   # interval
+    clock: Optional[time] = None        # from a day part ("every evening")
+
+
+def _month_day(tok: str) -> Optional[int]:
+    m = MONTH_DAY_RE.match(tok)
+    return int(m.group(1)) if m and 1 <= int(m.group(1)) <= 31 else None
+
+
+def _skip_month_words(tokens: list, j: int) -> int:
+    for words in MONTH_WORDS:
+        if tokens[j:j + len(words)] == words:
+            return j + len(words)
+    return j
+
+
+def _read_recurrence(tokens: list, i: int, now: datetime):
+    """Read "every day", "daily", "on weekdays", "mondays", "every 2 hours",
+    "monthly", "the 1st of every month" starting at i.
+
+    Returns (next index, _Repeat), or (i, None).
     """
     tok = tokens[i]
     nxt = tokens[i + 1] if i + 1 < len(tokens) else None
 
     if tok in ("daily", "everyday"):
-        return i + 1, EVERY_DAY, None
+        return i + 1, _Repeat("weekly", days=EVERY_DAY)
     if tok == "weekdays":
-        return i + 1, WORKDAYS, None
+        return i + 1, _Repeat("weekly", days=WORKDAYS)
     if tok == "weekends":
-        return i + 1, WEEKENDS, None
+        return i + 1, _Repeat("weekly", days=WEEKENDS)
+    if tok == "monthly":
+        return i + 1, _Repeat("monthly")
     j, days = _read_weekday_list(tokens, i, plural=True)
     if days:
-        return j, frozenset(days), None
+        return j, _Repeat("weekly", days=frozenset(days))
+    # "the 1st of every month"
+    if (day := _month_day(tok)) is not None and (j := _skip_month_words(tokens, i + 1)) > i + 1:
+        return j, _Repeat("monthly", day=day)
 
     if tok != "every" or nxt is None:
-        return i, None, None
+        return i, None
     if nxt == "day":
-        return i + 2, EVERY_DAY, None
+        return i + 2, _Repeat("weekly", days=EVERY_DAY)
     if nxt == "weekday":
-        return i + 2, WORKDAYS, None
+        return i + 2, _Repeat("weekly", days=WORKDAYS)
     if nxt == "weekend":
-        return i + 2, WEEKENDS, None
+        return i + 2, _Repeat("weekly", days=WEEKENDS)
     if nxt == "week":
-        return i + 2, frozenset({now.weekday()}), None
+        return i + 2, _Repeat("weekly", days=frozenset({now.weekday()}))
+    if nxt == "month":
+        return i + 2, _Repeat("monthly")
     if nxt in ("morning", "afternoon", "evening", "night"):
-        return i + 2, EVERY_DAY, DAY_PARTS[nxt]
+        return i + 2, _Repeat("weekly", days=EVERY_DAY, clock=DAY_PARTS[nxt])
+    # "every 15th [of the month]"
+    if (day := _month_day(nxt)) is not None:
+        return _skip_month_words(tokens, i + 2), _Repeat("monthly", day=day)
     j, days = _read_weekday_list(tokens, i + 1, plural=False)
     if days:
-        return j, frozenset(days), None
-    return i, None, None
+        return j, _Repeat("weekly", days=frozenset(days))
+    # "every hour" / "every other day" / "every 2 hours"
+    if nxt in UNITS and UNITS[nxt] != "seconds":
+        return i + 2, _Repeat("interval", every=timedelta(**{UNITS[nxt]: 1}))
+    if nxt == "other" and i + 2 < len(tokens) and UNITS.get(tokens[i + 2]) in ("days", "weeks"):
+        return i + 3, _Repeat("interval", every=timedelta(**{UNITS[tokens[i + 2]]: 2}))
+    j, delta = _read_duration(tokens, i + 1)
+    if delta is not None:
+        return j, _Repeat("interval", every=delta)
+    return i, None
+
+
+def _repeat_clock(rest: list, now: datetime, part_clock: Optional[time]):
+    """The time of day from the words around a repeat: (ok, clock or None)."""
+    if not rest or all(t in CONNECTORS for t in rest):
+        return (not rest or rest[-1] != "at"), part_clock
+    w = _parse_when_tokens(rest, now)
+    if w is None or w.clock is None or w.delta is not None \
+            or w.day is not None or w.weekday is not None or w.next_week:
+        return False, None
+    clock = w.clock
+    if w.clock_ambiguous and part_clock is not None and part_clock.hour >= 12:
+        # "every evening at 7" is 19:00
+        clock = time(clock.hour + 12, clock.minute)
+    return True, clock
 
 
 def parse_recurrence(phrase: str, now: datetime) -> Optional[tuple]:
-    """Parse a complete recurring expression: (first occurrence, Recurrence) or None."""
-    tokens = _tokenize(phrase)
+    """Parse a complete recurring expression: (first occurrence, Recurrence) or None.
+
+    Raises ParseError for an understood but unsupported interval.
+    """
+    tokens = ["every" if t == "each" else t for t in _tokenize(phrase)]
     for i in range(len(tokens)):
-        j, days, part_clock = _read_recurrence(tokens, i, now)
-        if days is not None:
+        j, repeat = _read_recurrence(tokens, i, now)
+        if repeat is not None:
             break
     else:
         return None
 
     rest = tokens[:i] + tokens[j:]
-    if not rest or all(t in CONNECTORS for t in rest):
-        if rest and rest[-1] == "at":
-            return None
-        clock = part_clock or DEFAULT_TIME
-    else:
-        w = _parse_when_tokens(rest, now)
-        if w is None or w.clock is None or w.delta is not None \
-                or w.day is not None or w.weekday is not None or w.next_week:
-            return None
-        clock = w.clock
-        if w.clock_ambiguous and part_clock is not None and part_clock.hour >= 12:
-            # "every evening at 7" is 19:00
-            clock = time(clock.hour + 12, clock.minute)
+    if repeat.kind == "monthly" and repeat.day is None:
+        # "every month on the 15th"
+        for k, tok in enumerate(rest):
+            if (day := _month_day(tok)) is not None:
+                repeat.day = day
+                del rest[k]
+                break
 
-    recurrence = Recurrence(days, clock)
+    ok, clock = _repeat_clock(rest, now, repeat.clock)
+    if not ok:
+        return None
+
+    if repeat.kind == "weekly":
+        recurrence = Weekly(repeat.days, clock or DEFAULT_TIME)
+    elif repeat.kind == "monthly":
+        recurrence = Monthly(repeat.day or now.day, clock or DEFAULT_TIME)
+    else:
+        every = repeat.every
+        if every < MIN_INTERVAL:
+            raise ParseError(f"The shortest repeat is every {MIN_INTERVAL.seconds // 60} minutes.")
+        if every % timedelta(minutes=1):
+            raise ParseError("Repeats must be in whole minutes.")
+        if every % timedelta(days=1) == timedelta():
+            # "every 3 days [at 9]": the first one at the next 09:00
+            first = Weekly(EVERY_DAY, clock or DEFAULT_TIME).next_after(now, now.tzinfo)
+        elif clock is not None:
+            return None
+        else:
+            # "every 2 hours": the first one 2 hours from now
+            first = (now + every).replace(second=0, microsecond=0)
+        recurrence = Interval(every, first)
+
     return recurrence.next_after(now, now.tzinfo), recurrence
 
 

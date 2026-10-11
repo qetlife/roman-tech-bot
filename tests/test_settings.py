@@ -122,3 +122,33 @@ def test_repeat_defaults_and_presets_are_valid():
     assert validate_repeat_minutes(REPEAT_MINUTES.default) == 5
     for minutes in REPEAT_PRESETS:
         validate_repeat_minutes(minutes)
+
+
+# --- reminder settings menu -------------------------------------------------
+
+@pytest.mark.parametrize("entries, expected_back", [
+    (["settings:reminders"],                "menu:settings"),
+    (["rem:settings"],                      "menu:reminders"),
+    # Coming back from a sub-screen keeps the original entry point.
+    (["rem:settings", "rset:show"],         "menu:reminders"),
+    (["rset:show"],                         "menu:settings"),
+])
+def test_reminder_settings_back_button(db, monkeypatch, entries, expected_back):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from settings import handlers
+
+    render = AsyncMock()
+    monkeypatch.setattr(handlers, "render_menu", render)
+    context = MagicMock(user_data={})
+    for data in entries:
+        update = MagicMock()
+        update.effective_user.id = 333
+        update.callback_query.data = data
+        update.callback_query.answer = AsyncMock()
+        asyncio.run(handlers.on_reminder_settings(update, context))
+
+    _, _, text, keyboard = render.call_args.args
+    assert "Snooze options: 10 min · 1 h" in text and "Repeat interval: every 5 min" in text
+    assert keyboard.inline_keyboard[-1][0].callback_data == expected_back

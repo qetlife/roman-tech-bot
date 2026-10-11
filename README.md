@@ -7,7 +7,8 @@ The bot currently provides an inline-button menu UI, basic settings actions, and
 ## Current Features
 
 - `/start`, `/menu`
-- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`, `💤 Snooze options`, `🔁 Repeat interval`)
+- Inline main menu: `⏰ Reminders`, `⚙️ Settings` (`🆔 My ID`, `🌍 Timezone`, `⏰ Reminders` → `💤 Snooze options`, `🔁 Repeat interval`)
+- Reminder settings are also reachable from `⏰ Reminders → ⚙️ Settings`
 - Persistent user registration by `telegram_id` on first `/start`
 - Single-message menu UX (the menu message is edited in place as you navigate)
 - Reminders (see below)
@@ -23,6 +24,10 @@ Create a reminder by typing in a private chat with the bot, or via
 - “remind me every day at 9 to take pills”
 - “remind me on weekdays at 8:30: standup” (also “every monday and
   thursday”, “every weekend”, “mondays”, “every evening at 7”)
+- “remind me every 2 hours to drink water” (also “every 30 minutes”,
+  “every other day at 20:00”, “every 2 weeks”; at least 15 minutes apart)
+- “remind me on the 1st of every month to pay rent” (also “monthly”,
+  “every month on the 15th at 10”; in shorter months the 31st is the last day)
 
 The bot confirms with the parsed time and `↩️ Undo` / `✏️ Edit` buttons.
 “my reminders” (or `📋 My reminders`) lists upcoming reminders with `❌` to
@@ -31,8 +36,8 @@ cancel. The first reminder asks for your timezone (changeable under
 
 When a reminder is due the bot sends it with `✅ OK` and snooze buttons
 (`💤 10 min`, `💤 1 h` by default; up to 3 options of your choice under
-`⚙️ Settings → 💤 Snooze options`). Until OK is pressed it is re-sent every 5 minutes (changeable under
-`⚙️ Settings → 🔁 Repeat interval`; the previous copy is deleted), and after 24 hours without a response it is marked missed.
+`⚙️ Settings → ⏰ Reminders → 💤 Snooze options`). Until OK is pressed it is re-sent every 5 minutes (changeable under
+`⚙️ Settings → ⏰ Reminders → 🔁 Repeat interval`; the previous copy is deleted), and after 24 hours without a response it is marked missed.
 Only the reminder's owner can press its buttons.
 
 Recurring reminders work the same way; pressing OK (or not answering before
