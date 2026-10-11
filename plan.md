@@ -65,5 +65,4 @@ Decisions made along the way (from the old “Open decisions” list):
 
 ### General
 
-- Error handling: `/start` still swallows exceptions silently.
 - Tests for the handlers (currently covered only by manual end-to-end runs).
