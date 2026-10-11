@@ -5,7 +5,8 @@ from    db.repository.settings_repository import SettingsRepository
 from    db.repository.user_repository import UserRepository
 from    helpers.chat_helper         import render_menu
 from    settings.registry           import (
-    REPEAT_MINUTES, REPEAT_PRESETS, SNOOZE_OPTIONS, SNOOZE_PRESETS, format_minutes, parse_snooze_options,
+    QUIET_HOURS, QUIET_PRESETS, REPEAT_MINUTES, REPEAT_PRESETS, SNOOZE_OPTIONS, SNOOZE_PRESETS,
+    format_minutes, format_quiet_hours, parse_quiet_hours, parse_snooze_options,
 )
 
 
@@ -14,6 +15,7 @@ settings = SettingsRepository()
 
 # context.user_data["awaiting"] value while waiting for custom snooze options
 AWAIT_SNOOZE_OPTIONS = "snooze_options"
+AWAIT_QUIET_HOURS = "quiet_hours"
 
 # Reminder settings open from ⚙️ Settings or from the ⏰ Reminders menu;
 # ↩️ Back returns to whichever it was.
@@ -34,15 +36,17 @@ def build_reminder_settings_menu(back: str):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(SNOOZE_OPTIONS.label, callback_data="settings:snooze")],
         [InlineKeyboardButton(REPEAT_MINUTES.label, callback_data="settings:repeat")],
+        [InlineKeyboardButton(QUIET_HOURS.label, callback_data="settings:quiet")],
         [InlineKeyboardButton("↩️ Back", callback_data=back)],
     ])
 
 
-def reminder_settings_text(snooze, repeat) -> str:
+def reminder_settings_text(snooze, repeat, quiet) -> str:
     return (
         "⏰ Reminder settings:\n\n"
         f"{SNOOZE_OPTIONS.label}: {format_snooze_options(snooze)}\n"
-        f"{REPEAT_MINUTES.label}: every {format_minutes(repeat)}"
+        f"{REPEAT_MINUTES.label}: every {format_minutes(repeat)}\n"
+        f"{QUIET_HOURS.label}: {format_quiet_hours(quiet)}"
     )
 
 
@@ -55,7 +59,9 @@ async def on_reminder_settings(update: Update, context: ContextTypes.DEFAULT_TYP
     back = context.user_data.get(REMINDER_SETTINGS_BACK, "menu:settings")
 
     user = users.get_or_create(update.effective_user.id)
-    text = reminder_settings_text(settings.get(user.id, SNOOZE_OPTIONS), settings.get(user.id, REPEAT_MINUTES))
+    text = reminder_settings_text(
+        settings.get(user.id, SNOOZE_OPTIONS), settings.get(user.id, REPEAT_MINUTES), settings.get(user.id, QUIET_HOURS),
+    )
     await render_menu(update, context, text, build_reminder_settings_menu(back))
 
 
@@ -178,3 +184,84 @@ async def on_repeat_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer(str(e), show_alert=True)
         return
     await on_repeat_settings(update, context, toast="Saved")
+
+
+# --- quiet hours ------------------------------------------------------------
+
+def build_quiet_menu(current):
+    rows = [
+        [InlineKeyboardButton(
+            ("✅ " if preset == current else "") + format_quiet_hours(preset),
+            callback_data="qhopt:set:" + "-".join(preset),
+        )]
+        for preset in QUIET_PRESETS
+    ]
+    rows.append([InlineKeyboardButton(("✅ " if not current else "") + "🔔 Off", callback_data="qhopt:off")])
+    rows.append([
+        InlineKeyboardButton("✏️ Custom", callback_data="qhopt:custom"),
+        InlineKeyboardButton("♻️ Default", callback_data="qhopt:default"),
+    ])
+    rows.append([InlineKeyboardButton("↩️ Back", callback_data="rset:show")])
+    return InlineKeyboardMarkup(rows)
+
+
+def quiet_menu_text(current) -> str:
+    return (
+        f"{QUIET_HOURS.label}\n\n"
+        f"Current: {format_quiet_hours(current)}\n\n"
+        "During quiet hours, “every 2 hours”-style reminders are skipped and "
+        "unanswered reminders wait until morning. Reminders set for a specific "
+        "time still go off."
+    )
+
+
+async def on_quiet_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, toast: str = None):
+    """⏰ Reminder settings → 🌙 Quiet hours."""
+    await update.callback_query.answer(toast)
+    user = users.get_or_create(update.effective_user.id)
+    current = settings.get(user.id, QUIET_HOURS)
+    await render_menu(update, context, quiet_menu_text(current), build_quiet_menu(current))
+
+
+async def on_quiet_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    action, _, arg = query.data.removeprefix("qhopt:").partition(":")
+    user = users.get_or_create(update.effective_user.id)
+
+    if action == "custom":
+        context.user_data["awaiting"] = AWAIT_QUIET_HOURS
+        await query.answer()
+        await query.message.reply_text("Send the quiet hours, e.g. “23:00-07:00” or “22 to 8”, or “off”.")
+        return
+
+    try:
+        if action == "default":
+            settings.reset(user.id, QUIET_HOURS)
+        elif action == "off":
+            settings.set(user.id, QUIET_HOURS, [])
+        else:
+            settings.set(user.id, QUIET_HOURS, arg.split("-"))
+    except ValueError as e:
+        await query.answer(str(e), show_alert=True)
+        return
+
+    await on_quiet_settings(update, context, toast="Saved")
+
+
+async def on_quiet_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """Answer to ✏️ Custom."""
+    try:
+        value = parse_quiet_hours(text)
+    except ValueError as e:
+        await update.effective_message.reply_text(f"{e} Try again, e.g. “23:00-07:00” or “off”.")
+        return
+
+    user = users.get_or_create(update.effective_user.id)
+    settings.set(user.id, QUIET_HOURS, value)
+    context.user_data.pop("awaiting", None)
+    await update.effective_message.reply_text(
+        f"🌙 Quiet hours set to {format_quiet_hours(value)}.",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("↩️ Reminder settings", callback_data="rset:show"),
+        ]]),
+    )

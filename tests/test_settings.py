@@ -151,4 +151,5 @@ def test_reminder_settings_back_button(db, monkeypatch, entries, expected_back):
 
     _, _, text, keyboard = render.call_args.args
     assert "Snooze options: 10 min · 1 h" in text and "Repeat interval: every 5 min" in text
+    assert "Quiet hours: 00:00–07:00" in text
     assert keyboard.inline_keyboard[-1][0].callback_data == expected_back

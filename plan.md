@@ -47,6 +47,11 @@ Status and next steps for `roman-tech-bot`.
   (`settings/registry.py`), only changed values stored in `user_settings`.
 - 💤 Snooze options: presets or custom (up to 3, 1 min–24 h).
 - 🔁 Repeat interval for unanswered reminders: 2 min–1 h presets (default 5 min).
+- 🌙 Quiet hours (default 00:00–07:00, presets, custom or off): interval
+  occurrences are skipped and repeats of unanswered reminders wait until
+  morning; reminders at a specific time still fire.
+- Reminder settings are grouped under ⏰ Reminders (also reachable from the
+  ⏰ Reminders menu).
 
 Decisions made along the way (from the old “Open decisions” list):
 
@@ -60,7 +65,6 @@ Decisions made along the way (from the old “Open decisions” list):
 
 ### Reminders (phase 3)
 
-- Quiet hours for interval repeats, so “every 2 hours” skips the night.
 - Reminders for other users. The `reminders` table already has
   `creator_user_id` and `target_user_id`. Open questions:
   - how to pick the target (Telegram username, forwarded message, contact

@@ -78,6 +78,10 @@ class ReminderRepository:
             session.commit()
             return reminder
 
+    def postpone(self, reminder_id: int, next_fire_at: datetime) -> Optional[Reminder]:
+        """Send the next repeat later, keeping the reminder as it is."""
+        return self._update(reminder_id, next_fire_at=next_fire_at)
+
     def acknowledge(self, reminder_id: int) -> Optional[Reminder]:
         return self._update(reminder_id, status=ReminderStatus.DONE, acknowledged_at=utcnow())
 

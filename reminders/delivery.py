@@ -14,7 +14,8 @@ from    db.repository.user_repository import UserRepository
 from    models.reminder             import ReminderStatus, utcnow
 from    reminders.handlers          import build_fire_keyboard
 from    reminders                   import recurrence as recurrences
-from    settings.registry           import REPEAT_MINUTES, SNOOZE_OPTIONS
+from    reminders.quiet             import is_quiet, quiet_end, skip_quiet
+from    settings.registry           import QUIET_HOURS, REPEAT_MINUTES, SNOOZE_OPTIONS, quiet_window
 
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE):
     user_ids = {r.target_user_id for r in due}
     snooze_options = settings.get_for_users(user_ids, SNOOZE_OPTIONS)
     repeat_minutes = settings.get_for_users(user_ids, REPEAT_MINUTES)
+    quiet_hours = settings.get_for_users(user_ids, QUIET_HOURS)
     timezones = users.get_timezones(user_ids)
 
     for reminder in due:
@@ -55,6 +57,7 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE):
                 snooze_options[reminder.target_user_id],
                 timedelta(minutes=repeat_minutes[reminder.target_user_id]),
                 ZoneInfo(timezones.get(reminder.target_user_id) or "UTC"),
+                quiet_window(quiet_hours[reminder.target_user_id]),
             )
         except Exception:
             # One broken reminder must not stop the others; it is retried next poll.
@@ -83,12 +86,13 @@ def _catch_up(recurrence, reminder, now, tz):
     return latest, upcoming
 
 
-async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz):
+async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz, quiet=None):
     firing = reminder.status == ReminderStatus.FIRING
     gave_up = firing and now - reminder.remind_at >= GIVE_UP_AFTER
 
-    if reminder.recurrence:
-        latest, upcoming = _catch_up(recurrences.parse(reminder.recurrence), reminder, now, tz)
+    recurrence = recurrences.parse(reminder.recurrence) if reminder.recurrence else None
+    if recurrence is not None:
+        latest, upcoming = _catch_up(recurrence, reminder, now, tz)
         if latest is not None or gave_up:
             # This occurrence is over: move on. A due one is sent on the next poll.
             if firing:
@@ -100,6 +104,16 @@ async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz):
         reminders.mark_missed(reminder.id)
         await _mark_message_missed(bot, reminder, "no response for 24 h")
         return
+
+    if is_quiet(now, quiet, tz):
+        if firing:
+            # Don't nag at night: the next repeat waits until quiet hours end.
+            reminders.postpone(reminder.id, quiet_end(now, quiet, tz))
+            return
+        if recurrence is not None and (later := skip_quiet(recurrence, reminder.remind_at, quiet, tz)) != reminder.remind_at:
+            # "every 2 hours" occurrence at night: skip to the first one after.
+            reminders.advance(reminder.id, later)
+            return
 
     text = f"⏰ {reminder.text}"
     if reminder.fire_count > 0:

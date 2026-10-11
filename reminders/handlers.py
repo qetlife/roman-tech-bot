@@ -6,17 +6,22 @@ from    telegram.error                  import TelegramError
 from    telegram.ext                    import ContextTypes
 
 from    db.repository.reminder_repository import ReminderRepository
+from    db.repository.settings_repository import SettingsRepository
 from    db.repository.user_repository   import UserRepository
 from    helpers.chat_helper             import render_menu
 from    models.reminder                 import ReminderStatus, utcnow
 from    reminders.parser                import ParseError, parse_reminder
 from    reminders                       import recurrence as recurrences
+from    reminders.quiet                 import skip_quiet
 from    reminders.timezones             import COMMON_TIMEZONES, format_when, resolve_timezone
-from    settings.registry               import SNOOZE_MAX_MINUTES, SNOOZE_MIN_MINUTES, format_minutes
+from    settings.registry               import (
+    QUIET_HOURS, SNOOZE_MAX_MINUTES, SNOOZE_MIN_MINUTES, format_minutes, quiet_window,
+)
 
 
 users = UserRepository()
 reminders = ReminderRepository()
+settings = SettingsRepository()
 
 EXAMPLES = (
     "Examples:\n"
@@ -113,6 +118,14 @@ def user_now(tz_name: str) -> datetime:
     return datetime.now(ZoneInfo(tz_name))
 
 
+def outside_quiet_hours(user, recurrence, when: datetime) -> datetime:
+    """Move an "every 2 hours" occurrence past the user's quiet hours."""
+    if recurrence is None:
+        return when
+    quiet = quiet_window(settings.get(user.id, QUIET_HOURS))
+    return skip_quiet(recurrence, when, quiet, ZoneInfo(user.timezone or "UTC"))
+
+
 async def ask_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, intro: str = ""):
     context.user_data["awaiting"] = AWAIT_TIMEZONE
     await update.effective_message.reply_text(
@@ -140,7 +153,8 @@ async def create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, re
 
     context.user_data.pop("awaiting", None)
     recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
-    reminder = reminders.create(user, update.effective_chat.id, parsed.text, parsed.when, recurrence)
+    when = outside_quiet_hours(user, parsed.recurrence, parsed.when)
+    reminder = reminders.create(user, update.effective_chat.id, parsed.text, when, recurrence)
     await update.effective_message.reply_text(
         f"⏰ Got it: {reminder.text}\n{schedule_text(reminder, user.timezone)}",
         reply_markup=build_created_keyboard(reminder.id),
@@ -163,7 +177,8 @@ async def edit_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
 
     context.user_data.pop("awaiting", None)
     recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
-    updated = reminders.reschedule(reminder.id, parsed.text, parsed.when, recurrence)
+    when = outside_quiet_hours(user, parsed.recurrence, parsed.when)
+    updated = reminders.reschedule(reminder.id, parsed.text, when, recurrence)
     if updated is None:
         await update.effective_message.reply_text("That reminder has already finished.")
         return
@@ -234,9 +249,9 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         user = users.get_or_create(update.effective_user.id)
         tz_name = user.timezone or "UTC"
-        next_at = recurrences.parse(reminder.recurrence).next_after(
-            max(utcnow(), reminder.remind_at), ZoneInfo(tz_name),
-        )
+        recurrence = recurrences.parse(reminder.recurrence)
+        next_at = recurrence.next_after(max(utcnow(), reminder.remind_at), ZoneInfo(tz_name))
+        next_at = outside_quiet_hours(user, recurrence, next_at)
         updated = reminders.advance(reminder_id, next_at)
         await query.answer("Done!")
         if updated is None:
