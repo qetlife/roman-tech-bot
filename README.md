@@ -190,34 +190,16 @@ not). Then:
 docker compose up -d --build
 ```
 
-The `bot-data` volume (mounted at `/app/data`) is still attached so the legacy
-SQLite file `/app/data/bot.db` stays available for the migration below.
+## Migrating from SQLite
 
-## Deploying / Migrating from SQLite
-
-On the Raspberry Pi:
-
-```bash
-cd /home/apps/roman-tech-bot && git pull
-echo 'DB_CONNECTION=postgresql+psycopg://roman_tech_bot:<password>@postgres:5432/roman_tech_bot' >> .env
-docker compose up -d --build
-docker compose exec bot python scripts/migrate_sqlite_to_postgres.py sqlite:////app/data/bot.db "$DB_CONNECTION"
-```
-
-The script creates the schema (Alembic migrations), copies every model table with its primary keys,
-resets integer id sequences, and prints source/target row counts. If the target
-URL argument is empty (on the host, `"$DB_CONNECTION"` usually is, since `.env`
-is not exported), it uses `DB_CONNECTION` from the container's environment.
-
-It is safe to re-run: if any target table already has rows, it copies nothing
-and exits with an error. Note that a user who sends `/start` between
-`docker compose up` and the migration creates a row, which makes the migration
-refuse. To avoid that, run the migration before starting the bot:
+The bot originally stored its data in a SQLite file. That data has been
+migrated to PostgreSQL and the SQLite volume removed.
+`scripts/migrate_sqlite_to_postgres.py` is kept for reference: it copies every
+model table from a SQLite file into PostgreSQL (refusing if the target already
+has rows), e.g.
 
 ```bash
-docker compose build
-docker compose run --rm bot python scripts/migrate_sqlite_to_postgres.py sqlite:////app/data/bot.db
-docker compose up -d
+python scripts/migrate_sqlite_to_postgres.py sqlite:////path/to/bot.db "$DB_CONNECTION"
 ```
 
 ## Deployment
@@ -234,4 +216,3 @@ To redeploy manually: **Actions → Deploy → Run workflow**.
 ## Notes
 
 - Error handling/logging is minimal in some paths (for example in `/start`).
-- Once the SQLite data is migrated and verified, the `bot-data` volume can be dropped from `docker-compose.yml`.

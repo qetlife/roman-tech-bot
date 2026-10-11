@@ -8,16 +8,9 @@ services:
       # SQLAlchemy URL of the PostgreSQL database, read from the shell or .env
       # e.g. postgresql+psycopg://roman_tech_bot:<password>@postgres:5432/roman_tech_bot
       DB_CONNECTION: ${DB_CONNECTION}
-    volumes:
-      # Holds the legacy SQLite file (/app/data/bot.db) until it has been
-      # migrated with scripts/migrate_sqlite_to_postgres.py
-      - bot-data:/app/data
     networks:
       # Shared with the `postgres` container
       - shared-network
-
-volumes:
-  bot-data:
 
 networks:
   shared-network:

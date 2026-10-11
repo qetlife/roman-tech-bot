@@ -47,8 +47,6 @@ Decisions made along the way (from the old “Open decisions” list):
   buttons active; remove them on edit.
 - “tomorrow at 9” said shortly after midnight means the next calendar day;
   consider treating it as “this morning” before ~04:00.
-- Remove the `bot-data` volume from `docker-compose.yml` (and delete it on
-  the Pi) now that the SQLite data is migrated.
 - Run the tests in the deploy workflow before rebuilding.
 
 ### Reminders (phase 2)
