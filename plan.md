@@ -43,8 +43,6 @@ Decisions made along the way (from the old “Open decisions” list):
 
 ### Small fixes and cleanup
 
-- Editing a reminder that is already repeating leaves the old message's
-  buttons active; remove them on edit.
 - “tomorrow at 9” said shortly after midnight means the next calendar day;
   consider treating it as “this morning” before ~04:00.
 - Run the tests in the deploy workflow before rebuilding.
