@@ -52,8 +52,9 @@ class FailureReason(StrEnum):
 class FailureStatus(StrEnum):
     """Stored in failed_messages.status."""
 
-    OPEN = "open"       # waiting for the parser to learn it
+    OPEN = "open"           # waiting for the parser to learn it
     FIXED = "fixed"
+    IGNORED = "ignored"     # can't or shouldn't be learned (e.g. a garbled transcript); `note` says why
 
 
 # --- conversation -----------------------------------------------------------
@@ -117,6 +118,7 @@ class CallbackPrefix(StrEnum):
     REPEAT_OPTION = "rptopt:"   # rptopt:set:<minutes>
     QUIET_OPTION = "qhopt:"     # qhopt:<OptionAction>[:<HH:MM-HH:MM>]
     FAILED_FIXED = "failfix:"   # failfix:<failed message id>, on the /failed list
+    FAILED_IGNORED = "failign:" # failign:<failed message id>, on the /failed list
 
 
 class ReminderAction(StrEnum):
@@ -127,7 +129,7 @@ class ReminderAction(StrEnum):
     UNDO = "undo"
     EDIT = "edit"
     DELETE = "del"
-    WRONG = "wrong"     # 👎 Wrong: save as a failed message, then ✏️ Edit
+    WRONG = "wrong"     # 👎 Wrong: save as a failed message and delete the reminder
 
 
 class OptionAction(StrEnum):

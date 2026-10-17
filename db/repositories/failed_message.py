@@ -32,8 +32,12 @@ class FailedMessageRepository:
             )
             return session.scalars(stmt).first()
 
-    def list_open(self, limit: int) -> list:
-        """The newest open entries."""
+    def get(self, failed_id: int) -> Optional[FailedMessage]:
+        with SessionLocal(expire_on_commit=False) as session:
+            return session.get(FailedMessage, failed_id)
+
+    def list_open(self, limit: Optional[int] = None) -> list:
+        """The newest open entries (all of them without a limit)."""
         with SessionLocal(expire_on_commit=False) as session:
             stmt = (
                 select(FailedMessage)
@@ -48,12 +52,30 @@ class FailedMessageRepository:
             stmt = select(func.count()).select_from(FailedMessage).where(FailedMessage.status == FailureStatus.OPEN)
             return session.scalar(stmt)
 
-    def mark_fixed(self, failed_id: int) -> Optional[FailedMessage]:
+    def mark_fixed(self, failed_id: int, note: Optional[str] = None) -> Optional[FailedMessage]:
+        return self._close(failed_id, FailureStatus.FIXED, note)
+
+    def mark_ignored(self, failed_id: int, note: Optional[str] = None) -> Optional[FailedMessage]:
+        return self._close(failed_id, FailureStatus.IGNORED, note)
+
+    def _close(self, failed_id: int, status: FailureStatus, note: Optional[str]) -> Optional[FailedMessage]:
+        """Open → fixed or ignored. None if it isn't open (any more)."""
         with SessionLocal(expire_on_commit=False) as session:
             failed = session.get(FailedMessage, failed_id, with_for_update=True)
             if failed is None or failed.status != FailureStatus.OPEN:
                 return None
-            failed.status = FailureStatus.FIXED
+            failed.status = status
             failed.fixed_at = utcnow()
+            failed.note = note
+            session.commit()
+            return failed
+
+    def set_fix_pr(self, failed_id: int, pr: Optional[int]) -> Optional[FailedMessage]:
+        """Link an open entry to the pull request that fixes it (None to unlink)."""
+        with SessionLocal(expire_on_commit=False) as session:
+            failed = session.get(FailedMessage, failed_id, with_for_update=True)
+            if failed is None or failed.status != FailureStatus.OPEN:
+                return None
+            failed.fix_pr = pr
             session.commit()
             return failed

@@ -269,8 +269,13 @@ Saved as failed, so I can learn it. Send it again if you still need it.
 To fix a reminder instead of deleting it, use `✏️ Edit`.
 
 The admin (set with `ADMIN_TELEGRAM_ID`) sees the open ones with `/failed`,
-newest first, and taps `✅ <number>` once the bot understands that phrasing.
-Nobody else can see them.
+newest first. `✅ <number>` marks one fixed once the bot understands that
+phrasing, `🗑 <number>` ignores one that can't be learned (a garbled voice
+message, say); neither deletes it. Nobody else can see them.
+
+Most close on their own: after every update the bot tries the messages it
+didn't understand again, and marks the ones it now understands fixed. A
+message with a fix on the way shows “🔧 Fix waiting in pull request #n”.
 
 ## Settings
 

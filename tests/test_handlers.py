@@ -276,6 +276,29 @@ def test_failed_list_is_admin_only(chat, monkeypatch):
     assert "water the plants" not in update.callback_query.edit_message_text.call_args.args[0]
 
 
+def test_failed_list_ignore_button_and_fix_pr(chat, monkeypatch):
+    import config
+    from db.repositories.failed_message import FailedMessageRepository
+    from handlers.failed import build_failed_keyboard, on_failed_button, on_failed_cmd
+
+    monkeypatch.setattr(config, "ADMIN_TELEGRAM_ID", chat.telegram_id)
+    chat("ignore me please, unique 7781")
+    [entry] = _failed(chat.telegram_id)
+    FailedMessageRepository().set_fix_pr(entry.id, 41)
+
+    text = _replies(chat("/failed", handler=on_failed_cmd))[0]
+    assert "🔧 Fix waiting in pull request #41" in text
+    assert _buttons(build_failed_keyboard([entry])) == [
+        [("✅ 1", f"failfix:{entry.id}")], [("🗑 1", f"failign:{entry.id}")],
+    ]
+
+    update = chat(data=f"failign:{entry.id}", handler=on_failed_button)
+    assert update.callback_query.answer.call_args.args == ("Ignored",)
+    assert _failed(chat.telegram_id) == []
+    closed = FailedMessageRepository().get(entry.id)
+    assert (closed.status, closed.note) == ("ignored", "ignored with 🗑 on /failed")
+
+
 # --- menus --------------------------------------------------------------------
 
 def test_start_registers_and_shows_the_menu(chat):

@@ -47,6 +47,7 @@ core/               the logic: no Telegram, no database sessions
 
 jobs/
     delivery.py     sends due reminders every 20 seconds
+    failed.py       on startup: marks failed messages the bot now understands as fixed
 
 services/           clients for other services (no Telegram)
     speech.py       speech-service: audio → text
@@ -59,7 +60,7 @@ db/
 
 alembic/            schema migrations
 docs/               this guide and the user guide
-scripts/            one-off scripts
+scripts/            command line: failed.py (failed messages), the one-off SQLite migration
 tests/              pytest, throwaway SQLite database
 ```
 
@@ -313,10 +314,30 @@ bot thought was asked and `bot_understood` is a JSON snapshot, so other
 features (events) add their own optional link column next to `reminder_id`.
 
 `/failed` is only answered for `ADMIN_TELEGRAM_ID` (silently ignored for
-everyone else); it lists the newest open entries and `✅ <n>`
-(`CallbackPrefix.FAILED_FIXED`) sets `status = fixed` and `fixed_at`. Fixed
-entries are not deleted. Saving never breaks the reply: database errors are
-logged.
+everyone else); it lists the newest open entries. `✅ <n>`
+(`CallbackPrefix.FAILED_FIXED`) sets `status = fixed`, `🗑 <n>`
+(`CallbackPrefix.FAILED_IGNORED`) sets `status = ignored` (for messages that
+can't be learned, like a garbled transcript); both set `fixed_at` and a
+`note` saying why. Closed entries are not deleted. Saving never breaks the
+reply: database errors are logged.
+
+### Closing them automatically
+
+- **On startup** (so after every deploy), `jobs/failed.resolve_understood()`
+  replays each open `NOT_UNDERSTOOD` entry through the intents and the parser,
+  at the moment it was sent in the user's timezone, and marks the ones that
+  now work fixed (`note = "understood after an update"`). Wrong results stay
+  open: the bot did understand something, so only a person (or the auto-fix
+  job) can tell whether it's right now. A failure here is logged and the bot
+  starts anyway.
+- **`scripts/failed.py`** is the command line for the auto-fix job on the Pi:
+  `list` (open entries as JSON lines), `check` (the startup re-check),
+  `fixed` / `ignore <id> <note>`, and `pr <id> <number>`, which sets `fix_pr`:
+  the pull request that teaches the parser that message, shown on `/failed`
+  as “🔧 Fix waiting in pull request #n” so it isn't fixed twice.
+- **Privacy:** the entries are the user's own words and stay in the database.
+  The repository is public, so fixes are tested with made-up messages of the
+  same shape (“remind to call the bank”), never the saved text.
 
 ## Enums
 
@@ -331,7 +352,7 @@ ones there too.
 | `Awaiting`                              | what the next typed message answers |
 | `IntentName`                            | free-text intents; stored in `failed_messages.intent` |
 | `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source` |
-| `FailureReason`, `FailureStatus`        | `failed_messages.reason` and `.status` |
+| `FailureReason`, `FailureStatus`        | `failed_messages.reason` and `.status` (open, fixed, ignored) |
 | `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction` | callback data of every button |
 
 Weekdays use the standard library's `calendar.Day` (in the parser and
@@ -351,7 +372,7 @@ changes go through Alembic; see [Database migrations](setup.md#database-migratio
 | `users`         | `telegram_id`, `timezone` |
 | `reminders`     | creator/target user, chat, text, `remind_at`, `next_fire_at`, `status`, `fire_count`, `last_message_id`, `recurrence`, `request` and `source` (the message it was made from) |
 | `user_settings` | `(user_id, key)` → JSON value, only non-defaults |
-| `failed_messages` | user, `text`, `source`, `reason`, `intent`, `bot_understood` (JSON), optional `reminder_id`, `status`, `created_at`, `fixed_at` |
+| `failed_messages` | user, `text`, `source`, `reason`, `intent`, `bot_understood` (JSON), optional `reminder_id`, `status`, `created_at`, `fixed_at`, `note`, `fix_pr` |
 
 ## Tests
 
