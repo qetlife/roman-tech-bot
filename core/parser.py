@@ -8,6 +8,7 @@ Supported "when" expressions (case-insensitive):
     in 2 hours / in two hours / in 1.5 hours / in 1h30m / in half an hour
     in an hour and a half / in 3 days / in a week
     at 9 / at 9am / at 9:30pm / at 18:00 / 18:00 / noon / midnight
+    at 21.20 / 21.20 / at 9.20pm  (a dot works like a colon; "10.11" alone is a date)
     today / tonight / tomorrow / day after tomorrow
       (before 04:00, "tomorrow" means the coming day, not the day after)
     morning / afternoon / evening / night
@@ -113,8 +114,10 @@ TEXT_PREFIXES = ("to ", "that ", "about ", "for ", ": ", "- ", "— ")
 
 COMPACT_DURATION = re.compile(r"^(?:(\d+(?:\.\d+)?)(h|m|d|w|s))+$")
 COMPACT_PART = re.compile(r"(\d+(?:\.\d+)?)(h|m|d|w|s)")
-TIME_RE = re.compile(r"^(\d{1,2})(?::(\d{2}))?(am|pm|a\.m\.|p\.m\.)?$")
+TIME_RE = re.compile(r"^(\d{1,2})(?:[:.](\d{2}))?(am|pm|a\.m\.|p\.m\.)?$")
 NUMERIC_DATE_RE = re.compile(r"^(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?$")
+# "21.20" could be a date (24.12) or a time; see _parse_when_tokens.
+DOTTED_CLOCK_RE = re.compile(r"^\d{1,2}\.\d{2}$")
 ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
 ORDINAL_RE = re.compile(r"^(\d{1,2})(?:st|nd|rd|th)?$")
 MONTH_DAY_ONLY_RE = re.compile(r"^(\d{1,2})(?:st|nd|rd|th)$")
@@ -215,6 +218,11 @@ def _read_clock(tokens: list, i: int, after_at: bool):
     if hour > 23 or minute > 59:
         return i, None, False
     return nxt, time(hour, minute), ambiguous
+
+
+def _is_dotted_clock(tokens: list, i: int) -> bool:
+    """"21.20" or "9.20 pm": a valid time written with a dot instead of a colon."""
+    return bool(DOTTED_CLOCK_RE.match(tokens[i])) and _read_clock(tokens, i, after_at=True)[1] is not None
 
 
 def _read_date(tokens: list, i: int, today: date):
@@ -349,7 +357,8 @@ def _parse_when_tokens(tokens: list, now: datetime) -> Optional[_When]:
                     return None
                 continue
             j, d, explicit_year = _read_date(tokens, i, today)
-            if j != i:
+            # "21.20" is no date, and "at 10.11" is a time: read them as a clock below.
+            if j != i and not ((d is None or after_at) and _is_dotted_clock(tokens, i)):
                 if d is None:
                     return None
                 w.day, w.explicit_year, i = d, explicit_year, j
