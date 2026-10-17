@@ -1,10 +1,11 @@
 # Development guide
 
 How the bot works and how to extend it. For what it does from a user's point
-of view, see [user-guide.md](user-guide.md). For setup and deployment, see the
-[README](../README.md).
+of view, see [user-guide.md](user-guide.md). For setup and deployment, see
+[setup.md](setup.md).
 
 - [Architecture](#architecture)
+- [Design decisions](#design-decisions)
 - [Messages and buttons](#messages-and-buttons)
 - [Reminders](#reminders)
 - [Settings](#settings)
@@ -83,6 +84,36 @@ after the user picks a timezone (a module-level import would be circular).
 
 Repositories in `db/repositories/` are the only code that opens database
 sessions. They return detached model objects (`expire_on_commit=False`).
+
+## Design decisions
+
+Choices that shape the behaviour, and why. Add one when a decision isn't
+obvious from the code.
+
+- **A small, predictable parser instead of guessing.** It understands a
+  fixed set of English expressions and asks the user to rephrase otherwise,
+  so a reminder is never silently set for the wrong time. Gaps are found
+  through [failed messages](#failed-messages), not by making the parser
+  looser.
+- **“at 9” means the next 09:00 or 21:00**, whichever comes first; typed
+  “9:30” and “18:00” are taken as written. A day without a time means 09:00.
+- **A dot works like a colon in times** (“21.20”), unless the number is a
+  valid date and doesn't follow “at” (“10.11” is 10 November).
+- **Times are stored in UTC** and shown in the user's timezone. Daily,
+  weekly and monthly repeats keep their local clock time across daylight
+  saving and timezone changes.
+- **Reminders are re-sent until acknowledged**, and given up on after 24
+  hours (`missed`). Quiet hours pause the re-sending, but reminders set for a
+  specific time still go off.
+- **Voice is transcribed offline** by a separate service (Vosk), so audio
+  never leaves the server and the bot's image stays small.
+- **Settings store only non-default values**, so adding a setting needs no
+  migration.
+- **Failed messages aren't tied to reminders** (an intent plus a JSON
+  snapshot), so events can use the same table. Fixed entries are kept; the
+  lasting record of a fix is a parser test.
+- **Callback data never changes**: buttons already in users' chats still send
+  the old values.
 
 ## Messages and buttons
 
@@ -279,7 +310,7 @@ data and callback data compatible.
 
 PostgreSQL in production, SQLite in tests. Times are `UTCDateTime`
 (`db/models/types.py`): timezone-aware, stored and returned in UTC. Schema
-changes go through Alembic; see [Database Migrations](../README.md#database-migrations).
+changes go through Alembic; see [Database migrations](setup.md#database-migrations).
 
 | Table           | Holds |
 | --------------- | ----- |
@@ -334,13 +365,18 @@ and add it to `tests/test_callbacks.py`.
 `enums.py`, and handlers in `bot.py`. No migration needed.
 
 **Change the schema**: edit `db/models/`, generate and review a migration (see
-the README).
+[Database migrations](setup.md#database-migrations)).
 
 ## Keeping docs up to date
 
 Every change to what the bot does updates, in the same pull request:
 
 - [user-guide.md](user-guide.md) — what users see and can do,
-- this file — how it works,
-- the feature list in the [README](../README.md),
-- [plan.md](../plan.md) — done / next.
+- this file — how it works (and [Design decisions](#design-decisions) for
+  choices worth remembering),
+- [setup.md](setup.md) — new environment variables, setup or deployment steps,
+- the feature list in the [README](../README.md), if it's a headline feature.
+
+Plans and ideas are [GitHub issues](https://github.com/qetlife/roman-tech-bot/issues),
+not a file: reference the issue in the pull request (“Fixes #23”) so it
+closes when merged.
