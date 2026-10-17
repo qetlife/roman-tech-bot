@@ -6,7 +6,7 @@ from    telegram                    import Update
 from    telegram.ext                import ContextTypes
 from    telegram.error              import BadRequest
 
-from    enums                       import Callback, CallbackPrefix, OptionAction, ReminderAction
+from    enums                       import Callback, CallbackPrefix, MessageSource, OptionAction, ReminderAction
 
 
 # --- user_data keys ---------------------------------------------------------
@@ -19,6 +19,14 @@ EDIT_REMINDER_ID = "edit_reminder_id"
 PENDING_REQUEST = "pending_request"
 # Where ↩️ Back on ⏰ Reminder settings returns to (a Callback).
 REMINDER_SETTINGS_BACK = "reminder_settings_back"
+# What "that's wrong" refers to: the id of the reminder made from the user's
+# last message, or None if that message wasn't understood (already saved).
+LAST_REMINDER_ID = "last_reminder_id"
+
+
+def message_source(update: Update) -> MessageSource:
+    """Whether the message being handled was typed or a (transcribed) voice message."""
+    return MessageSource.VOICE if update.effective_message.voice is not None else MessageSource.TYPED
 
 
 # --- callback data ----------------------------------------------------------

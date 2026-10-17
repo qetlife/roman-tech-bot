@@ -12,6 +12,7 @@ Everything you can do with the bot, and how. For how the code works, see
   - [Recurring reminders](#recurring-reminders)
   - [When a reminder is due](#when-a-reminder-is-due)
   - [Listing, editing and cancelling](#listing-editing-and-cancelling)
+  - [When the bot gets it wrong](#when-the-bot-gets-it-wrong)
 - [Settings](#settings)
   - [🆔 My ID](#-my-id)
   - [🌍 Timezone](#-timezone)
@@ -35,6 +36,7 @@ Commands:
 | -------- | -------------------------------- |
 | `/start` | Registers you and shows the menu |
 | `/menu`  | Shows the menu                   |
+| `/failed` | Admin only: [failed messages](#when-the-bot-gets-it-wrong) |
 
 ## Menus
 
@@ -97,6 +99,7 @@ are fine):
 | ----------------- | ----------------------------------------------------------------------------------------- |
 | create a reminder | “remind me”, “set a reminder”, “set reminder”, “create a reminder”, “add a reminder”, “new reminder” |
 | list reminders    | “my reminders”, “show my reminders”, “show reminders”, “list reminders”, “list my reminders”, “reminders” |
+| flag the last reminder as wrong | “that's wrong”, “that is wrong”, “that was wrong”, “that's not right”, “you got that wrong”, “wrong reminder”, “save the last one as failed”, “mark the last one as failed”, “save it as failed”, “mark as failed” |
 
 The time can come before or after the text:
 
@@ -111,7 +114,7 @@ dropped. The bot replies with what it understood:
 ```
 ⏰ Got it: call mom
 🗓 Today, 16:30 (in 2 h)
-[↩️ Undo] [✏️ Edit]
+[↩️ Undo] [✏️ Edit] [👎 Wrong]
 ```
 
 If it can't understand the time, it says so and asks you to send it again.
@@ -123,7 +126,7 @@ All times are in your timezone.
 | Kind            | Examples |
 | --------------- | -------- |
 | In some time    | “in 2 hours”, “in two hours”, “in 30 min”, “in 1.5 hours”, “in 1h30m”, “in half an hour”, “in an hour and a half”, “in 3 days”, “in a week” |
-| At a time       | “at 9”, “at 9am”, “at 9:30pm”, “at 18:00”, “18:00”, “noon”, “midnight”, “at 9 o'clock” |
+| At a time       | “at 9”, “at 9am”, “at 9:30pm”, “at 18:00”, “18:00”, “at 21.20”, “at 9.20pm”, “noon”, “midnight”, “at 9 o'clock” |
 | Spoken times    | “at nine”, “at nine thirty”, “at nine oh five”, “at half past six”, “at a quarter past nine”, “at quarter to five”, “at ten to five”, “at nine p m” |
 | On a day        | “today”, “tonight”, “tomorrow”, “day after tomorrow”, “monday”, “on friday”, “next friday”, “next week” |
 | On a date       | “24.12”, “24/12”, “2026-12-24”, “dec 24”, “24th of december 2026”, “december twenty fourth”, “on the 15th” / “on the fifteenth” (the next 15th) |
@@ -139,6 +142,10 @@ Rules:
 - A bare “at 9” means the **next** 09:00 or 21:00, whichever comes first.
   So do spoken times like “at nine thirty” or “at half past six”. Typed
   “9:30”, “09” and “18:00” are taken as written.
+- A dot works like a colon in times: “at 21.20” is 21:20. A number that
+  could also be a date stays a date unless it follows “at”: “10.11” is
+  10 November, “at 10.11” is 10:11 (and “at 24.12”, not a time, is 24
+  December).
 - “tonight”, “in the afternoon”, “in the evening” and “at night” make the
   time pm: “tonight at 9” and “at 7 in the evening” are 21:00 and 19:00.
 - “On the 15th” without a month means the next 15th (this month or next;
@@ -217,6 +224,32 @@ back. For a recurring reminder, only the latest due occurrence is sent.
 If a reminder you edit or cancel is currently waiting for your OK, its old
 message loses its buttons.
 
+### When the bot gets it wrong
+
+The bot keeps a list of messages it didn't handle well, so its phrasing can
+be improved:
+
+- **It didn't understand**: anything it answers with “I didn't get that” or
+  “I couldn't understand when” is saved automatically, typed or voice.
+- **It understood it wrong** (e.g. the wrong time): tap `👎 Wrong` on the
+  confirmation, or say “that's wrong” / “save the last one as failed”. The
+  bot saves your message together with what it made of it, then asks for
+  the right time and text right away, like `✏️ Edit`. “The last one” is the
+  last reminder the bot created or edited from your messages; if your last
+  message wasn't understood at all, it's already saved.
+
+```
+⏰ Got it: at 21.20 to call mom
+🗓 Thu 22 Oct, 09:00 (in 4 d)
+[↩️ Undo] [✏️ Edit] [👎 Wrong]
+👎 Saved as failed, thanks. Let's fix it now.
+Send the new time and text for “at 21.20 to call mom”, …
+```
+
+The admin (set with `ADMIN_TELEGRAM_ID`) sees the open ones with `/failed`,
+newest first, and taps `✅ <number>` once the bot understands that phrasing.
+Nobody else can see them.
+
 ## Settings
 
 Open `⚙️ Settings` from the menu. Reminder settings are also under
@@ -284,6 +317,7 @@ interruptions:
 - Typed and voice messages work in **private chats** only.
 - Only the person a reminder is for can press its buttons.
 - If the bot doesn't understand a message, it suggests an example and
-  `/menu`.
+  `/menu`, and saves the message so the bot can learn it (see
+  [When the bot gets it wrong](#when-the-bot-gets-it-wrong)).
 - A trigger phrase always works, even while the bot is waiting for an
   answer to a question (e.g. during ✏️ Edit).

@@ -18,14 +18,22 @@ from    db.models.reminder              import utcnow
 from    db.repositories.reminder        import ReminderRepository
 from    db.repositories.settings        import SettingsRepository
 from    db.repositories.user            import UserRepository
-from    enums                           import Awaiting, Callback, CallbackPrefix, ReminderAction, ReminderStatus
+from    db.repositories.failed_message  import FailedMessageRepository
+from    enums                           import (
+    ACTIVE_STATUSES, Awaiting, Callback, CallbackPrefix, FailureReason, IntentName, MessageSource,
+    ReminderAction, ReminderStatus,
+)
+from    handlers.failed                 import record, record_not_understood
 from    handlers.settings               import ask_timezone
-from    handlers.ui                     import AWAITING, EDIT_REMINDER_ID, PENDING_REQUEST, reminder_callback, render_menu
+from    handlers.ui                     import (
+    AWAITING, EDIT_REMINDER_ID, LAST_REMINDER_ID, PENDING_REQUEST, message_source, reminder_callback, render_menu,
+)
 
 
 users = UserRepository()
 reminders = ReminderRepository()
 settings = SettingsRepository()
+failed = FailedMessageRepository()
 
 EXAMPLES = (
     "Examples:\n"
@@ -56,6 +64,7 @@ def build_created_keyboard(reminder_id: int):
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("↩️ Undo", callback_data=reminder_callback(ReminderAction.UNDO, reminder_id)),
         InlineKeyboardButton("✏️ Edit", callback_data=reminder_callback(ReminderAction.EDIT, reminder_id)),
+        InlineKeyboardButton("👎 Wrong", callback_data=reminder_callback(ReminderAction.WRONG, reminder_id)),
     ]])
 
 
@@ -124,6 +133,7 @@ async def create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, re
     try:
         parsed = parse_reminder(request, user_now(user.timezone))
     except ParseError as e:
+        record_not_understood(update, context, request, IntentName.REMINDER_CREATE, str(e))
         context.user_data[AWAITING] = Awaiting.REMINDER
         await update.effective_message.reply_text(f"{e} Send it again, e.g. “in 2 hours to call mom”.\n\n{EXAMPLES}")
         return
@@ -131,7 +141,10 @@ async def create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, re
     context.user_data.pop(AWAITING, None)
     recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
     when = outside_quiet_hours(user, parsed.recurrence, parsed.when)
-    reminder = reminders.create(user, update.effective_chat.id, parsed.text, when, recurrence)
+    reminder = reminders.create(
+        user, update.effective_chat.id, parsed.text, when, recurrence, request, message_source(update),
+    )
+    context.user_data[LAST_REMINDER_ID] = reminder.id
     await update.effective_message.reply_text(
         f"⏰ Got it: {reminder.text}\n{schedule_text(reminder, user.timezone)}",
         reply_markup=build_created_keyboard(reminder.id),
@@ -149,16 +162,18 @@ async def edit_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
     try:
         parsed = parse_reminder(request, user_now(user.timezone))
     except ParseError as e:
+        record_not_understood(update, context, request, IntentName.REMINDER_EDIT, str(e))
         await update.effective_message.reply_text(f"{e} Try again, e.g. “tomorrow at 10 to call mom”.")
         return
 
     context.user_data.pop(AWAITING, None)
     recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
     when = outside_quiet_hours(user, parsed.recurrence, parsed.when)
-    updated = reminders.reschedule(reminder.id, parsed.text, when, recurrence)
+    updated = reminders.reschedule(reminder.id, parsed.text, when, recurrence, request, message_source(update))
     if updated is None:
         await update.effective_message.reply_text("That reminder has already finished.")
         return
+    context.user_data[LAST_REMINDER_ID] = updated.id
     await retire_fired_message(context, reminder, "✏️ Edited, see the updated reminder below.")
     await update.effective_message.reply_text(
         f"✏️ Updated: {updated.text}\n{schedule_text(updated, user.timezone)}",
@@ -264,14 +279,61 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await retire_fired_message(context, reminder, "↩️ Cancelled.")
 
     elif action == ReminderAction.EDIT:
-        context.user_data[AWAITING] = Awaiting.EDIT
-        context.user_data[EDIT_REMINDER_ID] = reminder_id
         await query.answer()
-        await query.message.reply_text(
-            f"Send the new time and text for “{reminder.text}”, e.g. “tomorrow at 10 to {reminder.text}”."
-        )
+        await start_edit(context, reminder, query.message.reply_text)
 
     elif action == ReminderAction.DELETE:
         if reminders.cancel(reminder_id) is not None:
             await retire_fired_message(context, reminder, "↩️ Cancelled.")
         await list_reminders(update, context, toast="Cancelled")
+
+    elif action == ReminderAction.WRONG:
+        await query.answer("Saved as failed")
+        await flag_wrong(update, context, reminder, query.message.reply_text)
+
+
+async def start_edit(context: ContextTypes.DEFAULT_TYPE, reminder, reply, intro: str = ""):
+    """Ask for the new time and text of a reminder (✏️ Edit)."""
+    context.user_data[AWAITING] = Awaiting.EDIT
+    context.user_data[EDIT_REMINDER_ID] = reminder.id
+    await reply(f"{intro}Send the new time and text for “{reminder.text}”, e.g. “tomorrow at 10 to {reminder.text}”.")
+
+
+# --- 👎 Wrong ----------------------------------------------------------------
+
+def understood(reminder) -> dict:
+    """What the bot made of the message: kept with the failed message, even after ✏️ Edit."""
+    return {"text": reminder.text, "remind_at": reminder.remind_at.isoformat(), "recurrence": reminder.recurrence}
+
+
+async def flag_wrong(update: Update, context: ContextTypes.DEFAULT_TYPE, reminder, reply):
+    """Save a reminder the bot got wrong as a failed message, then ✏️ Edit it."""
+    if failed.open_for_reminder(reminder.id) is None:
+        record(
+            update, FailureReason.WRONG_RESULT, reminder.request or reminder.text,
+            source=reminder.source or MessageSource.TYPED, intent=IntentName.REMINDER_CREATE,
+            bot_understood=understood(reminder), reminder_id=reminder.id,
+        )
+    if reminder.status not in ACTIVE_STATUSES:
+        await reply("👎 Saved as failed, thanks. This reminder has already finished, so there's nothing to fix.")
+        return
+    await start_edit(context, reminder, reply, intro="👎 Saved as failed, thanks. Let's fix it now.\n")
+
+
+async def flag_last_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = ""):
+    """Intent action for "that's wrong" / "save the last one as failed"."""
+    reply = update.effective_message.reply_text
+    if LAST_REMINDER_ID in context.user_data and context.user_data[LAST_REMINDER_ID] is None:
+        await reply("👎 That one is already saved as failed: I save everything I don't understand.")
+        return
+
+    # After a restart user_data is empty: fall back to the newest reminder.
+    reminder_id = context.user_data.get(LAST_REMINDER_ID)
+    if reminder_id is not None:
+        reminder = reminders.get_for_user(reminder_id, update.effective_user.id)
+    else:
+        reminder = reminders.latest_for_user(update.effective_user.id)
+    if reminder is None:
+        await reply("There's no reminder to save as failed yet.")
+        return
+    await flag_wrong(update, context, reminder, reply)

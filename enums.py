@@ -33,7 +33,40 @@ class RepeatKind(Enum):
     INTERVAL = "interval"   # every N minutes/hours/days: "every 2 hours"
 
 
+# --- failed messages --------------------------------------------------------
+
+class MessageSource(StrEnum):
+    """How a message reached the bot. Stored in reminders.source and failed_messages.source."""
+
+    TYPED = "typed"
+    VOICE = "voice"     # transcribed by the speech-service
+
+
+class FailureReason(StrEnum):
+    """Stored in failed_messages.reason."""
+
+    NOT_UNDERSTOOD = "not_understood"   # the bot replied that it didn't understand
+    WRONG_RESULT = "wrong_result"       # the user flagged what the bot made of it (👎 Wrong)
+
+
+class FailureStatus(StrEnum):
+    """Stored in failed_messages.status."""
+
+    OPEN = "open"       # waiting for the parser to learn it
+    FIXED = "fixed"
+
+
 # --- conversation -----------------------------------------------------------
+
+class IntentName(StrEnum):
+    """Free-text intents (handlers/intents.py); also stored in failed_messages.intent."""
+
+    REMINDER_CREATE = "reminder.create"
+    REMINDER_EDIT = "reminder.edit"     # the answer to ✏️ Edit, not a trigger phrase
+    REMINDER_LIST = "reminder.list"
+    FLAG_FAILED = "failed.flag"         # "that's wrong", "save the last one as failed"
+
+
 
 class Awaiting(StrEnum):
     """What the user's next plain message answers (context.user_data["awaiting"])."""
@@ -83,6 +116,7 @@ class CallbackPrefix(StrEnum):
     SNOOZE_OPTION = "snzopt:"   # snzopt:<OptionAction>[:<minutes,minutes>]
     REPEAT_OPTION = "rptopt:"   # rptopt:set:<minutes>
     QUIET_OPTION = "qhopt:"     # qhopt:<OptionAction>[:<HH:MM-HH:MM>]
+    FAILED_FIXED = "failfix:"   # failfix:<failed message id>, on the /failed list
 
 
 class ReminderAction(StrEnum):
@@ -93,6 +127,7 @@ class ReminderAction(StrEnum):
     UNDO = "undo"
     EDIT = "edit"
     DELETE = "del"
+    WRONG = "wrong"     # 👎 Wrong: save as a failed message, then ✏️ Edit
 
 
 class OptionAction(StrEnum):

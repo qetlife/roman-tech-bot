@@ -6,7 +6,7 @@ from typing             import Optional
 from sqlalchemy         import select
 
 from db.session         import SessionLocal
-from enums              import ACTIVE_STATUSES, ReminderStatus
+from enums              import ACTIVE_STATUSES, MessageSource, ReminderStatus
 from db.models.reminder import Reminder, utcnow
 from db.models.user     import User
 
@@ -14,6 +14,7 @@ from db.models.user     import User
 class ReminderRepository:
     def create(
         self, user: User, chat_id: int, text: str, remind_at: datetime, recurrence: Optional[str] = None,
+        request: Optional[str] = None, source: Optional[MessageSource] = None,
     ) -> Reminder:
         with SessionLocal(expire_on_commit=False) as session:
             reminder = Reminder(
@@ -24,6 +25,8 @@ class ReminderRepository:
                 remind_at=remind_at,
                 next_fire_at=remind_at,
                 recurrence=recurrence,
+                request=request,
+                source=source,
             )
             session.add(reminder)
             session.commit()
@@ -36,6 +39,18 @@ class ReminderRepository:
                 select(Reminder)
                 .join(User, User.id == Reminder.target_user_id)
                 .where(Reminder.id == reminder_id, User.telegram_id == telegram_id)
+            )
+            return session.scalar(stmt)
+
+    def latest_for_user(self, telegram_id: int) -> Optional[Reminder]:
+        """The reminder created most recently for `telegram_id`."""
+        with SessionLocal(expire_on_commit=False) as session:
+            stmt = (
+                select(Reminder)
+                .join(User, User.id == Reminder.target_user_id)
+                .where(User.telegram_id == telegram_id)
+                .order_by(Reminder.id.desc())
+                .limit(1)
             )
             return session.scalar(stmt)
 
@@ -100,10 +115,12 @@ class ReminderRepository:
 
     def reschedule(
         self, reminder_id: int, text: str, remind_at: datetime, recurrence: Optional[str] = None,
+        request: Optional[str] = None, source: Optional[MessageSource] = None,
     ) -> Optional[Reminder]:
         return self._update(
             reminder_id, status=ReminderStatus.PENDING, text=text, recurrence=recurrence,
             remind_at=remind_at, next_fire_at=remind_at, fire_count=0, last_message_id=None,
+            request=request, source=source,
         )
 
     def cancel(self, reminder_id: int) -> Optional[Reminder]:
