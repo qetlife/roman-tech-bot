@@ -150,6 +150,15 @@ before merging.
 
 To redeploy manually: **Actions → Deploy → Run workflow**.
 
+### Code review
+
+Claude reviews every pull request (`.github/workflows/review.yml`) and
+leaves inline comments on problems it finds, plus a one-line summary. It
+runs on a GitHub-hosted runner, re-reviews on each push, and skips drafts
+and pull requests from forks. It needs the repository secret
+`CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`, which uses a Claude
+subscription). The review is advice, not a required check.
+
 ## Migrating from SQLite
 
 The bot originally stored its data in a SQLite file. That data has been
