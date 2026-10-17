@@ -101,7 +101,9 @@ obvious from the code.
   valid date and doesn't follow “at” (“10.11” is 10 November).
 - **Times are stored in UTC** and shown in the user's timezone. Daily,
   weekly and monthly repeats keep their local clock time across daylight
-  saving and timezone changes.
+  saving and timezone changes (on a change, `handlers/reminders.keep_clock_times`
+  moves their next occurrence; one-offs, intervals and snoozes keep their
+  moment in time).
 - **Reminders are re-sent until acknowledged**, and given up on after 24
   hours (`missed`). Quiet hours pause the re-sending, but reminders set for a
   specific time still go off.

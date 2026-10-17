@@ -121,6 +121,26 @@ def outside_quiet_hours(user, recurrence, when: datetime) -> datetime:
     return skip_quiet(recurrence, when, quiet, ZoneInfo(user.timezone or "UTC"))
 
 
+def keep_clock_times(user_id, old_tz: str, new_tz: str):
+    """After a timezone change, daily/weekly/monthly reminders keep their local clock time.
+
+    Later occurrences are computed in the new timezone anyway; this moves the
+    next one, which was computed in the old one. One-offs and intervals keep
+    their moment in time, and a snoozed or firing reminder is left alone.
+    """
+    now = utcnow()
+    for reminder in reminders.list_active(user_id):
+        if reminder.status != ReminderStatus.PENDING or reminder.recurrence is None:
+            continue
+        recurrence = recurrences.parse(reminder.recurrence)
+        if isinstance(recurrence, recurrences.Interval):
+            continue
+        # Snoozed: remind_at isn't one of its occurrences any more.
+        if recurrence.next_after(reminder.remind_at - timedelta(seconds=1), ZoneInfo(old_tz)) != reminder.remind_at:
+            continue
+        reminders.advance(reminder.id, recurrence.next_after(now, ZoneInfo(new_tz)))
+
+
 async def create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str):
     """Intent action for "remind me ..." / "set a reminder ..."."""
     user = users.get_or_create(update.effective_user.id)
