@@ -51,8 +51,12 @@ async def ask_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, intro
 
 
 async def apply_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, tz_name: str):
-    users.get_or_create(update.effective_user.id)
-    users.set_timezone(update.effective_user.id, tz_name)
+    old_tz = users.get_or_create(update.effective_user.id).timezone
+    user = users.set_timezone(update.effective_user.id, tz_name)
+    if old_tz and old_tz != tz_name:
+        # Imported here: handlers.reminders imports this module (ask_timezone).
+        from handlers.reminders import keep_clock_times
+        keep_clock_times(user.id, old_tz, tz_name)
     context.user_data.pop(AWAITING, None)
     local = user_now(tz_name)
     await update.effective_message.reply_text(f"🌍 Timezone set to {tz_name} (local time {local:%H:%M}).")
