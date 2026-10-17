@@ -37,6 +37,8 @@ from datetime        import date, datetime, time, timedelta
 from typing          import Optional
 
 from core.numbers     import SPOKEN, normalize_numbers
+from core.numbers     import TENS as NUMBER_TENS, UNITS as NUMBER_UNITS
+from core.typos       import Vocabulary
 from enums           import RepeatKind
 from core.recurrence import (
     EVERY_DAY, WEEKDAYS as WORKDAYS, WEEKENDS, Interval, Monthly, Recurrence, Weekly,
@@ -102,6 +104,21 @@ DAY_PARTS = {
 
 # Shortest "every N minutes" reminder.
 MIN_INTERVAL = timedelta(minutes=15)
+
+# Words of time expressions whose typos are fixed on a second try
+# ("tomorow", "wensday", "evry"), each with its meaning (core/typos.py).
+TIME_VOCABULARY = Vocabulary({
+    **{w: f"weekday:{d}" for w, d in WEEKDAYS.items()},
+    **{f"{w}s": f"weekdays:{WEEKDAYS[w]}" for w in FULL_WEEKDAYS},
+    **{w: f"month:{n}" for w, n in MONTHS.items()},
+    **{w: f"unit:{u}" for w, u in UNITS.items()},
+    **{w: f"number:{n}" for w, n in {**NUMBER_UNITS, **NUMBER_TENS}.items()},
+    **{w: w for w in DAY_PARTS},
+    **{w: w for w in [
+        "today", "tonight", "tomorrow", "next", "after", "every", "everyday", "daily", "monthly",
+        "weekday", "weekdays", "weekend", "weekends", "month", "other", "half", "quarter", "past",
+    ]},
+})
 
 # Parts of the day that make "at 9" mean 21:00.
 EVENING_PARTS = {"tonight", "afternoon", "evening", "night"}
@@ -649,6 +666,33 @@ def _is_text(text: str, now: datetime) -> bool:
     return bool(text) and _parse_time(text, now) is None
 
 
+def _split(words: list, time_words: list, fixed: list, now: datetime) -> Optional[tuple]:
+    """The longest time expression at the start or the end: (k, (when, recurrence), text).
+
+    The time is read from `time_words`, the text is taken from `words`, and
+    the text must not be a time even with typos fixed (`fixed`), so
+    "tomorow at 9" isn't a reminder called “tomorow”. All three are word
+    for word the same message.
+    """
+    best = None   # (number of words used for the time, (when, recurrence), text)
+    for k in range(len(words), 0, -1):
+        # Time expression at the start: "tomorrow at 9 to pay rent"
+        parsed = _parse_time(" ".join(time_words[:k]), now)
+        if parsed is not None and _is_text(_clean_text(" ".join(fixed[k:])), now):
+            text = _clean_text(" ".join(words[k:]))
+            if best is None or k > best[0]:
+                best = (k, parsed, text)
+        # Time expression at the end: "to pay rent tomorrow at 9"
+        parsed = _parse_time(" ".join(time_words[-k:]), now)
+        if parsed is not None and _is_text(_clean_text(" ".join(fixed[:-k])), now):
+            text = _clean_text(" ".join(words[:-k]))
+            if best is None or k > best[0]:
+                best = (k, parsed, text)
+        if best is not None:
+            return best
+    return None
+
+
 def parse_reminder(request: str, now: datetime) -> ParsedReminder:
     """Split "in two hours to call mom" into a time and a text.
 
@@ -659,25 +703,15 @@ def parse_reminder(request: str, now: datetime) -> ParsedReminder:
     if not words:
         raise ParseError("What should I remind you about, and when?")
 
-    best = None   # (number of words used for the time, (when, recurrence), text)
-    for k in range(len(words), 0, -1):
-        # Time expression at the start: "tomorrow at 9 to pay rent"
-        parsed = _parse_time(" ".join(words[:k]), now)
-        if parsed is not None:
-            text = _clean_text(" ".join(words[k:]))
-            if _is_text(text, now) and (best is None or k > best[0]):
-                best = (k, parsed, text)
-        # Time expression at the end: "to pay rent tomorrow at 9"
-        parsed = _parse_time(" ".join(words[-k:]), now)
-        if parsed is not None:
-            text = _clean_text(" ".join(words[:-k]))
-            if _is_text(text, now) and (best is None or k > best[0]):
-                best = (k, parsed, text)
-        if best is not None:
-            break
+    fixed = TIME_VOCABULARY.fix_all(words)
+    best = _split(words, words, fixed, now)
+    if best is None and fixed != words:
+        # Second try with typos in time words fixed ("tomorow at 9"). The
+        # text keeps the words as written.
+        best = _split(words, fixed, fixed, now)
 
     if best is None:
-        if _parse_time(request, now) is not None:
+        if _parse_time(request, now) is not None or _parse_time(" ".join(fixed), now) is not None:
             raise ParseError("What should I remind you about?")
         raise ParseError("I couldn't understand when.")
 

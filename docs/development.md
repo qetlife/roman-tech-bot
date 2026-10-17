@@ -8,6 +8,7 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see
 - [Design decisions](#design-decisions)
 - [Messages and buttons](#messages-and-buttons)
 - [Reminders](#reminders)
+- [Typos](#typos)
 - [Settings](#settings)
 - [Failed messages](#failed-messages)
 - [Enums](#enums)
@@ -37,6 +38,7 @@ handlers/           everything that talks to Telegram (messages, buttons)
 core/               the logic: no Telegram, no database sessions
     parser.py       "in 2 hours to call mom" → time + text
     numbers.py      spoken numbers → digits ("nine thirty" → 9:30), used by the parser
+    typos.py        fixing typos of known words ("tomorow", "remid me"), a second try for parser and intents
     recurrence.py   Weekly / Monthly / Interval
     quiet.py        quiet hours
     timezones.py    resolving and formatting timezones
@@ -94,7 +96,8 @@ obvious from the code.
   fixed set of English expressions and asks the user to rephrase otherwise,
   so a reminder is never silently set for the wrong time. Gaps are found
   through [failed messages](#failed-messages), not by making the parser
-  looser.
+  looser. Typos are fixed only as a second try, for words the bot knows,
+  and never in the reminder text.
 - **“at 9” means the next 09:00 or 21:00**, whichever comes first; typed
   “9:30” and “18:00” are taken as written. A day without a time means 09:00.
 - **A dot works like a colon in times** (“21.20”), unless the number is a
@@ -142,7 +145,9 @@ chats still carry it. `tests/test_callbacks.py` pins them.
 1. A message starting with a trigger phrase runs that intent's action with
    the rest of the message (`handlers/intents.py`, matched by
    `core/intents.py`; longest phrase wins, whole words only, polite filler
-   like “please” allowed in front). This always wins.
+   like “please” allowed in front). This always wins. If no phrase matches
+   as written, it's tried again with typos of the phrases' words fixed
+   (“remid me”, see [Typos](#typos)); the rest keeps the original words.
 2. Otherwise, if the bot asked a question, `context.user_data["awaiting"]`
    holds an `Awaiting` value (`enums.py`; keys in `handlers/ui.py`) and the message is the
    answer. For `Awaiting.EDIT`, the reminder id is in
@@ -204,6 +209,30 @@ hours). Both are UTC.
 `skip_quiet`. Only sub-day `Interval`s are skipped; other reminders have an
 explicit time and always fire. `skip_quiet` is also applied when creating,
 editing and acknowledging, so the shown next time is right.
+
+## Typos
+
+`core/typos.py` fixes typos of known words, as a **second try** only: the
+parser and the intent matcher first read a message as written, and only if
+that fails try again with typos fixed. So nothing that worked before can
+change.
+
+- `distance()` counts edits (insert, delete, replace, swap two neighbours).
+  A word of 4–7 letters may be 1 edit off; 2 if it or the known word has 8
+  or more (“wensday” → “wednesday”). Shorter words are never guessed.
+- A `Vocabulary` maps each known word to a meaning. A word that is itself
+  known is never changed (“reminders” stays, even though it's 1 edit from
+  “reminder”), and a typo equally close to two meanings isn't guessed; a tie
+  within one meaning (“minuts”: “minute” / “minutes”) is fine. `ALIASES`
+  covers shorthand that's too far for distance (“tonite”, “tmrw”).
+- `parser.TIME_VOCABULARY` is built from the parser's own tables (weekdays,
+  months, units, number words, day parts, repeat words). `parse_reminder`
+  fixes the words word for word, reads the time from the fixed words and
+  takes the text from the original ones, so the text keeps the user's
+  spelling. The leftover is checked with fixed words on both tries, so
+  “tomorow at 9” asks for a text instead of creating a reminder called
+  “tomorow”.
+- The intent vocabulary is the words of all trigger phrases.
 
 ## Voice messages
 
