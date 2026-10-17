@@ -8,7 +8,12 @@ Telegram bot (python-telegram-bot, SQLAlchemy, PostgreSQL, Alembic). Start with
 - **Keep the docs up to date in the same change.** Any change to what the bot
   does or how it works updates `docs/user-guide.md` (user-facing behaviour,
   phrases, settings with defaults and options), `docs/development.md`
-  (internals), the feature list in `README.md`, and `plan.md` (done / next).
+  (internals; non-obvious choices go in its Design decisions), and
+  `docs/setup.md` (environment variables, setup, deployment). The README is
+  a short public landing page: only touch its feature list for headline
+  features, and keep details in `docs/`.
+- **Plans live in GitHub issues**, not in a file. Reference the issue in the
+  pull request (“Fixes #23”) so it closes on merge; new ideas become issues.
 - **Use enums instead of loose strings** for any fixed set of values (statuses,
   callback data, conversation state, kinds). **All enums go in `enums.py`.**
 - **Never change existing callback data values** (`Callback`, `CallbackPrefix`,
