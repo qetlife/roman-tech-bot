@@ -496,3 +496,12 @@ def test_timezone_change_keeps_a_snooze(chat):
 
     chat(data="tz:Europe/Kyiv", handler=on_timezone_button)
     assert _active(chat.telegram_id)[0].remind_at == snoozed_until
+
+
+# --- typos ----------------------------------------------------------------------
+
+def test_typos_in_the_trigger_and_the_time(chat):
+    update = chat("remid me on wensday at 18:00 to call mom")
+    assert _replies(update)[0].startswith("⏰ Got it: call mom\n🗓 Wed ")
+    reminder = _active(chat.telegram_id)[0]
+    assert reminder.request == "on wensday at 18:00 to call mom"     # saved as typed

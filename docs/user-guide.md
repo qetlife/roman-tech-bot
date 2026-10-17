@@ -93,7 +93,7 @@ Either type a message that starts with a trigger phrase, or press
 `⏰ Reminders → ➕ New` and send the time and text.
 
 Trigger phrases (case-insensitive; “please”, “hey”, “can you” etc. in front
-are fine):
+are fine; small typos too, see [Typos](#typos)):
 
 | To…               | Start the message with                                                                    |
 | ----------------- | ----------------------------------------------------------------------------------------- |
@@ -155,6 +155,21 @@ Rules:
 - A weekday that has already passed today means next week; a date that has
   passed this year means next year.
 - Times in the past are rejected.
+
+#### Typos
+
+Small typos in trigger phrases and time words are fixed: “remid me”, “set a
+remider”, “tomorow”, “tommorow”, “wensday”, “teusday”, “saterday”,
+“febuary”, “evry day”, “in 10 minuts”, “in fourty minutes”, and the
+shorthand “tonite”, “tmrw”.
+
+- Only words the bot knows are fixed. Your reminder text is kept exactly as
+  you typed it: “remind me to call Mondy tomorow” is “call Mondy”, tomorrow.
+- A message that makes sense as written is never “fixed”: in “remind me to
+  eat a sundae at 9”, “sundae” stays.
+- Words under 4 letters aren't guessed (“tue”, “mon” and “jan” are still
+  fine as abbreviations), and neither is a typo that could mean two
+  different things.
 
 ### Recurring reminders
 

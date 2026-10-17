@@ -32,7 +32,8 @@ Bot  › ⏰ call mom
 ## ✨ Features
 
 - **🗣 Natural language.** “in 2 hours”, “tomorrow at 9”, “friday 18:00”,
-  “dec 24”, “at half past six”, “tonight”. No commands or forms to fill in.
+  “dec 24”, “at half past six”, “tonight”, and forgiving of typos (“remid me
+  tomorow”). No commands or forms to fill in.
 - **🎙 Voice messages.** Say anything you'd type. It's transcribed offline on
   the bot's own server by [speech-service](https://github.com/qetlife/speech-service)
   (Vosk), so your audio never goes to a third party.
