@@ -164,8 +164,7 @@ def test_unparsed_reminder_is_saved(chat):
     assert entry.bot_understood == {"error": "I couldn't understand when."}
 
 
-def test_wrong_button_saves_then_edits(chat):
-    from enums import Awaiting
+def test_wrong_button_saves_then_deletes(chat):
     from handlers.reminders import on_reminder_button
     from handlers.ui import AWAITING
 
@@ -173,8 +172,11 @@ def test_wrong_button_saves_then_edits(chat):
     reminder = _active(chat.telegram_id)[0]
 
     update = chat(data=f"rem:wrong:{reminder.id}", handler=on_reminder_button)
-    assert "Saved as failed" in update.callback_query.message.reply_text.call_args.args[0]
-    assert chat.context.user_data[AWAITING] == Awaiting.EDIT
+    # The confirmation is replaced (its buttons go away), nothing is asked
+    assert update.callback_query.edit_message_text.call_args.args[0].startswith("👎 Deleted: call mom\n")
+    update.callback_query.message.reply_text.assert_not_called()
+    assert AWAITING not in chat.context.user_data
+    assert _active(chat.telegram_id) == []
 
     [entry] = _failed(chat.telegram_id)
     assert (entry.text, entry.reason, entry.source) == ("on friday at 9 to call mom", "wrong_result", "typed")
@@ -183,13 +185,9 @@ def test_wrong_button_saves_then_edits(chat):
         "text": "call mom", "remind_at": reminder.remind_at.isoformat(), "recurrence": None,
     }
 
-    # Fixing it with ✏️ Edit keeps what the bot got wrong
-    chat("tomorrow at 10 to call dad")
-    assert _active(chat.telegram_id)[0].text == "call dad"
-    assert _failed(chat.telegram_id)[0].bot_understood["text"] == "call mom"
-
     # Pressing it again doesn't save it twice
-    chat(data=f"rem:wrong:{reminder.id}", handler=on_reminder_button)
+    update = chat(data=f"rem:wrong:{reminder.id}", handler=on_reminder_button)
+    assert "had already finished" in update.callback_query.edit_message_text.call_args.args[0]
     assert len(_failed(chat.telegram_id)) == 1
 
 
@@ -201,21 +199,33 @@ def test_wrong_button_on_a_finished_reminder(chat):
     chat(data=f"rem:ok:{reminder_id}", handler=on_reminder_button)
 
     update = chat(data=f"rem:wrong:{reminder_id}", handler=on_reminder_button)
-    assert "already finished" in update.callback_query.message.reply_text.call_args.args[0]
+    assert "had already finished" in update.callback_query.edit_message_text.call_args.args[0]
     assert len(_failed(chat.telegram_id)) == 1
 
 
-def test_thats_wrong_flags_the_last_reminder(chat):
-    from enums import Awaiting
-    from handlers.ui import AWAITING
+def test_wrong_button_on_a_firing_reminder_retires_its_message(chat):
+    from handlers.reminders import on_reminder_button
 
+    chat("remind me tomorrow at 9 to call mom")
+    reminder_id = _active(chat.telegram_id)[0].id
+    _fire(reminder_id)
+    chat(data=f"rem:wrong:{reminder_id}", handler=on_reminder_button)
+    assert chat.context.bot.edit_message_text.call_args.kwargs["text"] == "⏰ call mom\n\n↩️ Cancelled."
+
+
+def test_thats_wrong_deletes_the_last_reminder(chat):
     chat("remind me tomorrow at 9 to call mom")
     chat("remind me tomorrow at 10 to pay rent")
     update = chat("that's wrong")
-    assert _replies(update)[0].startswith("👎 Saved as failed")
-    assert chat.context.user_data[AWAITING] == Awaiting.EDIT
+    assert _replies(update)[0].startswith("👎 Deleted: pay rent\n")
+    assert [r.text for r in _active(chat.telegram_id)] == ["call mom"]
     [entry] = _failed(chat.telegram_id)
     assert entry.text == "tomorrow at 10 to pay rent"
+
+    # Saying it again doesn't delete the one before
+    update = chat("that's wrong")
+    assert _replies(update) == ["👎 That one is already saved as failed."]
+    assert [r.text for r in _active(chat.telegram_id)] == ["call mom"]
 
 
 def test_thats_wrong_after_a_message_that_was_not_understood(chat):

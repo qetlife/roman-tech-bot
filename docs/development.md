@@ -297,9 +297,12 @@ Messages the bot didn't handle well, kept to improve the parser
   phrases (“that's wrong”, `flag_last_reminder`). It stores the reminder's
   `request` (the message as the parser got it, saved on the reminder with its
   `source` when created or edited), a snapshot of what the bot made of it
-  (`{"text", "remind_at", "recurrence"}`, which survives the edit that
-  follows) and `reminder_id`. Then it starts ✏️ Edit. One open entry per
-  reminder.
+  (`{"text", "remind_at", "recurrence"}`) and `reminder_id`, then cancels
+  the reminder (retiring its delivered message if it was firing). The
+  button replaces the confirmation's text, like ↩️ Undo; the phrases reply.
+  One open entry per reminder, and afterwards “that's wrong” refers to
+  nothing new (`last_reminder_id` is `None`), so saying it twice doesn't
+  delete the reminder before.
 
 “The last one” is `user_data["last_reminder_id"]`: set when a reminder is
 created or edited, set to `None` when a message isn't understood (already

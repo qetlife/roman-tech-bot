@@ -20,7 +20,7 @@ from    db.repositories.settings        import SettingsRepository
 from    db.repositories.user            import UserRepository
 from    db.repositories.failed_message  import FailedMessageRepository
 from    enums                           import (
-    ACTIVE_STATUSES, Awaiting, Callback, CallbackPrefix, FailureReason, IntentName, MessageSource,
+    Awaiting, Callback, CallbackPrefix, FailureReason, IntentName, MessageSource,
     ReminderAction, ReminderStatus,
 )
 from    handlers.failed                 import record, record_not_understood
@@ -308,8 +308,9 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await list_reminders(update, context, toast="Cancelled")
 
     elif action == ReminderAction.WRONG:
-        await query.answer("Saved as failed")
-        await flag_wrong(update, context, reminder, query.message.reply_text)
+        await query.answer("Deleted and saved as failed")
+        # Shown on the confirmation itself, like ↩️ Undo, so its buttons go away.
+        await query.edit_message_text(await flag_wrong(update, context, reminder))
 
 
 async def start_edit(context: ContextTypes.DEFAULT_TYPE, reminder, reply, intro: str = ""):
@@ -322,29 +323,37 @@ async def start_edit(context: ContextTypes.DEFAULT_TYPE, reminder, reply, intro:
 # --- 👎 Wrong ----------------------------------------------------------------
 
 def understood(reminder) -> dict:
-    """What the bot made of the message: kept with the failed message, even after ✏️ Edit."""
+    """What the bot made of the message, kept with the failed message."""
     return {"text": reminder.text, "remind_at": reminder.remind_at.isoformat(), "recurrence": reminder.recurrence}
 
 
-async def flag_wrong(update: Update, context: ContextTypes.DEFAULT_TYPE, reminder, reply):
-    """Save a reminder the bot got wrong as a failed message, then ✏️ Edit it."""
+async def flag_wrong(update: Update, context: ContextTypes.DEFAULT_TYPE, reminder) -> str:
+    """Save a reminder the bot got wrong as a failed message and delete it.
+
+    Returns what to tell the user. The user sends it again if it's still needed.
+    """
     if failed.open_for_reminder(reminder.id) is None:
         record(
             update, FailureReason.WRONG_RESULT, reminder.request or reminder.text,
             source=reminder.source or MessageSource.TYPED, intent=IntentName.REMINDER_CREATE,
             bot_understood=understood(reminder), reminder_id=reminder.id,
         )
-    if reminder.status not in ACTIVE_STATUSES:
-        await reply("👎 Saved as failed, thanks. This reminder has already finished, so there's nothing to fix.")
-        return
-    await start_edit(context, reminder, reply, intro="👎 Saved as failed, thanks. Let's fix it now.\n")
+    # "that's wrong" again now means this one, which is already saved.
+    context.user_data[LAST_REMINDER_ID] = None
+    if reminders.cancel(reminder.id) is None:
+        return f"👎 Saved as failed, so I can learn it. “{reminder.text}” had already finished."
+    await retire_fired_message(context, reminder, "↩️ Cancelled.")
+    return (
+        f"👎 Deleted: {reminder.text}\n"
+        "Saved as failed, so I can learn it. Send it again if you still need it."
+    )
 
 
 async def flag_last_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = ""):
     """Intent action for "that's wrong" / "save the last one as failed"."""
     reply = update.effective_message.reply_text
     if LAST_REMINDER_ID in context.user_data and context.user_data[LAST_REMINDER_ID] is None:
-        await reply("👎 That one is already saved as failed: I save everything I don't understand.")
+        await reply("👎 That one is already saved as failed.")
         return
 
     # After a restart user_data is empty: fall back to the newest reminder.
@@ -356,4 +365,4 @@ async def flag_last_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if reminder is None:
         await reply("There's no reminder to save as failed yet.")
         return
-    await flag_wrong(update, context, reminder, reply)
+    await reply(await flag_wrong(update, context, reminder))
