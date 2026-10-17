@@ -5,6 +5,7 @@
 **A personal assistant on Telegram. Set reminders by typing or speaking, in plain English.**
 
 [![Deploy](https://github.com/qetlife/roman-tech-bot/actions/workflows/deploy.yml/badge.svg)](https://github.com/qetlife/roman-tech-bot/actions/workflows/deploy.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![python-telegram-bot 22](https://img.shields.io/badge/python--telegram--bot-22-26A5E4?logo=telegram&logoColor=white)
 ![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
@@ -98,3 +99,7 @@ Ideas and bugs go in [issues](https://github.com/qetlife/roman-tech-bot/issues).
 For code, read the [development guide](docs/development.md), open a pull
 request against `master`, and make sure `pyflakes` and `pytest` pass (CI runs
 both on every pull request).
+
+## 📄 License
+
+[MIT](LICENSE) © Roman Ishchuk
