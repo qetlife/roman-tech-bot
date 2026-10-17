@@ -33,18 +33,23 @@ def _replies(update):
 
 @pytest.fixture
 def chat(db, monkeypatch):
-    """A new user with a timezone, and a function to send them messages/buttons."""
+    """A new user with a timezone, and a function to send them messages/buttons.
+
+    Menu screens aren't sent; `chat.screen()` is the last one rendered: (text, keyboard).
+    """
     from db.repositories.user import UserRepository
-    from handlers import reminders, settings
+    from handlers import commands, menus, reminders, settings
     from handlers.text import on_text
 
-    monkeypatch.setattr(reminders, "render_menu", AsyncMock())
-    monkeypatch.setattr(settings, "render_menu", AsyncMock())
+    render = AsyncMock()
+    for module in (commands, menus, reminders, settings):
+        monkeypatch.setattr(module, "render_menu", render)
 
     telegram_id = random.randint(10**9, 10**12)
     UserRepository().get_or_create(telegram_id)
     UserRepository().set_timezone(telegram_id, "Europe/Lisbon")
     context = MagicMock(user_data={}, chat_data={})
+    context.bot.edit_message_text = AsyncMock()
 
     def send(text=None, data=None, handler=None):
         update = _update(telegram_id, data=data, text=text)
@@ -53,7 +58,13 @@ def chat(db, monkeypatch):
 
     send.telegram_id = telegram_id
     send.context = context
+    send.screen = lambda: render.call_args.args[2:4]
     return send
+
+
+def _buttons(keyboard):
+    """[[(text, callback data), ...], ...] of an inline keyboard."""
+    return [[(b.text, b.callback_data) for b in row] for row in keyboard.inline_keyboard]
 
 
 def _active(telegram_id):
@@ -253,3 +264,235 @@ def test_failed_list_is_admin_only(chat, monkeypatch):
     update = chat(data=f"failfix:{entry.id}", handler=on_failed_button)
     assert _failed(chat.telegram_id) == []
     assert "water the plants" not in update.callback_query.edit_message_text.call_args.args[0]
+
+
+# --- menus --------------------------------------------------------------------
+
+def test_start_registers_and_shows_the_menu(chat):
+    from db.repositories.user import UserRepository
+    from handlers.commands import start
+
+    new_id = chat.telegram_id + 1
+    update = _update(new_id, text="/start")
+    asyncio.run(start(update, chat.context))
+    assert UserRepository().get_by_telegram_id(new_id) is not None
+    text, keyboard = chat.screen()
+    assert text.startswith("Hi!")
+    assert _buttons(keyboard) == [[("⏰ Reminders", "menu:reminders")], [("⚙️ Settings", "menu:settings")]]
+
+
+@pytest.mark.parametrize("handler, data, text, back", [
+    ("on_reminders",  "menu:reminders", "Reminders:", ("↩️ Back", "menu:main")),
+    ("on_settings",   "menu:settings",  "Settings:",  ("↩️ Back", "settings:back")),
+    ("on_main_menu",  "menu:main",      "Menu:",      ("⚙️ Settings", "menu:settings")),
+    ("on_main_menu",  "settings:back",  "Menu:",      ("⚙️ Settings", "menu:settings")),
+])
+def test_menu_screens(chat, handler, data, text, back):
+    from handlers import menus
+
+    chat(data=data, handler=getattr(menus, handler))
+    screen_text, keyboard = chat.screen()
+    assert screen_text.startswith(text)
+    assert _buttons(keyboard)[-1] == [back]
+
+
+def test_menu_command_and_my_id(chat):
+    from handlers.commands import menu_cmd
+    from handlers.menus import on_my_id
+
+    chat("/menu", handler=menu_cmd)
+    assert chat.screen()[0] == "Menu:"
+    chat(data="settings:my_id", handler=on_my_id)
+    assert chat.screen()[0] == f"Your ID: {chat.telegram_id}"
+
+
+# --- settings screens ---------------------------------------------------------
+
+def _setting(chat, setting):
+    from db.repositories.settings import SettingsRepository
+    from db.repositories.user import UserRepository
+
+    return SettingsRepository().get(UserRepository().get_by_telegram_id(chat.telegram_id).id, setting)
+
+
+def test_snooze_presets_default_and_custom(chat):
+    from core.settings import SNOOZE_OPTIONS
+    from enums import Awaiting
+    from handlers.settings import on_snooze_button, on_snooze_settings
+    from handlers.ui import AWAITING
+
+    chat(data="settings:snooze", handler=on_snooze_settings)
+    assert "Current: 10 min · 1 h" in chat.screen()[0]
+
+    update = chat(data="snzopt:set:5,15,60", handler=on_snooze_button)
+    assert update.callback_query.answer.call_args.args == ("Saved",)
+    assert _setting(chat, SNOOZE_OPTIONS) == [5, 15, 60]
+    assert _buttons(chat.screen()[1])[0] == [("✅ 5 min · 15 min · 1 h", "snzopt:set:5,15,60")]
+
+    chat(data="snzopt:default", handler=on_snooze_button)
+    assert _setting(chat, SNOOZE_OPTIONS) == [10, 60]
+
+    chat(data="snzopt:custom", handler=on_snooze_button)
+    assert chat.context.user_data[AWAITING] == Awaiting.SNOOZE_OPTIONS
+    update = chat("soon")
+    assert "Try again" in _replies(update)[0]
+    assert chat.context.user_data[AWAITING] == Awaiting.SNOOZE_OPTIONS
+    update = chat("10m, 1h, 3h")
+    assert _replies(update) == ["💤 Snooze options set to 10 min · 1 h · 3 h."]
+    assert _setting(chat, SNOOZE_OPTIONS) == [10, 60, 180]
+    assert AWAITING not in chat.context.user_data
+
+
+def test_snooze_button_with_invalid_data_is_refused(chat):
+    from core.settings import SNOOZE_OPTIONS
+    from handlers.settings import on_snooze_button
+
+    # Callback data comes from the client, so it can be anything.
+    update = chat(data="snzopt:set:0", handler=on_snooze_button)
+    assert update.callback_query.answer.call_args.kwargs == {"show_alert": True}
+    assert _setting(chat, SNOOZE_OPTIONS) == [10, 60]
+
+
+def test_repeat_interval(chat):
+    from core.settings import REPEAT_MINUTES
+    from handlers.settings import on_repeat_button, on_repeat_settings
+
+    chat(data="settings:repeat", handler=on_repeat_settings)
+    assert "Current: every 5 min" in chat.screen()[0]
+
+    chat(data="rptopt:set:15", handler=on_repeat_button)
+    assert _setting(chat, REPEAT_MINUTES) == 15
+    assert ("✅ 15 min", "rptopt:set:15") in _buttons(chat.screen()[1])[1]
+
+    update = chat(data="rptopt:set:999", handler=on_repeat_button)
+    assert update.callback_query.answer.call_args.kwargs == {"show_alert": True}
+    assert _setting(chat, REPEAT_MINUTES) == 15
+
+
+def test_quiet_hours_presets_off_default(chat):
+    from core.settings import QUIET_HOURS
+    from handlers.settings import on_quiet_button, on_quiet_settings
+
+    chat(data="settings:quiet", handler=on_quiet_settings)
+    assert "Current: 00:00–07:00" in chat.screen()[0]
+
+    chat(data="qhopt:set:23:00-07:00", handler=on_quiet_button)
+    assert _setting(chat, QUIET_HOURS) == ["23:00", "07:00"]
+
+    chat(data="qhopt:off", handler=on_quiet_button)
+    assert _setting(chat, QUIET_HOURS) == []
+    assert ("✅ 🔔 Off", "qhopt:off") in _buttons(chat.screen()[1])[3]
+
+    chat(data="qhopt:default", handler=on_quiet_button)
+    assert _setting(chat, QUIET_HOURS) == ["00:00", "07:00"]
+
+
+def test_quiet_hours_custom_invalid_asks_again(chat):
+    from enums import Awaiting
+    from handlers.settings import on_quiet_button
+    from handlers.ui import AWAITING
+
+    chat(data="qhopt:custom", handler=on_quiet_button)
+    update = chat("whenever")
+    assert "Try again" in _replies(update)[0]
+    assert chat.context.user_data[AWAITING] == Awaiting.QUIET_HOURS
+
+
+def test_timezone_settings(chat):
+    from db.repositories.user import UserRepository
+    from handlers.settings import on_timezone_button, on_timezone_settings
+
+    update = chat(data="settings:timezone", handler=on_timezone_settings)
+    assert _replies(update)[0].startswith("Current timezone: Europe/Lisbon. Which timezone")
+
+    update = chat("Atlantis")
+    assert _replies(update)[0].startswith("I don't know that timezone")
+    update = chat("kyiv")
+    assert _replies(update)[0].startswith("🌍 Timezone set to Europe/Kyiv")
+
+    chat(data="tz:Europe/Berlin", handler=on_timezone_button)
+    assert UserRepository().get_by_telegram_id(chat.telegram_id).timezone == "Europe/Berlin"
+
+
+# --- reminders that are firing ------------------------------------------------
+
+def _fire(reminder_id, message_id=555):
+    """Mark a reminder as delivered and waiting for OK, like the delivery job does."""
+    from datetime import timedelta
+
+    from db.models.reminder import utcnow
+    from db.repositories.reminder import ReminderRepository
+
+    ReminderRepository().mark_fired(reminder_id, message_id, utcnow() + timedelta(minutes=5))
+
+
+@pytest.mark.parametrize("action, note", [
+    ("edit", "✏️ Edited, see the updated reminder below."),
+    ("del",  "↩️ Cancelled."),
+    ("undo", "↩️ Cancelled."),
+])
+def test_firing_reminder_loses_its_buttons_when_changed(chat, action, note):
+    from handlers.reminders import on_reminder_button
+
+    chat("remind me tomorrow at 9 to call mom")
+    reminder_id = _active(chat.telegram_id)[0].id
+    _fire(reminder_id)
+
+    chat(data=f"rem:{action}:{reminder_id}", handler=on_reminder_button)
+    if action == "edit":
+        chat("tomorrow at 10 to call dad")
+    kwargs = chat.context.bot.edit_message_text.call_args.kwargs
+    assert (kwargs["message_id"], kwargs["text"]) == (555, f"⏰ call mom\n\n{note}")
+
+
+def test_pending_reminder_has_no_message_to_retire(chat):
+    from handlers.reminders import on_reminder_button
+
+    chat("remind me tomorrow at 9 to call mom")
+    reminder_id = _active(chat.telegram_id)[0].id
+    chat(data=f"rem:del:{reminder_id}", handler=on_reminder_button)
+    chat.context.bot.edit_message_text.assert_not_called()
+
+
+# --- changing the timezone ----------------------------------------------------
+
+def _local(when, tz_name):
+    from zoneinfo import ZoneInfo
+    return when.astimezone(ZoneInfo(tz_name))
+
+
+def test_timezone_change_keeps_the_clock_time_of_daily_reminders(chat):
+    from handlers.settings import on_timezone_button
+
+    chat("remind me every day at 9 to take pills")
+    chat("remind me on the 1st of every month at 10 to pay rent")
+    chat(data="tz:Europe/Kyiv", handler=on_timezone_button)
+
+    by_text = {r.text: r for r in _active(chat.telegram_id)}
+    assert _local(by_text["take pills"].remind_at, "Europe/Kyiv").time().isoformat() == "09:00:00"
+    assert _local(by_text["pay rent"].remind_at, "Europe/Kyiv").time().isoformat() == "10:00:00"
+    assert by_text["take pills"].next_fire_at == by_text["take pills"].remind_at
+
+
+def test_timezone_change_keeps_the_moment_of_one_offs_and_intervals(chat):
+    from handlers.settings import on_timezone_button
+
+    chat("remind me tomorrow at 9 to call mom")
+    chat("remind me every 2 hours to drink water")
+    before = {r.text: r.remind_at for r in _active(chat.telegram_id)}
+    chat(data="tz:Europe/Kyiv", handler=on_timezone_button)
+    assert {r.text: r.remind_at for r in _active(chat.telegram_id)} == before
+
+
+def test_timezone_change_keeps_a_snooze(chat):
+    from handlers.reminders import on_reminder_button
+    from handlers.settings import on_timezone_button
+
+    chat("remind me every day at 9 to take pills")
+    reminder_id = _active(chat.telegram_id)[0].id
+    _fire(reminder_id)
+    chat(data=f"rem:snz:{reminder_id}:15", handler=on_reminder_button)
+    snoozed_until = _active(chat.telegram_id)[0].remind_at
+
+    chat(data="tz:Europe/Kyiv", handler=on_timezone_button)
+    assert _active(chat.telegram_id)[0].remind_at == snoozed_until
