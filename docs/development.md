@@ -8,6 +8,7 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see the
 - [Messages and buttons](#messages-and-buttons)
 - [Reminders](#reminders)
 - [Settings](#settings)
+- [Failed messages](#failed-messages)
 - [Enums](#enums)
 - [Database](#database)
 - [Tests](#tests)
@@ -18,13 +19,14 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see the
 
 ```
 bot.py              entry point: registers handlers and the delivery job, starts polling
-config.py           BOT_TOKEN, DB_CONNECTION, SPEECH_URL, SPEECH_TOKEN from the environment (.env)
+config.py           BOT_TOKEN, DB_CONNECTION, SPEECH_URL, SPEECH_TOKEN, ADMIN_TELEGRAM_ID from the environment (.env)
 enums.py            every enum
 
 handlers/           everything that talks to Telegram (messages, buttons)
     commands.py     /start, /menu
+    failed.py       saving failed messages; /failed list (admin only)
     menus.py        main, ⏰ Reminders and ⚙️ Settings menu screens
-    reminders.py    create, edit, list; OK / snooze / undo / edit / delete buttons
+    reminders.py    create, edit, list; OK / snooze / undo / edit / delete / 👎 wrong buttons
     settings.py     🌍 timezone and ⏰ reminder settings screens
     text.py         typed messages: trigger phrases, answers to questions
     voice.py        voice messages: transcribe, then handle like text
@@ -49,8 +51,8 @@ services/           clients for other services (no Telegram)
 db/
     session.py      engine, sessions, init_db
     migrations.py   runs Alembic on startup
-    models/         user, reminder, user_setting, types (UTCDateTime)
-    repositories/   user, reminder, settings: the only code that opens sessions
+    models/         user, reminder, user_setting, failed_message, types (UTCDateTime)
+    repositories/   user, reminder, settings, failed_message: the only code that opens sessions
 
 alembic/            schema migrations
 docs/               this guide and the user guide
@@ -112,7 +114,8 @@ chats still carry it. `tests/test_callbacks.py` pins them.
    holds an `Awaiting` value (`enums.py`; keys in `handlers/ui.py`) and the message is the
    answer. For `Awaiting.EDIT`, the reminder id is in
    `user_data["edit_reminder_id"]`.
-3. Otherwise the bot replies with a help text.
+3. Otherwise the bot replies with a help text (and saves the message as
+   failed, see [Failed messages](#failed-messages)).
 
 `user_data` lives in memory, so a restart forgets pending questions.
 
@@ -218,6 +221,38 @@ Screens live in `handlers/settings.py`. The ⏰ Reminder settings screen
 remembers where it was opened from (`user_data["reminder_settings_back"]`)
 so `↩️ Back` returns there.
 
+## Failed messages
+
+Messages the bot didn't handle well, kept to improve the parser
+(`handlers/failed.py`, table `failed_messages`). Two `FailureReason`s:
+
+- `NOT_UNDERSTOOD`, saved by `record_not_understood()` wherever the bot says
+  it didn't understand: the help text in `handlers/text.py`, and a
+  `ParseError` in `create_reminder` / `edit_reminder` (with `intent` and
+  `bot_understood = {"error": <message>}`).
+- `WRONG_RESULT`, saved by `handlers/reminders.flag_wrong()` from the
+  `👎 Wrong` button (`ReminderAction.WRONG`) or the `IntentName.FLAG_FAILED`
+  phrases (“that's wrong”, `flag_last_reminder`). It stores the reminder's
+  `request` (the message as the parser got it, saved on the reminder with its
+  `source` when created or edited), a snapshot of what the bot made of it
+  (`{"text", "remind_at", "recurrence"}`, which survives the edit that
+  follows) and `reminder_id`. Then it starts ✏️ Edit. One open entry per
+  reminder.
+
+“The last one” is `user_data["last_reminder_id"]`: set when a reminder is
+created or edited, set to `None` when a message isn't understood (already
+saved). After a restart it falls back to the newest reminder.
+
+The table isn't tied to reminders: `intent` (an `IntentName`) says what the
+bot thought was asked and `bot_understood` is a JSON snapshot, so other
+features (events) add their own optional link column next to `reminder_id`.
+
+`/failed` is only answered for `ADMIN_TELEGRAM_ID` (silently ignored for
+everyone else); it lists the newest open entries and `✅ <n>`
+(`CallbackPrefix.FAILED_FIXED`) sets `status = fixed` and `fixed_at`. Fixed
+entries are not deleted. Saving never breaks the reply: database errors are
+logged.
+
 ## Enums
 
 Use an enum instead of loose strings for any fixed set of values. **All
@@ -229,6 +264,9 @@ ones there too.
 | `ReminderStatus` (+ `ACTIVE_STATUSES`)  | reminder lifecycle; stored as its value in `reminders.status`, a `VARCHAR(16)` (non-native SQLAlchemy `Enum` in `db/models/reminder.py`) |
 | `RepeatKind`                            | the kind of repeat the parser found |
 | `Awaiting`                              | what the next typed message answers |
+| `IntentName`                            | free-text intents; stored in `failed_messages.intent` |
+| `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source` |
+| `FailureReason`, `FailureStatus`        | `failed_messages.reason` and `.status` |
 | `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction` | callback data of every button |
 
 Weekdays use the standard library's `calendar.Day` (in the parser and
@@ -246,8 +284,9 @@ changes go through Alembic; see [Database Migrations](../README.md#database-migr
 | Table           | Holds |
 | --------------- | ----- |
 | `users`         | `telegram_id`, `timezone` |
-| `reminders`     | creator/target user, chat, text, `remind_at`, `next_fire_at`, `status`, `fire_count`, `last_message_id`, `recurrence` |
+| `reminders`     | creator/target user, chat, text, `remind_at`, `next_fire_at`, `status`, `fire_count`, `last_message_id`, `recurrence`, `request` and `source` (the message it was made from) |
 | `user_settings` | `(user_id, key)` → JSON value, only non-defaults |
+| `failed_messages` | user, `text`, `source`, `reason`, `intent`, `bot_understood` (JSON), optional `reminder_id`, `status`, `created_at`, `fixed_at` |
 
 ## Tests
 

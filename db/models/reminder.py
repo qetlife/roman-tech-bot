@@ -6,7 +6,7 @@ from typing          import Optional
 from sqlalchemy      import BigInteger, Enum, ForeignKey, Index, Integer, String, Text, Uuid
 from sqlalchemy.orm  import Mapped, mapped_column
 
-from enums           import ReminderStatus
+from enums           import MessageSource, ReminderStatus
 from db.models.types import UTCDateTime
 from db.models.user  import Base
 
@@ -42,6 +42,13 @@ class Reminder(Base):
     last_message_id: Mapped[Optional[int]] = mapped_column(BigInteger)
     # Repeats on these days, e.g. "mon,fri@09:00" (reminders/recurrence.py); None = once.
     recurrence: Mapped[Optional[str]] = mapped_column(String(64))
+    # The message it was created (or last edited) from, as the parser got it,
+    # and how it came in; saved with 👎 Wrong. None for older reminders.
+    request: Mapped[Optional[str]] = mapped_column(Text)
+    source: Mapped[Optional[MessageSource]] = mapped_column(
+        Enum(MessageSource, native_enum=False, create_constraint=False, length=16,
+             values_callable=lambda sources: [s.value for s in sources]),
+    )
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime)
 

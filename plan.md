@@ -83,14 +83,26 @@ Decisions made along the way (from the old “Open decisions” list):
 - Editing reminders is supported (✏️ Edit after creating).
 - Recurring reminders were out of scope for phase 1 (added in phase 2).
 
+### Failed messages
+
+- Messages the bot didn't understand (typed and voice) are saved in
+  `failed_messages`; reminders it got wrong can be flagged with `👎 Wrong`
+  on the confirmation or by saying “that's wrong” / “save the last one as
+  failed”, which saves what the bot made of it and opens ✏️ Edit.
+- `/failed` (admin only, `ADMIN_TELEGRAM_ID`) lists the open ones; `✅ <n>`
+  marks one fixed. Fixed entries are kept (they're tiny); the lasting record
+  of a fix is a parser test.
+- Not tied to reminders: entries have an `intent` and a snapshot of what the
+  bot understood, so events can use the same table.
+- First fix from it: times with a dot (“thursday at 21.20”) were read as a
+  date and fell back to 09:00.
+
 ## Next
 
 ### Parser (next)
 
 - Typo tolerance: “remid me”, “tomorow”, “wensday” (edit distance against
   the known vocabulary, only in the trigger and time words).
-- Log messages the bot couldn't understand (typed and voice) and list them
-  with `/missed`, to drive the next phrasings.
 - More phrasings (“don't let me forget to…”, “in a fortnight”, “next month”,
   “every 2nd tuesday”), replying to a reminder (“snooze 20 min”, “move it to
   10”, “done”), plain-language commands (“cancel the dentist reminder”,
@@ -111,6 +123,14 @@ Decisions made along the way (from the old “Open decisions” list):
 - Group chats: deliver to `chat_id`, only the target can press the buttons
   (already enforced).
 - Optional AI fallback for phrasing the parser doesn't understand.
+
+### Events
+
+- Fixed events (“padel on thursday at 21:00”) with reminders relative to
+  them (“30 min before padel, pack the racket”): the reminder moves when the
+  event moves. A reminder would get an `event_id` and an offset;
+  `failed_messages` gets an `event_id` column the same way it has
+  `reminder_id`.
 
 ### General
 

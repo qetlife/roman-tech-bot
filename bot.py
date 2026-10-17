@@ -8,7 +8,7 @@ from    telegram.ext                import ApplicationBuilder, CommandHandler, C
 from    config                      import BOT_TOKEN
 from    db.session                  import init_db
 from    enums                       import Callback, CallbackPrefix, ReminderAction
-from    handlers                    import reminders, settings
+from    handlers                    import failed, reminders, settings
 from    handlers.commands           import menu_cmd, start
 from    handlers.menus              import on_main_menu, on_my_id, on_reminders, on_settings
 from    handlers.text               import on_text
@@ -34,6 +34,7 @@ def main():
     # Commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_cmd))
+    app.add_handler(CommandHandler("failed", failed.on_failed_cmd))         # admin only
 
     # Main Menu
     app.add_handler(CallbackQueryHandler(on_main_menu,    pattern=exact(Callback.MAIN_MENU, Callback.SETTINGS_BACK)))
@@ -58,6 +59,9 @@ def main():
     app.add_handler(CallbackQueryHandler(reminders.on_new,              pattern=exact(Callback.NEW_REMINDER)))
     app.add_handler(CallbackQueryHandler(reminders.list_reminders,      pattern=exact(Callback.LIST_REMINDERS)))
     app.add_handler(CallbackQueryHandler(reminders.on_reminder_button,  pattern=REMINDER_BUTTON))
+
+    # Failed messages (/failed list)
+    app.add_handler(CallbackQueryHandler(failed.on_failed_button,       pattern=prefixed(CallbackPrefix.FAILED_FIXED)))
 
     # Free text in private chats: trigger phrases ("remind me ...") and answers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, on_text))

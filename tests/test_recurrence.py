@@ -71,6 +71,7 @@ def test_next_after_accepts_utc_input():
     ("weekends",                    WEEKENDS,           time(9),        dt(11, 9)),
     ("every monday",                frozenset({0}),     time(9),        dt(12, 9)),
     ("every mon and thu 18:00",     frozenset({0, 3}),  time(18),       dt(12, 18)),
+    ("every thursday at 21.20",     frozenset({3}),     time(21, 20),   dt(15, 21, 20)),
     ("mondays and fridays",         frozenset({0, 4}),  time(9),        dt(12, 9)),
     ("every week",                  frozenset({5}),     time(9),        dt(17, 9)),
 ])

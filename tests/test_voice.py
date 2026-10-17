@@ -122,6 +122,25 @@ def test_voice_creates_a_reminder(speech_server, voice_update):
     assert replies[1].startswith("⏰ Got it: call mom")
 
 
+def test_voice_reminder_remembers_it_came_by_voice(speech_server, voice_update):
+    from db.repositories.reminder import ReminderRepository
+
+    update, context = voice_update
+    _on_voice(update, context)
+    reminder = ReminderRepository().latest_for_user(update.effective_user.id)
+    assert (reminder.request, reminder.source) == ("tomorrow at nine to call mom", "voice")
+
+
+def test_voice_not_understood_is_saved(speech_server, voice_update):
+    from db.repositories.failed_message import FailedMessageRepository
+
+    update, context = voice_update
+    speech_server.body = {"text": "what's the weather"}
+    _on_voice(update, context)
+    entry = next(f for f in FailedMessageRepository().list_open(10_000) if f.text == "what's the weather")
+    assert (entry.source, entry.reason) == ("voice", "not_understood")
+
+
 def test_voice_answers_a_question(speech_server, voice_update):
     from enums import Awaiting
     from handlers.ui import AWAITING

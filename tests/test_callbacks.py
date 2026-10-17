@@ -33,6 +33,8 @@ def test_fixed_values_are_stable():
     (reminder_callback(ReminderAction.UNDO, 5),             "rem:undo:5"),
     (reminder_callback(ReminderAction.EDIT, 5),             "rem:edit:5"),
     (reminder_callback(ReminderAction.DELETE, 5),           "rem:del:5"),
+    (reminder_callback(ReminderAction.WRONG, 5),            "rem:wrong:5"),
+    (f"{CallbackPrefix.FAILED_FIXED}7",                     "failfix:7"),
     (option_callback(CallbackPrefix.SNOOZE_OPTION, OptionAction.SET, "10,60"),     "snzopt:set:10,60"),
     (option_callback(CallbackPrefix.SNOOZE_OPTION, OptionAction.CUSTOM),           "snzopt:custom"),
     (option_callback(CallbackPrefix.REPEAT_OPTION, OptionAction.SET, 5),           "rptopt:set:5"),

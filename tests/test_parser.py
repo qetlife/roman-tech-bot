@@ -60,6 +60,18 @@ def dt(day, hour, minute=0, month=10, year=2026):
     ("on december 24th at 10am",  NOW, dt(24, 10, month=12)),
     ("24th of december",          NOW, dt(24, 9, month=12)),
     ("jan 3",                     NOW, datetime(2027, 1, 3, 9, tzinfo=TZ)),
+    # A dot works like a colon in times; "10.11" on its own stays a date
+    ("thursday at 21.20",         NOW, dt(15, 21, 20)),
+    ("on thursday at 21.20",      NOW, dt(15, 21, 20)),
+    ("at 21.20",                  AFTERNOON, dt(10, 21, 20)),
+    ("21.20",                     AFTERNOON, dt(10, 21, 20)),
+    ("at 21.20 tomorrow",         NOW, dt(11, 21, 20)),
+    ("tomorrow at 7.05",          NOW, dt(11, 7, 5)),
+    ("at 9.20pm",                 AFTERNOON, dt(10, 21, 20)),
+    ("at 9.20 pm",                AFTERNOON, dt(10, 21, 20)),
+    ("at 10.11",                  NOW, dt(11, 10, 11)),
+    ("10.11",                     NOW, dt(10, 9, month=11)),
+    ("at 24.12",                  NOW, dt(24, 9, month=12)),
     # Shortly after midnight "tomorrow" is the coming day
     ("tomorrow",                  LATE_NIGHT, dt(10, 9)),
     ("tomorrow at 9",             LATE_NIGHT, dt(10, 9)),
@@ -75,7 +87,7 @@ def test_parse_when(phrase, now, expected):
 
 @pytest.mark.parametrize("phrase", [
     "call mom", "pay rent", "9", "may", "in", "at", "someday", "in two", "31.02",
-    "tomorrow tomorrow", "in 2 hours tomorrow",
+    "tomorrow tomorrow", "in 2 hours tomorrow", "25.70",
 ])
 def test_parse_when_rejects(phrase):
     assert parse_when(phrase, NOW) is None
@@ -92,6 +104,7 @@ def test_parse_when_rejects(phrase):
     ("that the Laundry is done in 45 min",    dt(11, 0, 15), "the Laundry is done"),
     ("about the meeting at 10 am tomorrow",   dt(11, 10),    "the meeting"),
     ("in 1 hour - take pills",                dt(11, 0, 30), "take pills"),
+    ("on thursday at 21.20 to call mom",      dt(15, 21, 20), "call mom"),
 ])
 def test_parse_reminder(request_, expected_when, expected_text):
     parsed = parse_reminder(request_, NOW)

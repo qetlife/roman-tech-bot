@@ -5,6 +5,7 @@ from    telegram.ext                import ContextTypes
 
 from    core.intents                import match_intent
 from    enums                       import Awaiting
+from    handlers.failed             import record_not_understood
 from    handlers                    import reminders as rh
 from    handlers                    import settings as sh
 from    handlers.intents            import INTENTS
@@ -44,4 +45,5 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
     elif awaiting == Awaiting.EDIT:
         await rh.edit_reminder(update, context, context.user_data[EDIT_REMINDER_ID], text)
     else:
+        record_not_understood(update, context, text)
         await update.effective_message.reply_text(HELP_TEXT)

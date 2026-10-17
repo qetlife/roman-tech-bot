@@ -11,6 +11,8 @@ services:
       # speech-service for voice messages, e.g. http://speech:8000 (optional)
       SPEECH_URL: ${SPEECH_URL:-}
       SPEECH_TOKEN: ${SPEECH_TOKEN:-}
+      # Telegram user ID of the admin, who can see /failed (optional)
+      ADMIN_TELEGRAM_ID: ${ADMIN_TELEGRAM_ID:-}
     networks:
       # Shared with the `postgres` container
       - shared-network

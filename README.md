@@ -27,6 +27,10 @@ SQLAlchemy and PostgreSQL, running on a Raspberry Pi.
   reminders are re-sent until OK, and marked missed after 24 hours.
 - **Manage reminders**: list upcoming ones (“my reminders”), `↩️ Undo`,
   `✏️ Edit` and `❌` cancel.
+- **Failed messages**: anything the bot doesn't understand is saved, and a
+  reminder it got wrong can be flagged with `👎 Wrong` or “that's wrong”
+  (then fixed right away with ✏️ Edit). The admin lists them with `/failed`
+  to teach the parser new phrasings.
 - **Settings**: `🆔 My ID`, `🌍 Timezone`, and reminder settings (also under
   `⏰ Reminders → ⚙️ Settings`): `💤 Snooze options`, `🔁 Repeat interval`,
   `🌙 Quiet hours` (default 00:00–07:00).
@@ -74,10 +78,16 @@ DB_CONNECTION=postgresql+psycopg://<user>:<password>@<host>:<port>/<database>
 # Optional: voice messages (https://github.com/qetlife/speech-service)
 SPEECH_URL=http://speech:8000
 # SPEECH_TOKEN=<only if the speech-service has API_TOKEN set>
+# Optional: your Telegram user ID; only this user can use /failed
+ADMIN_TELEGRAM_ID=<your telegram user id>
 ```
 
 Without `SPEECH_URL`, voice messages are off (the bot replies that they
-aren't set up); everything else works.
+aren't set up); without `ADMIN_TELEGRAM_ID`, `/failed` is off. Everything
+else works.
+
+After changing `.env` on the Pi, run `docker compose up -d`: a container only
+reads `.env` when it is created.
 
 `DB_CONNECTION` is a SQLAlchemy URL and must use the `postgresql+psycopg://`
 scheme. Plain `postgresql://` makes SQLAlchemy look for psycopg2, which is not

@@ -13,3 +13,5 @@ DB_CONNECTION = os.environ.get("DB_CONNECTION")
 SPEECH_URL = os.environ.get("SPEECH_URL") or None
 # Only if the speech-service has API_TOKEN set
 SPEECH_TOKEN = os.environ.get("SPEECH_TOKEN") or None
+# Telegram user ID of the admin, who can see /failed (unset: nobody)
+ADMIN_TELEGRAM_ID = int(os.environ.get("ADMIN_TELEGRAM_ID") or 0) or None
