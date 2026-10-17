@@ -248,18 +248,25 @@ be improved:
   “I couldn't understand when” is saved automatically, typed or voice.
 - **It understood it wrong** (e.g. the wrong time): tap `👎 Wrong` on the
   confirmation, or say “that's wrong” / “save the last one as failed”. The
-  bot saves your message together with what it made of it, then asks for
-  the right time and text right away, like `✏️ Edit`. “The last one” is the
-  last reminder the bot created or edited from your messages; if your last
+  bot saves your message together with what it made of it and **deletes the
+  reminder**; send it again if you still need it. “The last one” is the last
+  reminder the bot created or edited from your messages; if your last
   message wasn't understood at all, it's already saved.
 
 ```
 ⏰ Got it: at 21.20 to call mom
 🗓 Thu 22 Oct, 09:00 (in 4 d)
 [↩️ Undo] [✏️ Edit] [👎 Wrong]
-👎 Saved as failed, thanks. Let's fix it now.
-Send the new time and text for “at 21.20 to call mom”, …
 ```
+
+After tapping `👎 Wrong`, the confirmation becomes:
+
+```
+👎 Deleted: at 21.20 to call mom
+Saved as failed, so I can learn it. Send it again if you still need it.
+```
+
+To fix a reminder instead of deleting it, use `✏️ Edit`.
 
 The admin (set with `ADMIN_TELEGRAM_ID`) sees the open ones with `/failed`,
 newest first, and taps `✅ <number>` once the bot understands that phrasing.

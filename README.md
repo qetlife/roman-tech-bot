@@ -42,8 +42,8 @@ Bot  › ⏰ call mom
 - **✅ Delivered until you confirm.** Reminders come with OK and snooze
   buttons and are re-sent until you answer. Quiet hours keep the night free.
 - **👎 Learns from mistakes.** Anything the bot doesn't understand is saved,
-  and a reminder it got wrong can be flagged with one tap and fixed right
-  away. Those messages drive new phrasings.
+  and a reminder it got wrong is deleted and saved with one tap
+  (`👎 Wrong`). Those messages drive new phrasings.
 - **🛡 Reliable.** Reminders live in PostgreSQL and survive restarts.
   Anything due while the bot was down is sent when it's back.
 
