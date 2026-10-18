@@ -269,6 +269,18 @@ def test_a_button_ends_the_question(chat):
     assert [e.reason for e in _failed(chat.telegram_id)] == ["wrong_result"]
 
 
+def test_settings_end_the_question(chat):
+    from handlers.settings import on_timezone_settings
+
+    chat("remind me tomorrow at 9 to call mom")
+    chat("remind me to stretch")                # the bot asks when
+    chat(data="settings:timezone", handler=on_timezone_settings)
+    chat("Berlin")                              # answers the timezone question instead
+    update = chat("that's wrong")               # about the reminder, not the question
+    assert _replies(update)[0].startswith("👎 Deleted: call mom")
+    assert [e.reason for e in _failed(chat.telegram_id)] == ["wrong_result"]
+
+
 def test_an_abandoned_question_is_forgotten(chat):
     chat("remind me tomorrow at 9 to call mom")
     chat("remind me to stretch")
