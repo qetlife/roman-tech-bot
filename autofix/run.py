@@ -34,10 +34,17 @@ MARKER = "🤖 auto-fix:"
 HERE = Path(__file__).resolve().parent
 LOGS = Path.home() / "autofix-logs"
 KEEP_LOGS = 30
+TIMEOUT = 80 * 60
+# Comments from anyone else on this public repo are ignored: they could be instructions.
+TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 
+# No `gh pr merge` and no `gh api`: Claude can open and comment on pull
+# requests but never merge one (every merge deploys).
 ALLOWED_TOOLS = ",".join([
     "Read", "Edit", "Write", "Glob", "Grep",
-    "Bash(git:*)", "Bash(gh:*)", "Bash(python -m pytest:*)", "Bash(python -m pyflakes:*)",
+    "Bash(git:*)", "Bash(python -m pytest:*)", "Bash(python -m pyflakes:*)",
+    "Bash(gh pr create:*)", "Bash(gh pr view:*)", "Bash(gh pr list:*)", "Bash(gh pr diff:*)",
+    "Bash(gh pr comment:*)", "Bash(gh run list:*)", "Bash(gh run watch:*)", "Bash(review-comments:*)",
 ])
 
 
@@ -53,10 +60,10 @@ def open_entries() -> list:
     return [json.loads(line) for line in failed("list", "--admin").splitlines()]
 
 
-def sandbox(*args, work: Path = None) -> list:
+def sandbox(*args, work: Path = None, name: str = None) -> list:
     """`docker run` of the sandbox; the tokens are passed by name, so they aren't on the command line."""
-    mount = ["-v", f"{work}:/work"] if work else []
-    return ["docker", "run", "--rm", "-e", "GH_TOKEN", "-e", "CLAUDE_CODE_OAUTH_TOKEN", *mount, IMAGE, *args]
+    extra = (["-v", f"{work}:/work"] if work else []) + (["--name", name] if name else [])
+    return ["docker", "run", "--rm", "-e", "GH_TOKEN", "-e", "CLAUDE_CODE_OAUTH_TOKEN", *extra, IMAGE, *args]
 
 
 def gh_json(*args):
@@ -78,18 +85,22 @@ def settle_earlier_prs(entries: list):
 
 
 def prs_with_new_comments() -> list:
-    """Open auto-fix pull requests with comments (other than Claude's) after their last commit."""
+    """Open auto-fix pull requests with trusted comments Claude hasn't dealt with yet.
+
+    Dealt with: older than the last commit or than Claude's last reply. The
+    review's own comments are answered in the run that pushed.
+    """
     prs = gh_json("pr", "list", "--repo", REPO, "--label", LABEL, "--state", "open",
                   "--json", "number,commits,comments")
     waiting = []
     for pr in prs:
-        last_commit = max(c["committedDate"] for c in pr["commits"])
         inline = gh_json("api", f"repos/{REPO}/pulls/{pr['number']}/comments")
-        comments = [(c["createdAt"], c["body"], c["author"]["login"]) for c in pr["comments"]] + \
-                   [(c["created_at"], c["body"], c["user"]["login"]) for c in inline]
-        # The review's own comments are answered in the run that pushed.
-        if any(when > last_commit and not body.startswith(MARKER) and not author.startswith("github-actions")
-               for when, body, author in comments):
+        comments = [(c["createdAt"], c["body"], c["authorAssociation"]) for c in pr["comments"]] + \
+                   [(c["created_at"], c["body"], c["author_association"]) for c in inline]
+        handled = max([c["committedDate"] for c in pr["commits"]] +
+                      [when for when, body, _ in comments if body.startswith(MARKER)])
+        if any(when > handled and not body.startswith(MARKER) and association in TRUSTED
+               for when, body, association in comments):
             waiting.append(pr["number"])
     return waiting
 
@@ -108,11 +119,19 @@ def run_claude(new: list, work: Path, log: Path) -> dict:
         f"claude -p \"$(cat /work/prompt.md)\" --add-dir /work --permission-mode acceptEdits "
         f"--allowedTools '{ALLOWED_TOOLS}'"
     )
+    name = f"autofix-{datetime.now():%Y%m%d%H%M%S}"
     with open(log, "w") as out:
-        result = subprocess.run(
-            sandbox("bash", "-c", script, work=work), stdout=out, stderr=subprocess.STDOUT, timeout=80 * 60,
-        )
-    print(f"Claude finished with exit code {result.returncode} (log on the Pi: {log})")
+        try:
+            result = subprocess.run(
+                sandbox("bash", "-c", script, work=work, name=name),
+                stdout=out, stderr=subprocess.STDOUT, timeout=TIMEOUT,
+            )
+            print(f"Claude finished with exit code {result.returncode} (log on the Pi: {log})")
+        except subprocess.TimeoutExpired:
+            # Killing `docker run` leaves the container running; stop it, then keep what it wrote.
+            subprocess.run(["docker", "kill", name], capture_output=True)
+            print(f"Claude timed out after {TIMEOUT // 60} min (log on the Pi: {log})")
+    # Claude writes it as soon as the pull request exists, so a timeout doesn't lose it.
     path = work / "result.json"
     return json.loads(path.read_text()) if path.exists() else {}
 

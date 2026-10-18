@@ -17,6 +17,7 @@ RUN arch="$(dpkg --print-architecture)" \
     && mv "/tmp/gh_${GH_VERSION}_linux_${arch}/bin/gh" /usr/local/bin/gh \
     && rm -rf /tmp/gh_*
 
+COPY autofix/review-comments /usr/local/bin/
 COPY requirements.txt requirements-dev.txt /tmp/
 RUN pip install --no-cache-dir -r /tmp/requirements-dev.txt
 

@@ -179,7 +179,12 @@ It needs two repository secrets:
 | `AUTOFIX_GH_TOKEN` | a fine-grained personal access token for this repository only: **Contents** and **Pull requests** read and write. Without the Workflows permission it can't change `.github/workflows/` |
 
 Protect `master` with a ruleset that requires a pull request (Settings →
-Rules), so the token can push branches but never deploy by itself.
+Rules), so nothing is pushed to it directly. The token could still merge a
+pull request (it acts as the owner, who can't be required to approve their
+own), so Claude isn't allowed `gh pr merge` or `gh api`, only the commands
+it needs (`ALLOWED_TOOLS` in `autofix/run.py`), and comments on auto-fix pull
+requests count only from the owner and the review. A stricter setup would
+give the job its own GitHub App identity, so a required approval stops it.
 
 The failed messages are private and the repository is public: the job never
 prints them to the Actions log (Claude's output goes to `~/autofix-logs/`
