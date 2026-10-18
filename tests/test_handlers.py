@@ -669,3 +669,68 @@ def test_typos_in_the_trigger_and_the_time(chat):
     assert _replies(update)[0].startswith("⏰ Got it: call mom\n🗓 Wed ")
     reminder = _active(chat.telegram_id)[0]
     assert reminder.request == "on wensday at 18:00 to call mom"     # saved as typed
+
+
+# --- plain-language commands ------------------------------------------------------
+
+def _texts(chat):
+    return sorted(r.text for r in _active(chat.telegram_id))
+
+
+def test_cancel_by_name(chat):
+    chat("remind me tomorrow at 9 to call the dentist")
+    chat("remind me tomorrow at 10 to call mom")
+    update = chat("cancel the dentist reminder")
+    assert _replies(update) == ["↩️ Cancelled: call the dentist"]
+    assert _texts(chat) == ["call mom"]
+
+
+def test_cancel_asks_which_one(chat):
+    chat("remind me tomorrow at 9 to call the dentist")
+    chat("remind me tomorrow at 10 to call mom")
+    update = chat("delete my reminder to call")
+    assert _replies(update)[0].startswith("Which one? Your reminders (tap ❌ to cancel):")
+    keyboard = update.effective_message.reply_text.call_args.kwargs["reply_markup"]
+    assert len(_buttons(keyboard)) == 3            # two reminders, then ➕ New / ↩️ Back
+    assert len(_texts(chat)) == 2
+
+
+def test_cancel_without_a_match(chat):
+    chat("remind me tomorrow at 9 to call mom")
+    assert _replies(chat("cancel the gym reminder"))[0].startswith("No reminder matches “gym”.")
+    assert _texts(chat) == ["call mom"]
+
+
+def test_delete_as_the_answer_to_a_question_is_the_answer(chat):
+    chat("tomorrow at 12")                         # the bot asks what for
+    update = chat("delete old photos")
+    assert _replies(update)[0].startswith("⏰ Got it: delete old photos")
+
+
+def test_what_do_i_have_tomorrow(chat):
+    chat("remind me tomorrow at 9 to call mom")
+    chat("remind me every day at 8 to take pills")
+    chat("remind me in 3 days to pay rent")
+    update = chat("what do I have tomorrow?")
+    text = _replies(update)[0]
+    assert text.startswith("Your reminders on ")
+    assert "call mom" in text and "take pills" in text and "pay rent" not in text
+
+
+def test_nothing_on_that_day(chat):
+    chat("remind me tomorrow at 9 to call mom")
+    assert _replies(chat("my reminders on dec 25"))[0].startswith("Nothing on ")
+
+
+def test_agenda_needs_a_day(chat):
+    assert _replies(chat("what's on my mind"))[0].startswith("I can show one day")
+
+
+def test_set_timezone_by_text(chat):
+    from db.repositories.user import UserRepository
+
+    update = chat("set my timezone to Berlin")
+    assert _replies(update)[0].startswith("🌍 Timezone set to Europe/Berlin")
+    assert UserRepository().get_by_telegram_id(chat.telegram_id).timezone == "Europe/Berlin"
+    assert "I don't know that timezone" in _replies(chat("set my timezone to Atlantis"))[0]
+    assert _replies(chat("change my timezone"))[0].startswith("Which timezone are you in?")

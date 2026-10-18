@@ -28,6 +28,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
     match = match_intent(text, INTENTS)
     awaiting = context.user_data.get(AWAITING)
 
+    if match is not None and match.intent.name == IntentName.REMINDER_CANCEL \
+            and awaiting is not None and "reminder" not in text.lower():
+        # While the bot asks something, "delete old photos" is an answer, not a command.
+        match = None
+
     # A trigger phrase always wins, so "remind me ..." works at any point.
     if match is not None:
         context.user_data.pop(AWAITING, None)

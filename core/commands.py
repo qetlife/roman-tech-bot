@@ -1,0 +1,52 @@
+"""Plain-language commands about reminders: which ones "cancel the dentist
+reminder" means, and which day "what do I have tomorrow?" asks about.
+
+No Telegram, no database: handlers/reminders.py looks the reminders up.
+"""
+
+import re
+
+from datetime       import date, datetime, timedelta, tzinfo
+from typing         import Optional
+
+from core           import recurrence as recurrences
+from core.parser    import parse_when
+
+
+# Words around what identifies a reminder: "the dentist reminder", "my reminder to call mom"
+FILLER = {"the", "my", "a", "that", "this", "reminder", "reminders", "to", "about", "for", "called", "named"}
+
+
+def search_words(request: str) -> list:
+    """The words that pick a reminder: "the dentist reminder" → ["dentist"]."""
+    words = re.findall(r"[\w']+", request.lower())
+    return [w for w in words if w not in FILLER]
+
+
+def matches(text: str, words: list) -> bool:
+    """Whether a reminder's text has all the words (as words or the start of one)."""
+    own = re.findall(r"[\w']+", text.lower())
+    return all(any(o.startswith(w) for o in own) for w in words)
+
+
+def parse_day(request: str, now: datetime) -> Optional[date]:
+    """The day in "tomorrow?", "on friday", "for dec 24", or None."""
+    phrase = request.strip().strip("?!. ").lower()
+    phrase = re.sub(r"^(?:for|on)\s+", "", phrase)
+    if not phrase:
+        return None
+    when = parse_when(phrase, now)
+    return when.date() if when is not None else None
+
+
+def occurs_on(remind_at: datetime, recurrence: Optional[str], day: date, tz: tzinfo) -> bool:
+    """Whether a reminder (next at `remind_at`, repeating per `recurrence`) is due on `day`, local."""
+    if remind_at.astimezone(tz).date() == day:
+        return True
+    if not recurrence:
+        return False
+    start = datetime.combine(day, datetime.min.time(), tzinfo=tz)
+    if start < remind_at:
+        start = remind_at
+    following = recurrences.parse(recurrence).next_after(start - timedelta(seconds=1), tz)
+    return following.astimezone(tz).date() == day
