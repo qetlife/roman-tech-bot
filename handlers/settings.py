@@ -87,6 +87,16 @@ async def on_timezone_text(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     await apply_timezone(update, context, tz_name)
 
 
+async def set_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = ""):
+    """Intent action for "set my timezone to Lisbon"; without a place, asks for one."""
+    tz_name = resolve_timezone(request.strip().rstrip(".!")) if request.strip() else None
+    if tz_name is None:
+        # Asked (again), so the next message is the answer.
+        await ask_timezone(update, context, "I don't know that timezone. " if request.strip() else "")
+        return
+    await apply_timezone(update, context, tz_name)
+
+
 async def on_timezone_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """⚙️ Settings → 🌍 Timezone."""
     await update.callback_query.answer()

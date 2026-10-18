@@ -6,7 +6,8 @@ rest of the message. Add new phrases or intents here.
 
 from core.intents       import Intent
 from enums              import IntentName
-from handlers.reminders import create_reminder, flag_last_reminder, list_reminders
+from handlers.reminders import agenda, cancel_reminder, create_reminder, flag_last_reminder, list_reminders
+from handlers.settings  import set_timezone
 
 
 INTENTS = [
@@ -26,6 +27,29 @@ INTENTS = [
             "list my reminders", "reminders",
         ],
         action=list_reminders,
+    ),
+    Intent(
+        name=IntentName.REMINDER_AGENDA,
+        phrases=[
+            "what do i have", "what have i got", "what's on", "whats on", "what is on",
+            "do i have anything", "anything on",
+        ],
+        action=agenda,
+    ),
+    Intent(
+        name=IntentName.REMINDER_CANCEL,
+        # "cancel the dentist reminder"; handlers/text.py only takes these
+        # during a question if "reminder" is in the message.
+        phrases=["cancel", "delete", "remove"],
+        action=cancel_reminder,
+    ),
+    Intent(
+        name=IntentName.TIMEZONE_SET,
+        phrases=[
+            "set my timezone to", "set timezone to", "change my timezone to", "change timezone to",
+            "my timezone is", "set my timezone", "change my timezone",
+        ],
+        action=set_timezone,
     ),
     Intent(
         name=IntentName.FLAG_FAILED,

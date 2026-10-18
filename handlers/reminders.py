@@ -9,6 +9,7 @@ from    telegram.error                  import TelegramError
 from    telegram.ext                    import ContextTypes
 
 from    core                            import recurrence as recurrences
+from    core.commands                   import matches, occurs_on, parse_day, search_words
 from    core.parser                     import MissingText, MissingTime, ParseError, parse_reminder
 from    core.quiet                      import skip_quiet
 from    core.settings                   import (
@@ -290,10 +291,10 @@ async def on_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- listing ----------------------------------------------------------------
 
-def reminders_list_text(user, items) -> str:
+def reminders_list_text(user, items, title: str = "Your reminders", empty: str = "You have no upcoming reminders.") -> str:
     if not items:
-        return "You have no upcoming reminders."
-    lines = ["Your reminders (tap ❌ to cancel):", ""]
+        return empty
+    lines = [f"{title} (tap ❌ to cancel):", ""]
     for n, r in enumerate(items, 1):
         schedule = schedule_text(r, user.timezone or "UTC").replace("\n", "\n    ")
         lines.append(f"{n}. {r.text}\n    {schedule}")
@@ -301,8 +302,13 @@ def reminders_list_text(user, items) -> str:
 
 
 async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = "", toast: str = None):
-    """Intent action for "my reminders" and the 📋 menu button."""
+    """Intent action for "my reminders" (and "my reminders on friday"), and the 📋 menu button."""
     user = users.get_or_create(update.effective_user.id)
+    day = parse_day(request, user_now(user.timezone or "UTC")) if request.strip() else None
+    if day is not None:
+        await show_day(update, user, day)
+        return
+    # Anything else after the phrase ("my reminders please") is ignored.
     items = reminders.list_active(user.id)
     text = reminders_list_text(user, items)
     keyboard = build_reminders_list_keyboard(items)
@@ -312,6 +318,57 @@ async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE, req
         await render_menu(update, context, text, keyboard)
     else:
         await update.effective_message.reply_text(text, reply_markup=keyboard)
+
+
+async def agenda(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = ""):
+    """Intent action for "what do I have tomorrow?"; without a day, today."""
+    user = users.get_or_create(update.effective_user.id)
+    now = user_now(user.timezone or "UTC")
+    day = parse_day(request, now) if request.strip().strip("?!. ") else now.date()
+    if day is None:
+        await update.effective_message.reply_text(
+            "I can show one day, e.g. “what do I have tomorrow?” or “what's on friday?”."
+        )
+        return
+    await show_day(update, user, day)
+
+
+async def show_day(update: Update, user, day):
+    """The reminders due on `day`, repeats included, as a reply."""
+    tz = ZoneInfo(user.timezone or "UTC")
+    items = [r for r in reminders.list_active(user.id) if occurs_on(r.remind_at, r.recurrence, day, tz, r.created_at)]
+    title = f"{day:%a %d %b}"
+    await update.effective_message.reply_text(
+        reminders_list_text(user, items, f"Your reminders on {title}", f"Nothing on {title}. 🎉"),
+        reply_markup=build_reminders_list_keyboard(items),
+    )
+
+
+async def cancel_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = ""):
+    """Intent action for "cancel the dentist reminder": cancels the one that matches, or asks which."""
+    user = users.get_or_create(update.effective_user.id)
+    items = reminders.list_active(user.id)
+    words = search_words(request)
+    found = [r for r in items if matches(r.text, words)] if words else items
+    reply = update.effective_message.reply_text
+
+    if words and len(found) == 1:
+        # Asked, not done: a loose match shouldn't cancel the wrong one.
+        [reminder] = found
+        await reply(
+            f"Cancel “{reminder.text}”?\n{schedule_text(reminder, user.timezone or 'UTC')}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+                "❌ Cancel it", callback_data=reminder_callback(ReminderAction.DELETE, reminder.id),
+            )]]),
+        )
+        return
+    if words and not found:
+        await reply(reminders_list_text(user, items, f"No reminder matches “{' '.join(words)}”. Yours",
+                                        f"No reminder matches “{' '.join(words)}”."),
+                    reply_markup=build_reminders_list_keyboard(items))
+        return
+    await reply(reminders_list_text(user, found, "Which one? Your reminders"),
+                reply_markup=build_reminders_list_keyboard(found))
 
 
 # --- buttons ----------------------------------------------------------------
