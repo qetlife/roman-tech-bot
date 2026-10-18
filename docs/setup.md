@@ -167,7 +167,8 @@ messages → Run workflow**). If the admin has new open
 [failed messages](development.md#failed-messages), Claude Code fixes the
 ones it can, following `autofix/prompt.md`. The job then opens one pull
 request (label `autofix`), has Claude answer the automatic review (up to
-two rounds), and ignores the messages that can't be learned. Comments you
+two rounds), marks the ones that need a new feature as waiting for it,
+and ignores the ones that can't be learned. Comments you
 leave on an auto-fix pull request are answered on the next run. Merging is
 the only manual step; after the deploy the bot closes the messages it now
 understands.

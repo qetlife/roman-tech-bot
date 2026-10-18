@@ -95,6 +95,8 @@ def failed_text(items, total: int, tz_name: str) -> str:
         lines.append(f"    {describe(entry, tz_name)}")
         if entry.fix_pr:
             lines.append(f"    🔧 Fix waiting in pull request #{entry.fix_pr}")
+        elif entry.note:
+            lines.append(f"    ⏳ Waiting for: {shorten(entry.note, TEXT_LIMIT)}")
         lines.append(f"    {to_local(entry.created_at, tz_name):%d %b, %H:%M}")
     lines += ["", "Tap ✅ <number> once the bot understands it, 🗑 <number> to ignore it."]
     return "\n".join(lines)

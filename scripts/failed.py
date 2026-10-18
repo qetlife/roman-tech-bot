@@ -8,6 +8,8 @@ Usage (inside the bot container, where DB_CONNECTION is set):
     fixed <id> <note>     mark one fixed
     ignore <id> <note>    mark one ignored, e.g. ignore 12 "garbled transcript"
     pr <id> <number>      link one to the pull request that fixes it ("none" unlinks)
+    wait <id> <note>      keep one open, waiting for a feature ("none" clears it)
+    reopen <id>           open a fixed or ignored one again
 
 The entries hold the user's own words: they stay on the Pi. Nothing here
 sends them anywhere.
@@ -41,6 +43,7 @@ def as_json(entry, tz_name: str) -> str:
         "intent": entry.intent,
         "bot_understood": entry.bot_understood,
         "fix_pr": entry.fix_pr,
+        "note": entry.note,
     }, ensure_ascii=False)
 
 
@@ -73,6 +76,18 @@ def run(args: list) -> int:
     if command == "pr" and len(rest) == 2 and rest[0].isdigit() and (rest[1].isdigit() or rest[1] == "none"):
         if failed.set_fix_pr(int(rest[0]), None if rest[1] == "none" else int(rest[1])) is None:
             print(f"{rest[0]} isn't open", file=sys.stderr)
+            return 1
+        return 0
+
+    if command == "wait" and len(rest) == 2 and rest[0].isdigit():
+        if failed.set_waiting(int(rest[0]), None if rest[1] == "none" else rest[1]) is None:
+            print(f"{rest[0]} isn't open", file=sys.stderr)
+            return 1
+        return 0
+
+    if command == "reopen" and len(rest) == 1 and rest[0].isdigit():
+        if failed.reopen(int(rest[0])) is None:
+            print(f"{rest[0]} is already open", file=sys.stderr)
             return 1
         return 0
 

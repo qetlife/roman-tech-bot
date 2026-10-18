@@ -275,7 +275,9 @@ message, say); neither deletes it. Nobody else can see them.
 
 Most close on their own: after every update the bot tries the messages it
 didn't understand again, and marks the ones it now understands fixed. A
-message with a fix on the way shows “🔧 Fix waiting in pull request #n”.
+message with a fix on the way shows “🔧 Fix waiting in pull request #n”;
+one the bot needs a new feature for shows “⏳ Waiting for: …”; tap ✅
+on it once that feature is added.
 
 ## Settings
 

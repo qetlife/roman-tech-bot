@@ -70,6 +70,33 @@ class FailedMessageRepository:
             session.commit()
             return failed
 
+    def set_waiting(self, failed_id: int, note: Optional[str]) -> Optional[FailedMessage]:
+        """Keep an entry open, noting what it waits for (a feature the bot doesn't have yet); None clears it.
+
+        The auto-fix job skips waiting entries; the change adding the feature
+        closes them (the startup re-check only replays the parser).
+        """
+        with SessionLocal(expire_on_commit=False) as session:
+            failed = session.get(FailedMessage, failed_id, with_for_update=True)
+            if failed is None or failed.status != FailureStatus.OPEN:
+                return None
+            failed.note = note
+            session.commit()
+            return failed
+
+    def reopen(self, failed_id: int) -> Optional[FailedMessage]:
+        """Fixed or ignored → open again (e.g. closed by mistake). None if it's already open."""
+        with SessionLocal(expire_on_commit=False) as session:
+            failed = session.get(FailedMessage, failed_id, with_for_update=True)
+            if failed is None or failed.status == FailureStatus.OPEN:
+                return None
+            failed.status = FailureStatus.OPEN
+            failed.fixed_at = None
+            failed.note = None
+            failed.fix_pr = None
+            session.commit()
+            return failed
+
     def set_fix_pr(self, failed_id: int, pr: Optional[int]) -> Optional[FailedMessage]:
         """Link an open entry to the pull request that fixes it (None to unlink)."""
         with SessionLocal(expire_on_commit=False) as session:
