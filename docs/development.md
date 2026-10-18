@@ -336,7 +336,7 @@ reply: database errors are logged.
   `fixed` / `ignore <id> <note>`, and `pr <id> <number>`, which sets `fix_pr`:
   the pull request that teaches the parser that message, shown on `/failed`
   as “🔧 Fix waiting in pull request #n” so it isn't fixed twice.
-- **The auto-fix job** (`autofix/`, daily on the Pi) has Claude open a pull
+- **The auto-fix job** (`autofix/`, daily on the Pi) opens a pull
   request teaching the parser the admin's open messages, then links them
   with `pr` and ignores the unfixable ones. When that pull request is merged
   the not-understood entries close on startup; wrong results are marked

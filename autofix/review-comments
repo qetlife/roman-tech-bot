@@ -1,6 +1,0 @@
-#!/bin/sh
-# Inline review comments on a pull request (read-only), for Claude in the
-# sandbox, which isn't allowed `gh api`. Usage: review-comments <number>
-case "$1" in ''|*[!0-9]*) echo "usage: review-comments <number>" >&2; exit 2 ;; esac
-exec gh api "repos/qetlife/roman-tech-bot/pulls/$1/comments" \
-    --jq '.[] | "#\(.id) \(.user.login) (\(.author_association)) \(.path):\(.line // .original_line) at \(.created_at)\n\(.body)\n"'

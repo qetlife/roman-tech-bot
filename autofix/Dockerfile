@@ -1,6 +1,7 @@
 # Sandbox for the auto-fix job (autofix/run.py): Claude Code, git, gh and the
 # test dependencies. It gets no Docker socket and no access to the Pi; only
-# the work folder is mounted.
+# the work folder is mounted. Claude runs in it without the GitHub token; gh
+# runs in it (with the token) only to push and open pull requests.
 FROM python:3.12-slim
 
 ARG GH_VERSION=2.102.0
@@ -17,7 +18,6 @@ RUN arch="$(dpkg --print-architecture)" \
     && mv "/tmp/gh_${GH_VERSION}_linux_${arch}/bin/gh" /usr/local/bin/gh \
     && rm -rf /tmp/gh_*
 
-COPY autofix/review-comments /usr/local/bin/
 COPY requirements.txt requirements-dev.txt /tmp/
 RUN pip install --no-cache-dir -r /tmp/requirements-dev.txt
 

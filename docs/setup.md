@@ -164,12 +164,13 @@ subscription). The review is advice, not a required check.
 Every day at 03:00 UTC, `.github/workflows/autofix.yml` runs
 `autofix/run.py` on the Pi's runner (also **Actions → Auto-fix failed
 messages → Run workflow**). If the admin has new open
-[failed messages](development.md#failed-messages), it runs Claude Code in a
-sandbox container (`autofix/Dockerfile`: no Docker socket, only a temporary
-folder) with `autofix/prompt.md`. Claude opens one pull request (label
-`autofix`) with parser fixes and tests, answers the automatic review, and
-ignores messages that can't be learned. Merging is the only manual step;
-after the deploy the bot closes the messages it now understands.
+[failed messages](development.md#failed-messages), Claude Code fixes the
+ones it can, following `autofix/prompt.md`. The job then opens one pull
+request (label `autofix`), has Claude answer the automatic review (up to
+two rounds), and ignores the messages that can't be learned. Comments you
+leave on an auto-fix pull request are answered on the next run. Merging is
+the only manual step; after the deploy the bot closes the messages it now
+understands.
 
 It needs two repository secrets:
 
@@ -178,19 +179,23 @@ It needs two repository secrets:
 | `CLAUDE_CODE_OAUTH_TOKEN` | the same as the review |
 | `AUTOFIX_GH_TOKEN` | a fine-grained personal access token for this repository only: **Contents** and **Pull requests** read and write. Without the Workflows permission it can't change `.github/workflows/` |
 
-Protect `master` with a ruleset that requires a pull request (Settings →
-Rules), so nothing is pushed to it directly. The token could still merge a
-pull request (it acts as the owner, who can't be required to approve their
-own), so Claude isn't allowed `gh pr merge` or `gh api`, only the commands
-it needs (`ALLOWED_TOOLS` in `autofix/run.py`), and comments on auto-fix pull
-requests count only from the owner and the review. A stricter setup would
-give the job its own GitHub App identity, so a required approval stops it.
+**Claude never has the GitHub token.** It runs in a sandbox container
+(`autofix/Dockerfile`: no Docker socket, only a temporary folder) on an
+anonymous clone of this public repository, and hands back its commits as a
+git bundle. A separate container with the token, which runs neither Claude
+nor any code from the repository, fetches the bundle into a fresh clone,
+pushes the branch and opens the pull request. So nothing Claude writes or
+runs (its tests, say) can push to `master` or merge. Protect `master` with
+a ruleset that requires a pull request anyway (Settings → Rules).
+
+Only the admin's failed messages are used (anyone can message the bot), and
+only comments from the owner and the automatic review: anyone can comment
+on a public repository.
 
 The failed messages are private and the repository is public: the job never
 prints them to the Actions log (Claude's output goes to `~/autofix-logs/`
 on the Pi), and the prompt forbids putting their text in code, tests,
-commits or pull requests. Only the admin's messages are used (anyone can
-message the bot, and their text reaches Claude).
+commits or pull requests.
 
 ## Migrating from SQLite
 
