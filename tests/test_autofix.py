@@ -175,7 +175,10 @@ def test_open_pr_without_the_label(monkeypatch, tmp_path):
 
 @pytest.fixture
 def private(monkeypatch):
-    monkeypatch.setattr(run, "private", ["Remind me to call Mark about the Lisbon flat on Friday", "Tomorrow at 12"])
+    monkeypatch.setattr(run, "private", [
+        "Remind me to call Mark about the Lisbon flat on Friday", "Tomorrow at 12",
+        "to borrow at nine twenty am too start the kettle",
+    ])
 
 
 @pytest.mark.parametrize("text, leaks", [
@@ -185,7 +188,10 @@ def private(monkeypatch):
     ("+    parse('Call Mark about, the LISBON flat!')", True),           # case and punctuation ignored
     ('assert parse("tomorrow at 12 to stretch")', False),              # only the phrasing
     ("remind me to call Mark", True),
-    ("parse('call mark about the')", True),                            # quotes aren't part of a word
+    ("parse('call mark about the')", True),
+    # A misheard "to" is phrasing too: the test keeps it, with another task.
+    ('parse("to borrow at nine twenty am too start the oven")', False),
+    ('parse("at nine twenty am too start the kettle")', True),                            # quotes aren't part of a word
 ])
 def test_leaks(private, text, leaks):
     assert run.leaks(text) is leaks
