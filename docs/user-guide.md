@@ -107,6 +107,9 @@ are fine; small typos too, see [Typos](#typos)):
 | list one day      | “what do I have tomorrow?”, “what's on friday?”, “my reminders on dec 24”, “anything on monday?” (repeats included, also ones that already went off today) |
 | cancel a reminder | “cancel the dentist reminder”, “delete my reminder to call mom”, “remove …”: cancels the one whose text has those words; if several or none match, it shows them to pick with ❌ |
 | set your timezone | “set my timezone to Lisbon”, “my timezone is UTC+3”, “change my timezone” (asks) |
+
+Tapping ❌ on one of these lists (one day, or “which one?”) cancels that
+reminder and shows your full list of what's left.
 | flag the last reminder as wrong | “that's wrong”, “that is wrong”, “that was wrong”, “that's not right”, “you got that wrong”, “wrong reminder”, “save the last one as failed”, “mark the last one as failed”, “save it as failed”, “mark as failed” |
 
 The time can come before or after the text:

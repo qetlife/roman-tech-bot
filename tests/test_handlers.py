@@ -730,6 +730,18 @@ def test_what_do_i_have_tomorrow(chat):
     assert "call mom" in text and "take pills" in text and "pay rent" not in text
 
 
+def test_cancelling_from_a_day_view_shows_the_full_list(chat):
+    from handlers.reminders import on_reminder_button
+
+    chat("remind me tomorrow at 9 to call mom")
+    chat("remind me in 3 days to pay rent")
+    update = chat("what do I have tomorrow?")
+    [cancel, _] = _buttons(update.effective_message.reply_text.call_args.kwargs["reply_markup"])
+    chat(data=cancel[0][1], handler=on_reminder_button)
+    assert _texts(chat) == ["pay rent"]
+    assert chat.screen()[0].startswith("Your reminders (tap ❌ to cancel):")     # everything that's left
+
+
 def test_nothing_on_that_day(chat):
     chat("remind me tomorrow at 9 to call mom")
     assert _replies(chat("my reminders on dec 25"))[0].startswith("Nothing on ")
