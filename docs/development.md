@@ -11,6 +11,7 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see
 - [Typos](#typos)
 - [Settings](#settings)
 - [Failed messages](#failed-messages)
+- [People](#people)
 - [Enums](#enums)
 - [Database](#database)
 - [Tests](#tests)
@@ -27,6 +28,7 @@ enums.py            every enum
 handlers/           everything that talks to Telegram (messages, buttons)
     commands.py     /start, /menu
     failed.py       saving failed messages; /failed list (admin only)
+    people.py       👥 People: invite links, requests by @username, rename, remove
     menus.py        main, ⏰ Reminders and ⚙️ Settings menu screens
     reminders.py    create, edit, list; OK / snooze / undo / edit / delete / 👎 wrong buttons
     replies.py      replies to a reminder message: “done”, “snooze 20 min”, “move it to 10”, “cancel”
@@ -46,6 +48,7 @@ core/               the logic: no Telegram, no database sessions
     settings.py     setting definitions and validation
     intents.py      trigger phrase matching
     replies.py      reading replies to a reminder message (“snooze 20 min” → ReplyCommand)
+    contacts.py     contact names: valid ones, unique ones (“Anna 2”), the default
     commands.py     plain-language commands: which reminder “cancel the dentist reminder” means, which day “what do I have tomorrow?” is
 
 jobs/
@@ -58,8 +61,8 @@ services/           clients for other services (no Telegram)
 db/
     session.py      engine, sessions, init_db
     migrations.py   runs Alembic on startup
-    models/         user, reminder, user_setting, failed_message, types (UTCDateTime)
-    repositories/   user, reminder, settings, failed_message: the only code that opens sessions
+    models/         user, reminder, user_setting, failed_message, contact (+ invite), types (UTCDateTime)
+    repositories/   user, reminder, settings, failed_message, contact: the only code that opens sessions
 
 alembic/            schema migrations
 autofix/            the daily auto-fix job: sandbox image, prompt, runner script
@@ -96,6 +99,15 @@ sessions. They return detached model objects (`expire_on_commit=False`).
 
 Choices that shape the behaviour, and why. Add one when a decision isn't
 obvious from the code.
+
+- **Contacts opt in, one direction at a time.** A bot can only message
+  people who started it, and nobody should get reminders they didn't agree
+  to. So a contact exists only after the other person taps ✅ Allow on a
+  single-use invite link (7 days) or on a request to their @username, which
+  only works if they already use the bot. A `contacts` row means “owner may
+  remind contact”; the other direction is another row. Either side can end
+  it, which **deletes** the row (consent withdrawn, nothing kept) and
+  cancels the owner's waiting reminders for them.
 
 - **A small, predictable parser instead of guessing.** It understands a
   fixed set of English expressions and asks the user to rephrase otherwise,
@@ -144,6 +156,7 @@ edits it in place, or replaces it if it can't be edited.
 | `Callback`       | buttons with fixed data                | `menu:main`, `rset:show` |
 | `CallbackPrefix` | buttons that carry a value             | `tz:Europe/Kyiv`        |
 | `ReminderAction` | buttons on a reminder (`rem:<action>:<id>`) | `rem:snz:5:10`     |
+| `PeopleAction`   | 👥 People buttons (`ppl:<action>:<contact id>`), answers to an invite (`inv:<yes\|no>:<token>`) | `ppl:ren:3` |
 | `OptionAction`   | buttons on a setting screen            | `qhopt:set:23:00-07:00` |
 
 Build data with `reminder_callback()` / `option_callback()`, read it with
@@ -399,6 +412,46 @@ reply: database errors are logged.
   The repository is public, so fixes are tested with made-up messages of the
   same shape (“remind to call the bank”), never the saved text.
 
+## People
+
+Who may send reminders to whom (`handlers/people.py`, tables `contacts` and
+`invites`, `db/repositories/contact.py`). See the design decision above for
+why the other person always opts in.
+
+- **Invite link**: `👥 → ➕ Invite` (`Callback.NEW_INVITE`) creates an
+  `invites` row with a random token and shows
+  `https://t.me/<bot username>?start=inv_<token>`. Opening it sends
+  `/start inv_<token>`; `handlers/commands.start` passes it to
+  `on_start_invite`, which asks ✅ Allow / ❌ No (`inv:yes|no:<token>`).
+  `ContactRepository.use_invite` checks it (unknown, used, expired, own) and
+  makes or accepts the contact; ❌ No (`decline_invite`) uses the invite up too.
+  Both tell the owner.
+- **By @username**: the same screen sets `Awaiting.CONTACT_USERNAME`. A
+  known `users.username` gets a pending `contacts` row and a message with
+  `ppl:yes|no:<contact id>`; if Telegram refuses (they blocked the bot), the
+  row is removed again. Against spam: ❌ No keeps the row as `declined`
+  (not a contact: lists, names and senders skip it) so the same owner can't
+  ask again for `REQUEST_COOLDOWN` (30 days), and an owner can send
+  `REQUESTS_PER_DAY` (5) requests a day, at most one per person. Both
+  limits count from `contact_requests`, a log that only grows (cancelling a
+  pending request deletes its `contacts` row, but not its log entry). Usernames can go stale (the bot only
+  sees changes when someone writes to it): `remember_profile` takes a
+  username away from anyone else who had it, and `get_by_username` treats
+  more than one match as unknown.
+- **Messages to the other person** go through `tell()` (`bot.send_message`
+  to their private chat, whose id is their Telegram id); a refusal is
+  logged, not raised.
+- **Names**: `core/contacts.py` (`clean_name`, `unique_name`,
+  `default_name`); ✏️ Rename sets `Awaiting.CONTACT_NAME` with the id in
+  `user_data["rename_contact_id"]`.
+- **Ending it**: `ContactRepository.remove` (either side; 🗑 Remove by the
+  owner, 🚫 Stop by the contact) cancels the owner's active reminders for
+  that contact and deletes the row. Only the two people in a contact can see
+  or change it (`on_people_button`).
+- **Profiles**: `handlers/ui.remember_profile` runs first for every update
+  (`TypeHandler`, group -1) and stores `first_name` / `username` when they
+  change, for known users; `/start` also stores them for new ones.
+
 ## Enums
 
 Use an enum instead of loose strings for any fixed set of values. **All
@@ -414,7 +467,10 @@ ones there too.
 | `IntentName`                            | free-text intents; stored in `failed_messages.intent` |
 | `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source` |
 | `FailureReason`, `FailureStatus`        | `failed_messages.reason` and `.status` (open, fixed, ignored) |
-| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction` | callback data of every button |
+| `ContactStatus`                         | `contacts.status`: pending (asked by @username), accepted, or declined (a note not to ask again) |
+| `RequestResult`                         | what asking by @username did (`ContactRepository.request`) |
+| `InviteResult`                          | what opening an invite did (`ContactRepository.use_invite`) |
+| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction`, `PeopleAction` | callback data of every button |
 
 Weekdays use the standard library's `calendar.Day` (in the parser and
 `Weekly`).
@@ -430,9 +486,12 @@ changes go through Alembic; see [Database migrations](setup.md#database-migratio
 
 | Table           | Holds |
 | --------------- | ----- |
-| `users`         | `telegram_id`, `timezone` |
+| `users`         | `telegram_id`, `timezone`, `first_name` and `username` (from Telegram, refreshed on every update by `remember_profile` in `handlers/ui.py`) |
 | `reminders`     | creator/target user, chat, text, `remind_at`, `next_fire_at`, `status`, `fire_count`, `last_message_id`, `recurrence`, `request` and `source` (the message it was made from) |
 | `user_settings` | `(user_id, key)` → JSON value, only non-defaults |
+| `contacts`      | `owner_user_id` may remind `contact_user_id`; `name` (what the owner calls them, unique per owner, case-insensitive, checked in code), `status`, `created_at`, `accepted_at`; unique `(owner, contact)` |
+| `contact_requests` | log of requests by @username: `owner_user_id`, `contact_user_id`, `created_at` (for the daily limits) |
+| `invites`       | `token` (the link), `owner_user_id`, `created_at`, `expires_at`, `used_at`, `used_by_user_id` |
 | `failed_messages` | user, `text`, `source`, `reason`, `intent`, `bot_understood` (JSON), optional `reminder_id`, `status`, `created_at`, `fixed_at`, `note`, `fix_pr` |
 
 ## Tests

@@ -42,6 +42,37 @@ class ReplyCommand(StrEnum):
     CANCEL = "cancel"       # "cancel", "delete it"
 
 
+# --- contacts ---------------------------------------------------------------
+
+class ContactStatus(StrEnum):
+    """Stored in contacts.status."""
+
+    PENDING = "pending"     # asked by @username, not answered yet
+    ACCEPTED = "accepted"   # the contact allowed it: reminders can be sent
+    DECLINED = "declined"   # said ❌ No to a request: not asked again for a while (REQUEST_COOLDOWN)
+
+
+class RequestResult(StrEnum):
+    """What asking someone by @username did (ContactRepository.request)."""
+
+    ASKED = "asked"
+    EXISTS = "exists"       # already a contact, or asked and not answered
+    DECLINED = "declined"   # they said no recently
+    RECENT = "recent"       # asked them in the last day already (then cancelled)
+    TOO_MANY = "too_many"   # REQUESTS_PER_DAY reached
+
+
+class InviteResult(StrEnum):
+    """What opening an invite link did (ContactRepository.use_invite)."""
+
+    ACCEPTED = "accepted"   # now a contact of the inviter
+    ALREADY = "already"     # was one already
+    OWN = "own"             # the inviter opened their own link
+    USED = "used"           # someone already used it
+    EXPIRED = "expired"
+    UNKNOWN = "unknown"     # no such invite
+
+
 # --- failed messages --------------------------------------------------------
 
 class MessageSource(StrEnum):
@@ -92,6 +123,8 @@ class Awaiting(StrEnum):
     TIMEZONE = "timezone"               # a city or offset
     SNOOZE_OPTIONS = "snooze_options"   # custom snooze options
     QUIET_HOURS = "quiet_hours"         # custom quiet hours
+    CONTACT_USERNAME = "contact_username"   # 👥 ➕ Invite: the @username of someone already using the bot
+    CONTACT_NAME = "contact_name"       # 👥 ✏️ Rename: a contact's new name
 
 
 # --- buttons ----------------------------------------------------------------
@@ -107,6 +140,10 @@ class Callback(StrEnum):
     MAIN_MENU = "menu:main"
     REMINDERS_MENU = "menu:reminders"
     SETTINGS_MENU = "menu:settings"
+    PEOPLE_MENU = "menu:people"
+
+    # 👥 People
+    NEW_INVITE = "people:invite"
 
     # ⚙️ Settings
     MY_ID = "settings:my_id"
@@ -134,6 +171,8 @@ class CallbackPrefix(StrEnum):
     QUIET_OPTION = "qhopt:"     # qhopt:<OptionAction>[:<HH:MM-HH:MM>]
     FAILED_FIXED = "failfix:"   # failfix:<failed message id>, on the /failed list
     FAILED_IGNORED = "failign:" # failign:<failed message id>, on the /failed list
+    PEOPLE = "ppl:"             # ppl:<PeopleAction>:<contact id>
+    INVITE = "inv:"             # inv:<PeopleAction.ALLOW|DECLINE>:<invite token>
 
 
 class ReminderAction(StrEnum):
@@ -145,6 +184,18 @@ class ReminderAction(StrEnum):
     EDIT = "edit"
     DELETE = "del"
     WRONG = "wrong"     # 👎 Wrong: save as a failed message and delete the reminder
+
+
+class PeopleAction(StrEnum):
+    """Buttons in 👥 People, and on an invite or a request."""
+
+    OPEN = "open"           # a contact's screen (someone you can remind)
+    SENDER = "sender"       # a sender's screen (someone who can remind you)
+    RENAME = "ren"
+    REMOVE = "del"          # the owner removes a contact (or cancels a request)
+    STOP = "stop"           # the contact stops a sender
+    ALLOW = "yes"           # answer to an invite or a request
+    DECLINE = "no"
 
 
 class OptionAction(StrEnum):

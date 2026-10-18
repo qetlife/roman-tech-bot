@@ -1,7 +1,7 @@
 import uuid
 
 from typing         import Optional
-from sqlalchemy     import select
+from sqlalchemy     import select, update
 from sqlalchemy.exc import IntegrityError
 
 from db.session     import SessionLocal
@@ -52,6 +52,27 @@ class UserRepository:
             except IntegrityError:
                 session.rollback()
                 return session.scalar(select(User).where(User.telegram_id == telegram_id))
+
+    def get_by_username(self, username: str) -> Optional[User]:
+        """The user with this @username; None if nobody, or more than one row has it (stale)."""
+        with SessionLocal() as session:
+            found = session.scalars(select(User).where(User.username == username.lstrip("@").lower()).limit(2)).all()
+            return found[0] if len(found) == 1 else None
+
+    def remember_profile(self, telegram_id: int, first_name: Optional[str], username: Optional[str]) -> None:
+        """Store the user's Telegram first name and @username, if they changed (only for known users)."""
+        first_name = (first_name or "")[:64] or None
+        username = (username or "").lower()[:64] or None
+        with SessionLocal() as session:
+            user = session.scalar(select(User).where(User.telegram_id == telegram_id))
+            if user is None or (user.first_name, user.username) == (first_name, username):
+                return
+            if username:
+                # Telegram usernames are unique now: anyone else stored with it has changed theirs.
+                session.execute(update(User).where(User.username == username, User.id != user.id)
+                                .values(username=None))
+            user.first_name, user.username = first_name, username
+            session.commit()
 
     def set_timezone(self, telegram_id: int, timezone: str) -> Optional[User]:
         with SessionLocal(expire_on_commit=False) as session:

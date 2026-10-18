@@ -4,7 +4,8 @@ import re
 
 import pytest
 
-from enums import Callback, CallbackPrefix, OptionAction, ReminderAction
+from enums import Callback, CallbackPrefix, OptionAction, PeopleAction, ReminderAction
+from handlers.people import people_callback
 from handlers.ui import exact, option_callback, prefixed, reminder_callback, split_option
 
 
@@ -13,6 +14,8 @@ def test_fixed_values_are_stable():
         "MAIN_MENU": "menu:main",
         "REMINDERS_MENU": "menu:reminders",
         "SETTINGS_MENU": "menu:settings",
+        "PEOPLE_MENU": "menu:people",
+        "NEW_INVITE": "people:invite",
         "MY_ID": "settings:my_id",
         "SETTINGS_BACK": "settings:back",
         "TIMEZONE_SETTINGS": "settings:timezone",
@@ -41,6 +44,14 @@ def test_fixed_values_are_stable():
     (option_callback(CallbackPrefix.QUIET_OPTION, OptionAction.SET, "00:00-07:00"), "qhopt:set:00:00-07:00"),
     (option_callback(CallbackPrefix.QUIET_OPTION, OptionAction.OFF),               "qhopt:off"),
     (f"{CallbackPrefix.TIMEZONE}Europe/Kyiv",               "tz:Europe/Kyiv"),
+    (people_callback(PeopleAction.OPEN, 3),                 "ppl:open:3"),
+    (people_callback(PeopleAction.SENDER, 3),               "ppl:sender:3"),
+    (people_callback(PeopleAction.RENAME, 3),               "ppl:ren:3"),
+    (people_callback(PeopleAction.REMOVE, 3),               "ppl:del:3"),
+    (people_callback(PeopleAction.STOP, 3),                 "ppl:stop:3"),
+    (people_callback(PeopleAction.ALLOW, 3),                "ppl:yes:3"),
+    (people_callback(PeopleAction.DECLINE, 3),              "ppl:no:3"),
+    (f"{CallbackPrefix.INVITE}{PeopleAction.ALLOW}:abc",    "inv:yes:abc"),
 ])
 def test_built_values_are_stable(built, expected):
     assert built == expected

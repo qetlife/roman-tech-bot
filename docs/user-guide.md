@@ -13,6 +13,7 @@ Everything you can do with the bot, and how. For how the code works, see
   - [When a reminder is due](#when-a-reminder-is-due)
   - [Listing, editing and cancelling](#listing-editing-and-cancelling)
   - [When the bot gets it wrong](#when-the-bot-gets-it-wrong)
+- [👥 People](#-people)
 - [Settings](#settings)
   - [🆔 My ID](#-my-id)
   - [🌍 Timezone](#-timezone)
@@ -48,6 +49,10 @@ Menu
 │   ├── ➕ New                 create a reminder
 │   ├── 📋 My reminders        list and cancel upcoming reminders
 │   └── ⚙️ Settings            → ⏰ Reminder settings (below)
+├── 👥 People                  who you can remind, and who can remind you
+│   ├── 👤 <name>              ✏️ Rename · 🗑 Remove
+│   ├── 📨 <name>              🚫 Stop their reminders
+│   └── ➕ Invite              a link to send, or their @username
 └── ⚙️ Settings
     ├── 🆔 My ID               your Telegram ID
     ├── 🌍 Timezone            change your timezone
@@ -319,6 +324,45 @@ didn't understand again, and marks the ones it now understands fixed. A
 message with a fix on the way shows “🔧 Fix waiting in pull request #n”;
 one the bot needs a new feature for shows “⏳ Waiting for: …”; tap ✅
 on it once that feature is added.
+
+## 👥 People
+
+To send reminders to someone else, they first have to agree: Telegram only
+lets the bot message people who started it, and nobody gets reminders from
+you without saying yes.
+
+**Inviting someone**: `👥 People → ➕ Invite` gives you a link like
+`https://t.me/<bot>?start=inv_…`. Send it to them any way you like. When they
+open it and tap **Start**, the bot asks them:
+
+```
+👥 Roman (@roman) wants to send you reminders.
+[✅ Allow] [❌ No]
+```
+
+If they tap ✅ Allow, you're told, and they appear in your 👥 People. The link
+works **once**, for **7 days**; if they tap ❌ No, it stops working and
+you're told.
+
+**If they already use the bot**, you can send their @username instead of the
+link (on the same ➕ Invite screen). They get the same question. If they say
+no, you can't ask them that way again for 30 days (an invite link still
+works if they change their mind), and you can send at most 5 requests a
+day, one per person.
+
+**Names**: each person gets a name (their Telegram first name, or “Anna 2”
+if you already have an Anna). Rename it with `👤 <name> → ✏️ Rename`, e.g.
+to “mom”: up to 32 letters, digits, spaces, ' or -, starting with a letter.
+
+**Ending it**: either of you can, at any time, and nothing is kept.
+
+- `👤 <name> → 🗑 Remove`: you stop reminding them. They aren't told.
+- `📨 <name> → 🚫 Stop their reminders`: they can't remind you any more,
+  and they're told.
+
+Either way, reminders they had set for you that haven't gone off are
+cancelled. Each direction is separate: if Anna can remind you, that doesn't
+let you remind her.
 
 ## Settings
 
