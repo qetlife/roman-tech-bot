@@ -61,7 +61,7 @@ python bot.py
 Migrations run automatically on startup. To run the checks CI runs:
 
 ```bash
-python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts services tests
+python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts services tests autofix
 pytest
 ```
 
@@ -158,6 +158,59 @@ runs on a GitHub-hosted runner, re-reviews on each push, and skips drafts
 and pull requests from forks. It needs the repository secret
 `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`, which uses a Claude
 subscription). The review is advice, not a required check.
+
+### Auto-fix job
+
+Every day at 03:00 UTC, `.github/workflows/autofix.yml` runs
+`autofix/run.py` on the Pi's runner (also **Actions → Auto-fix failed
+messages → Run workflow**). If the admin has new open
+[failed messages](development.md#failed-messages), Claude Code fixes the
+ones it can, following `autofix/prompt.md`. The job then opens one pull
+request (label `autofix`), has Claude answer the automatic review (up to
+two rounds), and ignores the messages that can't be learned. Comments you
+leave on an auto-fix pull request are answered on the next run. Merging is
+the only manual step; after the deploy the bot closes the messages it now
+understands.
+
+It needs two repository secrets:
+
+| Secret | What |
+| --- | --- |
+| `CLAUDE_CODE_OAUTH_TOKEN` | the same as the review |
+| `AUTOFIX_GH_TOKEN` | a fine-grained personal access token for this repository only: **Contents** and **Pull requests** read and write. Without the Workflows permission it can't change `.github/workflows/` |
+
+**Claude never has the GitHub token.** It runs in a sandbox container
+(`autofix/Dockerfile`: no Docker socket, only a temporary folder) on an
+anonymous clone of this public repository, and hands back its commits as a
+git bundle. A separate container with the token, which runs neither Claude
+nor any code from the repository, fetches the bundle into a fresh clone,
+pushes the branch and opens the pull request. So nothing Claude writes or
+runs (its tests, say) can push or merge. Protect `master` with
+a ruleset that requires a pull request anyway (Settings → Rules).
+
+Create the `autofix` label once (`gh label create autofix`): the job finds
+its pull requests by it.
+
+Only the admin's failed messages are used (anyone can message the bot), and
+only comments from the owner and the automatic review: anyone can comment
+on a public repository.
+
+**What's left, accepted:** the sandbox has network access (Claude needs its
+API), and it holds the failed messages and the Claude token. Code Claude
+runs there, like its tests, could send them somewhere. For that, Claude
+would have to be talked into it through its input. The only inputs are the
+admin's own messages, the owner's comments and the automatic review, so the
+risk is accepted. Closing it entirely would need the sandbox offline behind
+a proxy that only reaches the Claude API.
+
+The failed messages are private and the repository is public: the job never
+prints them to the Actions log (Claude's output goes to `~/autofix-logs/`
+on the Pi), and the prompt forbids putting their text in code, tests,
+commits or pull requests. The job checks too, before anything goes public: commits
+that contain four words in a row from an open failed message, two of them
+not common words (the phrasing, “remind me to … at 9”, is fine to copy), aren't
+pushed, and a title, description, reply or note like that is replaced
+with a generic one (`leaks()` in `autofix/run.py`).
 
 ## Migrating from SQLite
 

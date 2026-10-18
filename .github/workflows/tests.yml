@@ -26,7 +26,7 @@ jobs:
 
       - name: Check for undefined names and unused imports
         # alembic/ is skipped: env.py imports model modules only to register them.
-        run: python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts services tests
+        run: python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts services tests autofix
 
       - name: Run tests
         run: python -m pytest -q
