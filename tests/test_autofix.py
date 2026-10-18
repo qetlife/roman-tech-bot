@@ -146,3 +146,18 @@ def test_fix_new_without_fixes_opens_nothing(monkeypatch, calls, tmp_path):
     monkeypatch.setattr(run, "publish", lambda work, branch: pytest.fail("nothing to publish"))
     run.fix_new(tmp_path, [{"id": 1}], tmp_path / "log")
     assert calls == [("ignore", 1, "a test")]
+
+
+def test_open_pr_without_the_label(monkeypatch, tmp_path):
+    import subprocess
+    tried = []
+
+    def with_token(*args, work=None):
+        tried.append(args)
+        if "--label" in args:
+            raise subprocess.CalledProcessError(1, args)
+        return "https://github.com/qetlife/roman-tech-bot/pull/45\n"
+
+    monkeypatch.setattr(run, "with_token", with_token)
+    assert run.open_pr(tmp_path, "autofix/2026-10-18-0400", "Learn 1 failed message") == 45
+    assert ["--label" in args for args in tried] == [True, False]

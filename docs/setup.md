@@ -188,6 +188,9 @@ pushes the branch and opens the pull request. So nothing Claude writes or
 runs (its tests, say) can push or merge. Protect `master` with
 a ruleset that requires a pull request anyway (Settings → Rules).
 
+Create the `autofix` label once (`gh label create autofix`): the job finds
+its pull requests by it.
+
 Only the admin's failed messages are used (anyone can message the bot), and
 only comments from the owner and the automatic review: anyone can comment
 on a public repository.

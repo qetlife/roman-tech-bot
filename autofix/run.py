@@ -240,6 +240,22 @@ def answer_comments(work: Path, number: int, branch: str, comments: list, log: P
     print(f"Pull request #{number}: answered {len(comments)} comments" + (", pushed" if pushed else ""))
 
 
+def open_pr(work: Path, branch: str, title: str) -> int:
+    """Open the pull request for the pushed branch; its number.
+
+    The branch is already pushed, so this must not fail: without the label
+    (if it's missing) it's still opened, just not found by later runs.
+    """
+    create = ["gh", "pr", "create", "--repo", REPO, "--base", "master", "--head", branch,
+              "--title", title, "--body-file", "/work/body.md"]
+    try:
+        url = with_token(*create, "--label", LABEL, work=work)
+    except subprocess.CalledProcessError:
+        print(f"Couldn't open the pull request with the `{LABEL}` label (does it exist?); opening it without")
+        url = with_token(*create, work=work)
+    return int(url.strip().rstrip("/").rsplit("/", 1)[-1])
+
+
 def fix_new(work: Path, new: list, log: Path):
     """Claude fixes the new failed messages; the job opens the pull request and links them."""
     with open(work / "failed.jsonl", "w") as f:
@@ -264,10 +280,7 @@ def fix_new(work: Path, new: list, log: Path):
         return
 
     (work / "body.md").write_text(str(result.get("body") or ""))
-    url = with_token("gh", "pr", "create", "--repo", REPO, "--base", "master", "--head", branch,
-                     "--label", LABEL, "--title", str(result.get("title") or f"Learn {len(fixed)} failed messages"),
-                     "--body-file", "/work/body.md", work=work).strip()
-    number = int(url.rstrip("/").rsplit("/", 1)[-1])
+    number = open_pr(work, branch, str(result.get("title") or f"Learn {len(fixed)} failed messages"))
     for entry_id in fixed:
         failed("pr", entry_id, number)
     print(f"Opened pull request #{number}: {len(fixed)} fixed, {len(ignored)} ignored")
