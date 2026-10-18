@@ -185,12 +185,20 @@ anonymous clone of this public repository, and hands back its commits as a
 git bundle. A separate container with the token, which runs neither Claude
 nor any code from the repository, fetches the bundle into a fresh clone,
 pushes the branch and opens the pull request. So nothing Claude writes or
-runs (its tests, say) can push to `master` or merge. Protect `master` with
+runs (its tests, say) can push or merge. Protect `master` with
 a ruleset that requires a pull request anyway (Settings → Rules).
 
 Only the admin's failed messages are used (anyone can message the bot), and
 only comments from the owner and the automatic review: anyone can comment
 on a public repository.
+
+**What's left, accepted:** the sandbox has network access (Claude needs its
+API), and it holds the failed messages and the Claude token. Code Claude
+runs there, like its tests, could send them somewhere. For that, Claude
+would have to be talked into it through its input. The only inputs are the
+admin's own messages, the owner's comments and the automatic review, so the
+risk is accepted. Closing it entirely would need the sandbox offline behind
+a proxy that only reaches the Claude API.
 
 The failed messages are private and the repository is public: the job never
 prints them to the Actions log (Claude's output goes to `~/autofix-logs/`
