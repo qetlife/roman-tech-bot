@@ -172,7 +172,8 @@ Rules:
   “tomorrow at 9” is Sunday 09:00).
 - A weekday that has already passed today means next week; a date that has
   passed this year means next year.
-- Times in the past are rejected.
+- Times in the past are rejected, also on their own (“today at 9” in the
+  afternoon, “yesterday at 9”).
 
 #### Typos
 

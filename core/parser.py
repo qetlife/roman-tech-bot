@@ -675,10 +675,23 @@ def _clean_text(text: str) -> str:
     return text.strip(" ,:;-—").strip()
 
 
+# Words that only join a time to the rest ("today at" + "9"): on their own,
+# a leftover of them is part of the time, not a text.
+TIME_FRAGMENTS = {"at", "on", "in", "by", "around", "from", "until", "till", "yesterday"}
+
+
 def _is_text(text: str, now: datetime) -> bool:
     # Leftover words that are themselves a time ("tomorrow" in
-    # "tomorrow at 9") mean the split was wrong.
-    return bool(text) and _parse_time(text, now) is None
+    # "tomorrow at 9"), or fragments of one ("today at" in "today at 00:00"),
+    # mean the split was wrong.
+    if not text or _parse_time(text, now) is not None:
+        return False
+    words = text.lower().split()
+    while words and words[-1] in TIME_FRAGMENTS:
+        words.pop()
+    while words and words[0] in TIME_FRAGMENTS:
+        words.pop(0)
+    return bool(words) and _parse_time(" ".join(words), now) is None
 
 
 def _split(words: list, time_words: list, fixed: list, now: datetime) -> Optional[tuple]:
@@ -706,6 +719,15 @@ def _split(words: list, time_words: list, fixed: list, now: datetime) -> Optiona
         if best is not None:
             return best
     return None
+
+
+def _is_yesterday(words: list, now: datetime) -> bool:
+    """ "yesterday" plus a time ("yesterday at 9"): a time that has passed."""
+    lowered = [w.lower() for w in words]
+    if "yesterday" not in lowered:
+        return False
+    rest = [w for w in lowered if w != "yesterday"]
+    return not rest or _parse_time(" ".join(rest), now) is not None
 
 
 def _mishearings(words: list, now: datetime) -> list:
@@ -755,7 +777,10 @@ def parse_reminder(request: str, now: datetime) -> ParsedReminder:
             best = _split(words, fixed, fixed, now)
 
     if best is None:
-        if _parse_time(request, now) is not None or _parse_time(" ".join(fixed), now) is not None:
+        alone = _parse_time(request, now) or _parse_time(" ".join(fixed), now)
+        if alone is not None and alone[0] <= now or _is_yesterday(fixed, now):
+            raise ParseError("That time has already passed.")
+        if alone is not None:
             raise MissingText("What should I remind you about?")
         raise MissingTime("I couldn't understand when.", _clean_text(request))
 
