@@ -54,6 +54,22 @@ TIMEOUT = 40 * 60           # one Claude run
 DEADLINE = 120 * 60         # no new Claude run after this (+ 40 min for the last one); the workflow allows 180
 STARTED = time.monotonic()
 running = None              # the Claude container, killed if the job is cancelled
+# The privacy check refuses anything public containing this many words in a row from a
+# failed message, with at least LEAK_CONTENT of them not COMMON: the phrasing ("remind me
+# to … tomorrow at 9") is what tests should copy; the rest is private.
+LEAK_WORDS = 4
+LEAK_CONTENT = 2
+COMMON = set("""
+    a an the and or but to for of in on at by with about from into after before until than then
+    me my i you your it its this that these those is are was be been do did not no yes please
+    remind reminder reminders set new add create show list every each next last this
+    today tonight tomorrow morning afternoon evening night noon midnight week weekend weekday weekdays
+    month year day days hour hours minute minutes min mins sec second seconds am pm o'clock
+    monday tuesday wednesday thursday friday saturday sunday mon tue wed thu fri sat sun
+    january february march april may june july august september october november december
+    one two three four five six seven eight nine ten eleven twelve fifteen twenty thirty forty fifty half quarter
+""".split())
+private = []                # the admin's open failed messages (texts), for the privacy check
 
 # Claude has no GitHub token, so these can only touch its own clone.
 ALLOWED_TOOLS = ",".join([
@@ -208,19 +224,54 @@ def run_claude(work: Path, task: str, branch: str, start: str, log: Path) -> dic
     return result if isinstance(result, dict) else {}
 
 
+def _words(text: str) -> list:
+    return re.findall(r"[a-z0-9']+", text.lower())
+
+
+def leaks(text: str) -> bool:
+    """Whether `text` (about to be made public) contains part of a failed message.
+
+    Part: LEAK_WORDS words in a row with LEAK_CONTENT not COMMON, ignoring
+    case and punctuation. Digits count as common.
+    """
+    words = " " + " ".join(_words(text)) + " "
+    for message in private:
+        m = _words(message)
+        for i in range(len(m) - LEAK_WORDS + 1):
+            run_ = m[i:i + LEAK_WORDS]
+            content = [w for w in run_ if w not in COMMON and not w.isdigit()]
+            if len(content) >= LEAK_CONTENT and f" {' '.join(run_)} " in words:
+                return True
+    return False
+
+
+def safe(text: str, fallback: str) -> str:
+    """`text`, or `fallback` if the privacy check refuses it."""
+    if leaks(text):
+        print("Privacy check: Claude's text quoted a failed message; using a generic one")
+        return fallback
+    return text
+
+
 def ids(items, known: set) -> list:
     """The ids in `items` (Claude's output) that are entries we gave it."""
     return [i for i in items if type(i) is int and i in known] if isinstance(items, list) else []
 
 
-def publish(work: Path, branch: str) -> bool:
-    """Push Claude's commits (the bundle) to `branch`, from a fresh clone. False if there are none."""
+def publish(work: Path, branch: str, start: str) -> bool:
+    """Push Claude's commits (the bundle) to `branch`, from a fresh clone.
+
+    False if there are none, or if the privacy check refuses them (their
+    messages or changes contain part of a failed message).
+    """
     if not BRANCH.match(branch) or not (work / "out.bundle").exists():
         return False
-    with_token("bash", "-c",
-               f"git clone -q {CLONE_URL} /tmp/repo && cd /tmp/repo"
-               f" && git fetch -q /work/out.bundle '{branch}:{branch}' && git push -q origin '{branch}'",
-               work=work)
+    fetch = (f"git clone -q {CLONE_URL} /tmp/repo && cd /tmp/repo"
+             f" && git fetch -q /work/out.bundle '{branch}:{branch}'")
+    if leaks(with_token("bash", "-c", f"{fetch} && git log -p --format=%B 'origin/{start}..{branch}'", work=work)):
+        print("Privacy check: Claude's commits quote a failed message; not pushed")
+        return False
+    with_token("bash", "-c", f"{fetch} && git push -q origin '{branch}'", work=work)
     return True
 
 
@@ -233,8 +284,9 @@ def answer_comments(work: Path, number: int, branch: str, comments: list, log: P
         '`{"reply": "..."}`: one reply covering each comment, saying what you changed or why it '
         "isn't a problem.\n"
     ), branch, branch, log)
-    pushed = publish(work, branch)
-    reply = str(result.get("reply") or ("Pushed changes for the comments." if pushed else "No changes."))
+    pushed = publish(work, branch, branch)
+    generic = "Pushed changes for the comments." if pushed else "No changes."
+    reply = safe(str(result.get("reply") or generic), generic)
     (work / "reply.md").write_text(f"{MARKER} {reply}")
     with_token("gh", "pr", "comment", str(number), "--repo", REPO, "--body-file", "/work/reply.md", work=work)
     print(f"Pull request #{number}: answered {len(comments)} comments" + (", pushed" if pushed else ""))
@@ -272,15 +324,17 @@ def fix_new(work: Path, new: list, log: Path):
     ignored = [i for i in ignored if isinstance(i, dict) and ids([i.get("id")], known)] if isinstance(ignored, list) else []
     for item in ignored:
         # The note is Claude's, short; it must not quote the message.
-        failed("ignore", item["id"], str(item.get("note") or "unfixable")[:200])
+        failed("ignore", item["id"], safe(str(item.get("note") or "unfixable")[:200], "unfixable"))
 
     fixed = [i for i in ids(result.get("fixed"), known) if i not in {item["id"] for item in ignored}]
-    if not fixed or not publish(work, branch):
+    if not fixed or not publish(work, branch, "master"):
         print(f"No pull request; ignored {len(ignored)}")
         return
 
-    (work / "body.md").write_text(str(result.get("body") or ""))
-    number = open_pr(work, branch, str(result.get("title") or f"Learn {len(fixed)} failed messages"))
+    title = f"Learn {len(fixed)} failed messages"
+    body = f"Teaches the bot failed messages {', '.join(map(str, fixed))}."
+    (work / "body.md").write_text(safe(str(result.get("body") or body), body))
+    number = open_pr(work, branch, safe(str(result.get("title") or title), title))
     for entry_id in fixed:
         failed("pr", entry_id, number)
     print(f"Opened pull request #{number}: {len(fixed)} fixed, {len(ignored)} ignored")
@@ -306,6 +360,25 @@ def main() -> int:
         if not os.environ.get(name):
             print(f"{name} isn't set", file=sys.stderr)
             return 1
+    try:
+        return run()
+    except subprocess.CalledProcessError as e:
+        # Not the command itself: it can hold Claude's text, and the log is public.
+        print(f"A command failed ({e.cmd[0]}, exit code {e.returncode})", file=sys.stderr)
+        return 1
+
+
+def attempt(what: str, step, *args) -> bool:
+    """Run one step; a failure is reported (without its command) and the run goes on."""
+    try:
+        step(*args)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"{what} failed ({e.cmd[0]}, exit code {e.returncode})", file=sys.stderr)
+        return False
+
+
+def run() -> int:
 
     subprocess.run(
         ["docker", "build", "-q", "-t", IMAGE, "-f", str(HERE / "Dockerfile"),
@@ -313,7 +386,9 @@ def main() -> int:
         check=True, stdout=subprocess.DEVNULL,
     )
 
-    settle_earlier_prs(open_entries())
+    entries = open_entries()
+    private[:] = [e["text"] for e in entries]
+    settle_earlier_prs(entries)
     commented = []
     for pr in gh_json("pr", "list", "--repo", REPO, "--label", LABEL, "--state", "open",
                       "--json", "number,headRefName"):
@@ -329,19 +404,20 @@ def main() -> int:
 
     LOGS.mkdir(exist_ok=True)
     log = LOGS / f"{datetime.now():%Y-%m-%d_%H%M}.log"
+    ok = True
     with tempfile.TemporaryDirectory(prefix="autofix-") as tmp:
         work = Path(tmp)
         (work / "prompt.md").write_text((HERE / "prompt.md").read_text())
         for number, branch, comments in commented:
             if time_left():
-                answer_comments(work, number, branch, comments, log)
+                ok &= attempt(f"Pull request #{number}", answer_comments, work, number, branch, comments, log)
         if new and time_left():
-            fix_new(work, new, log)
+            ok &= attempt("Fixing new failed messages", fix_new, work, new, log)
     print(f"Claude's log on the Pi: {log}")
 
     for old in sorted(LOGS.glob("*.log"))[:-KEEP_LOGS]:
         old.unlink()
-    return 0
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

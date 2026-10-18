@@ -133,7 +133,7 @@ def test_fix_new_with_odd_output_from_claude(monkeypatch, calls, tmp_path):
         "ignored": [{"id": 3, "note": "garbled"}, {"id": [4]}, "5", {"note": "no id"}],
     }
     monkeypatch.setattr(run, "run_claude", lambda *args: result)
-    monkeypatch.setattr(run, "publish", lambda work, branch: True)
+    monkeypatch.setattr(run, "publish", lambda work, branch, start: True)
     monkeypatch.setattr(run, "with_token", lambda *args, work=None: "https://github.com/qetlife/roman-tech-bot/pull/44\n")
     monkeypatch.setattr(run, "time_left", lambda: False)   # stop before waiting for the review
 
@@ -143,7 +143,7 @@ def test_fix_new_with_odd_output_from_claude(monkeypatch, calls, tmp_path):
 
 def test_fix_new_without_fixes_opens_nothing(monkeypatch, calls, tmp_path):
     monkeypatch.setattr(run, "run_claude", lambda *args: {"fixed": [], "ignored": [{"id": 1, "note": "a test"}]})
-    monkeypatch.setattr(run, "publish", lambda work, branch: pytest.fail("nothing to publish"))
+    monkeypatch.setattr(run, "publish", lambda work, branch, start: pytest.fail("nothing to publish"))
     run.fix_new(tmp_path, [{"id": 1}], tmp_path / "log")
     assert calls == [("ignore", 1, "a test")]
 
@@ -161,3 +161,43 @@ def test_open_pr_without_the_label(monkeypatch, tmp_path):
     monkeypatch.setattr(run, "with_token", with_token)
     assert run.open_pr(tmp_path, "autofix/2026-10-18-0400", "Learn 1 failed message") == 45
     assert ["--label" in args for args in tried] == [True, False]
+
+
+@pytest.fixture
+def private(monkeypatch):
+    monkeypatch.setattr(run, "private", ["Remind me to call Mark about the Lisbon flat on Friday", "Tomorrow at 12"])
+
+
+@pytest.mark.parametrize("text, leaks", [
+    ("Learn 1 failed message: 'remind to' without 'me'", False),
+    ('"remind me to call the bank on friday"', False),                  # same shape, other words
+    ("Fixes: about the lisbon flat", True),                             # four words in a row
+    ("+    parse('Call Mark about, the LISBON flat!')", True),           # case and punctuation ignored
+    ('assert parse("tomorrow at 12 to stretch")', False),              # only the phrasing
+    ("remind me to call Mark", True),
+])
+def test_leaks(private, text, leaks):
+    assert run.leaks(text) is leaks
+
+
+def test_safe_falls_back_and_publish_refuses(private, monkeypatch, tmp_path):
+    assert run.safe("Learn the Lisbon flat on Friday", "generic") == "generic"
+    assert run.safe("Learn 1 failed message", "generic") == "Learn 1 failed message"
+
+    (tmp_path / "out.bundle").write_text("")
+    pushed = []
+    monkeypatch.setattr(run, "with_token", lambda *args, work=None:
+                        pushed.append(args) or "+ text = 'call mark about the lisbon flat'")
+    assert run.publish(tmp_path, "autofix/2026-10-18-0400", "master") is False
+    assert len(pushed) == 1 and "git push" not in pushed[0][-1]     # only the check ran
+
+
+def test_a_failed_step_doesnt_stop_the_run(capsys):
+    import subprocess
+
+    def step():
+        raise subprocess.CalledProcessError(1, ["docker", "exec", "bot", "ignore", "5", "a private note"])
+
+    assert run.attempt("Pull request #5", step) is False
+    err = capsys.readouterr().err
+    assert "Pull request #5 failed (docker, exit code 1)" in err and "private" not in err

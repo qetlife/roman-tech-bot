@@ -206,7 +206,11 @@ a proxy that only reaches the Claude API.
 The failed messages are private and the repository is public: the job never
 prints them to the Actions log (Claude's output goes to `~/autofix-logs/`
 on the Pi), and the prompt forbids putting their text in code, tests,
-commits or pull requests.
+commits or pull requests. The job checks too, before anything goes public: commits
+that contain four words in a row from an open failed message, two of them
+not common words (the phrasing, “remind me to … at 9”, is fine to copy), aren't
+pushed, and a title, description, reply or note like that is replaced
+with a generic one (`leaks()` in `autofix/run.py`).
 
 ## Migrating from SQLite
 
