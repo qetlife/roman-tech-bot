@@ -183,9 +183,9 @@ A wrong answer to “when?” is saved as failed (intent
 `IntentName.REMINDER_WHEN`; the re-check closes it once that answer parses
 as a time) and asked again. A trigger phrase other than “that's wrong”, or
 a new failure, ends the question. The message
-asked about is kept in `user_data["asked_request"]` until a reminder is
-made: “that's wrong” meanwhile saves it as failed with
-`ASKED_ERROR`. Asking isn't saved as a failure, and the startup re-check
+asked about is kept in `user_data["asked_request"]`; “that's wrong” while
+`awaiting` is still the question saves it as failed with `ASKED_ERROR`
+(`flag_question`, called from `handlers/text.py`, the only reader). Asking isn't saved as a failure, and the startup re-check
 counts it as understood, except for those flagged entries. ✏️ Edit doesn't
 ask: it says what's wrong.
 

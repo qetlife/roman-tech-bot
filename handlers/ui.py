@@ -20,9 +20,9 @@ PENDING_REQUEST = "pending_request"
 # For Awaiting.REMINDER_TEXT: the time as the user gave it ("tomorrow at 12");
 # for Awaiting.REMINDER_TIME: the reminder text ("call mom").
 PENDING_PART = "pending_part"
-# The message the bot is asking about (ask_what / ask_when), while it asks:
-# "that's wrong" meanwhile means the bot shouldn't have asked. Dropped by
-# handlers/text.py once the question is over.
+# The message the bot is asking about (ask_what / ask_when): "that's wrong"
+# while it still asks means it shouldn't have (handlers/text.py, the only
+# reader, which checks `awaiting` too).
 ASKED_REQUEST = "asked_request"
 # Where ↩️ Back on ⏰ Reminder settings returns to (a Callback).
 REMINDER_SETTINGS_BACK = "reminder_settings_back"

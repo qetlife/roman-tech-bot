@@ -173,8 +173,6 @@ async def create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, re
 
 
 async def not_understood(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str, error: ParseError):
-    # Saved as failed: a question it answered is over.
-    context.user_data.pop(ASKED_REQUEST, None)
     record_not_understood(update, context, request, IntentName.REMINDER_CREATE, str(error))
     context.user_data[AWAITING] = Awaiting.REMINDER
     await update.effective_message.reply_text(f"{error} Send it again, e.g. “in 2 hours to call mom”.\n\n{EXAMPLES}")
@@ -240,7 +238,6 @@ async def answer_when(update: Update, context: ContextTypes.DEFAULT_TYPE, when: 
 
 async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, user, parsed, request: str):
     context.user_data.pop(AWAITING, None)
-    context.user_data.pop(ASKED_REQUEST, None)
     recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
     when = outside_quiet_hours(user, parsed.recurrence, parsed.when)
     reminder = reminders.create(
@@ -431,16 +428,18 @@ async def flag_wrong(update: Update, context: ContextTypes.DEFAULT_TYPE, reminde
     )
 
 
+async def flag_question(update: Update, context: ContextTypes.DEFAULT_TYPE, asked: str):
+    """"that's wrong" while the bot asks for a missing time or text: save the message it asked about.
+
+    Called by handlers/text.py, which knows the question is still open.
+    """
+    record_not_understood(update, context, asked, IntentName.REMINDER_CREATE, ASKED_ERROR)
+    await update.effective_message.reply_text("👎 Saved as failed, so I can learn it. Send it again if you still need it.")
+
+
 async def flag_last_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = ""):
     """Intent action for "that's wrong" / "save the last one as failed"."""
     reply = update.effective_message.reply_text
-    asked = context.user_data.pop(ASKED_REQUEST, None)
-    if asked is not None:
-        # Said while the bot asks for a time or a text: asking was the mistake.
-        context.user_data.pop(PENDING_PART, None)
-        record_not_understood(update, context, asked, IntentName.REMINDER_CREATE, ASKED_ERROR)
-        await reply("👎 Saved as failed, so I can learn it. Send it again if you still need it.")
-        return
     if LAST_REMINDER_ID in context.user_data and context.user_data[LAST_REMINDER_ID] is None:
         await reply("👎 That one is already saved as failed.")
         return
