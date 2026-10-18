@@ -4,12 +4,12 @@ from    telegram                    import Update
 from    telegram.ext                import ContextTypes
 
 from    core.intents                import match_intent
-from    enums                       import Awaiting
+from    enums                       import Awaiting, IntentName
 from    handlers.failed             import record_not_understood
 from    handlers                    import reminders as rh
 from    handlers                    import settings as sh
 from    handlers.intents            import INTENTS
-from    handlers.ui                 import AWAITING, EDIT_REMINDER_ID
+from    handlers.ui                 import ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, PENDING_PART
 
 
 HELP_TEXT = (
@@ -31,6 +31,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
     # A trigger phrase always wins, so "remind me ..." works at any point.
     if match is not None:
         context.user_data.pop(AWAITING, None)
+        # A question for a missing time or text is dropped, unless this says
+        # "that's wrong" about it.
+        if match.intent.name != IntentName.FLAG_FAILED:
+            context.user_data.pop(ASKED_REQUEST, None)
+            context.user_data.pop(PENDING_PART, None)
         await match.intent.action(update, context, match.rest)
         return
 

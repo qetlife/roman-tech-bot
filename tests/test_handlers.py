@@ -243,6 +243,16 @@ def test_thats_wrong_while_asking_saves_the_asked_message(chat):
     assert _replies(chat("that's wrong"))[0] == "👎 That one is already saved as failed."
 
 
+def test_an_abandoned_question_is_forgotten(chat):
+    chat("remind me tomorrow at 9 to call mom")
+    chat("remind me to stretch")
+    chat("my reminders")                        # moves on without answering
+    update = chat("that's wrong")               # about the reminder, not the question
+    assert _replies(update)[0].startswith("👎 Deleted: call mom")
+    [entry] = _failed(chat.telegram_id)
+    assert entry.reason == "wrong_result"
+
+
 def test_wrong_button_saves_then_deletes(chat):
     from handlers.reminders import on_reminder_button
     from handlers.ui import AWAITING
