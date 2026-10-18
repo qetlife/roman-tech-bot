@@ -235,6 +235,11 @@ change.
   “tomorow at 9” asks for a text instead of creating a reminder called
   “tomorow”.
 - The intent vocabulary is the words of all trigger phrases.
+- `parser._mishearings` is a third try for voice transcripts: “to borrow”
+  becomes “tomorrow” and the first “too” after it becomes “to”. It's a
+  separate, phrase-level step (not in `Vocabulary`) because it merges two
+  words, and it only runs when both earlier tries fail, so “remind me to
+  borrow a book at 5” is untouched.
 
 ## Voice messages
 

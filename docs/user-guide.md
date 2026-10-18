@@ -77,6 +77,11 @@ hours).
 The first reply shows what the bot heard, so a misheard word is obvious; fix
 it with ✏️ Edit or send it again.
 
+- Two common mishearings are fixed when a message isn't understood
+  otherwise: “to borrow” for “tomorrow”, and “too” for “to” before the text
+  (“to borrow at nine am too call the bank” is “call the bank”, tomorrow
+  09:00).
+
 - Speak naturally; numbers can be words: “in twenty five minutes”, “at half
   past six”, “at a quarter to five”, “at nine thirty pm”, “on the fifteenth”
   (see [Time expressions](#time-expressions)).
