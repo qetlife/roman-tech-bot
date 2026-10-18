@@ -128,6 +128,11 @@ def new_comments(number: int, reviewer: bool) -> list:
     ]
 
 
+def needs_answer(comments: list) -> bool:
+    """Anything besides the review's summary (a comment on the code, or from the owner)."""
+    return any("path" in c or c["association"] in TRUSTED for c in comments)
+
+
 def wait_for_review(branch: str):
     """Until the "Claude review" run for the branch's latest push has finished."""
     head = with_token("git", "ls-remote", CLONE_URL, f"refs/heads/{branch}").split()[0]
@@ -262,8 +267,11 @@ def fix_new(work: Path, new: list, log: Path):
             break
         wait_for_review(branch)
         comments = new_comments(number, reviewer=True)
-        if not [c for c in comments if "path" in c or c["association"] in TRUSTED]:
+        if not needs_answer(comments):
             break   # only the review's summary: nothing on the code
+        if not time_left():
+            print("Out of time; the review is answered on the next run")
+            break
         answer_comments(work, number, branch, comments, log)
 
 
@@ -285,8 +293,9 @@ def main() -> int:
     commented = []
     for pr in gh_json("pr", "list", "--repo", REPO, "--label", LABEL, "--state", "open",
                       "--json", "number,headRefName"):
-        comments = new_comments(pr["number"], reviewer=False)
-        if comments and BRANCH.match(pr["headRefName"]):
+        # The review's too: a run may have stopped before answering it.
+        comments = new_comments(pr["number"], reviewer=True)
+        if needs_answer(comments) and BRANCH.match(pr["headRefName"]):
             commented.append((pr["number"], pr["headRefName"], comments))
     new = [e for e in open_entries() if not e["fix_pr"]]
     print(f"New failed messages: {len(new)}; auto-fix pull requests with new comments: "

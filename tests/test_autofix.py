@@ -69,6 +69,15 @@ def test_new_comments_reads_every_page(github):
     assert _bodies(run.new_comments(5, reviewer=True)) == ["page two"]
 
 
+def test_the_review_summary_alone_needs_no_answer():
+    summary = {"author": "github-actions", "association": "NONE", "body": "No problems found."}
+    on_code = {"author": "github-actions[bot]", "association": "NONE", "path": "core/parser.py", "body": "bug"}
+    owner = {"author": "qetlife", "association": "OWNER", "body": "rename it"}
+    assert not run.needs_answer([summary])
+    assert run.needs_answer([summary, on_code])
+    assert run.needs_answer([owner])
+
+
 def test_ids_only_takes_entries_it_was_given():
     assert run.ids([1, 2, [3], "4", True, {}, 9], {1, 2, 3, 4}) == [1, 2]
     assert run.ids({"1": 1}, {1}) == []
