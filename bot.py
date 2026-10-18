@@ -15,6 +15,7 @@ from    handlers.text               import on_text
 from    handlers.ui                 import exact, prefixed
 from    handlers.voice              import on_voice
 from    jobs.delivery               import POLL_INTERVAL, deliver_due
+from    jobs.failed                 import resolve_understood
 
 # rem:<action>:<id>[:<minutes>]; "rem:new" etc. are separate buttons.
 REMINDER_BUTTON = (
@@ -28,6 +29,12 @@ def main():
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     init_db()
+
+    # A deploy may have taught the parser some failed messages: close them.
+    try:
+        resolve_understood()
+    except Exception:
+        logging.exception("Re-checking failed messages failed; starting anyway")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -62,6 +69,7 @@ def main():
 
     # Failed messages (/failed list)
     app.add_handler(CallbackQueryHandler(failed.on_failed_button,       pattern=prefixed(CallbackPrefix.FAILED_FIXED)))
+    app.add_handler(CallbackQueryHandler(failed.on_failed_button,       pattern=prefixed(CallbackPrefix.FAILED_IGNORED)))
 
     # Free text in private chats: trigger phrases ("remind me ...") and answers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, on_text))

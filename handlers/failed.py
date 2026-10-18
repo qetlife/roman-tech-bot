@@ -2,8 +2,9 @@
 
 Saved automatically when the bot doesn't understand a message, and when the
 user flags a reminder (👎 Wrong, "that's wrong"; see handlers/reminders.py).
-Only the admin (ADMIN_TELEGRAM_ID) can list them with /failed and tap ✅
-once the parser handles them.
+Only the admin (ADMIN_TELEGRAM_ID) can list them with /failed, tap ✅ once
+the parser handles them, or 🗑 to ignore one that can't be learned. Most
+are closed automatically: see jobs/failed.py and scripts/failed.py.
 """
 
 import logging
@@ -92,17 +93,25 @@ def failed_text(items, total: int, tz_name: str) -> str:
         icon = "🎙" if entry.source == MessageSource.VOICE else "⌨️"
         lines.append(f"{n}. {icon} “{shorten(entry.text, TEXT_LIMIT)}”")
         lines.append(f"    {describe(entry, tz_name)}")
+        if entry.fix_pr:
+            lines.append(f"    🔧 Fix waiting in pull request #{entry.fix_pr}")
         lines.append(f"    {to_local(entry.created_at, tz_name):%d %b, %H:%M}")
-    lines += ["", "Tap ✅ <number> once the bot understands it."]
+    lines += ["", "Tap ✅ <number> once the bot understands it, 🗑 <number> to ignore it."]
     return "\n".join(lines)
 
 
 def build_failed_keyboard(items):
-    buttons = [
-        InlineKeyboardButton(f"✅ {n}", callback_data=f"{CallbackPrefix.FAILED_FIXED}{entry.id}")
-        for n, entry in enumerate(items, 1)
-    ]
-    return InlineKeyboardMarkup([buttons[i:i + 5] for i in range(0, len(buttons), 5)]) if buttons else None
+    """Rows of ✅ <n>, then rows of 🗑 <n>, five to a row."""
+    if not items:
+        return None
+    rows = []
+    for icon, prefix in (("✅", CallbackPrefix.FAILED_FIXED), ("🗑", CallbackPrefix.FAILED_IGNORED)):
+        buttons = [
+            InlineKeyboardButton(f"{icon} {n}", callback_data=f"{prefix}{entry.id}")
+            for n, entry in enumerate(items, 1)
+        ]
+        rows += [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
+    return InlineKeyboardMarkup(rows)
 
 
 def _screen(update: Update):
@@ -120,12 +129,16 @@ async def on_failed_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_failed_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """✅ <n> on the /failed list: mark that entry fixed."""
+    """✅ <n> / 🗑 <n> on the /failed list: mark that entry fixed or ignored."""
     query = update.callback_query
     if not is_admin(update):
         await query.answer("Only the admin can do this.", show_alert=True)
         return
-    failed.mark_fixed(int(query.data.removeprefix(CallbackPrefix.FAILED_FIXED)))
-    await query.answer("Marked fixed")
+    if query.data.startswith(CallbackPrefix.FAILED_IGNORED):
+        failed.mark_ignored(int(query.data.removeprefix(CallbackPrefix.FAILED_IGNORED)), "ignored with 🗑 on /failed")
+        await query.answer("Ignored")
+    else:
+        failed.mark_fixed(int(query.data.removeprefix(CallbackPrefix.FAILED_FIXED)), "marked with ✅ on /failed")
+        await query.answer("Marked fixed")
     text, keyboard = _screen(update)
     await query.edit_message_text(text, reply_markup=keyboard)

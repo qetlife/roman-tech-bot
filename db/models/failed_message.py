@@ -3,7 +3,7 @@ import uuid
 from datetime           import datetime
 from typing             import Optional
 
-from sqlalchemy         import JSON, Enum, ForeignKey, Index, String, Text, Uuid
+from sqlalchemy         import JSON, Enum, ForeignKey, Index, Integer, String, Text, Uuid
 from sqlalchemy.orm     import Mapped, mapped_column
 
 from enums              import FailureReason, FailureStatus, MessageSource
@@ -40,7 +40,12 @@ class FailedMessage(Base):
     reminder_id: Mapped[Optional[int]] = mapped_column(BigIntId, ForeignKey("reminders.id", ondelete="SET NULL"))
     status: Mapped[FailureStatus] = mapped_column(_enum(FailureStatus), nullable=False, default=FailureStatus.OPEN)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
+    # When it stopped being open (fixed or ignored)
     fixed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime)
+    # Why it was fixed or ignored, e.g. "garbled transcript"
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    # The pull request that teaches the parser this message, while waiting to be merged
+    fix_pr: Mapped[Optional[int]] = mapped_column(Integer)
 
     __table_args__ = (
         Index("ix_failed_messages_status_created_at", "status", "created_at"),
