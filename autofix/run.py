@@ -49,8 +49,8 @@ REVIEWER = ("github-actions", "github-actions[bot]")   # the automatic review's 
 DEPLOYED = Path("/home/apps/roman-tech-bot")            # the bot's checkout, see deploy.yml
 REVIEW_ROUNDS = 2
 HERE = Path(__file__).resolve().parent
-LOGS = Path.home() / "autofix-logs"
-KEEP_LOGS = 30
+LOGS = Path.home() / "autofix-logs"     # private: Claude's output and blocked changes quote the messages
+KEEP_LOGS = 30                          # of each kind (*.log, blocked-*.diff)
 TIMEOUT = 40 * 60           # one Claude run
 DEADLINE = 120 * 60         # no new Claude run after this (+ 40 min for the last one); the workflow allows 180
 STARTED = time.monotonic()
@@ -275,6 +275,13 @@ def notes(items, known: set) -> list:
 PUSHED, NOTHING, BLOCKED = "pushed", "nothing", "blocked"
 
 
+def logs() -> Path:
+    """LOGS, readable by this user only."""
+    LOGS.mkdir(exist_ok=True)
+    LOGS.chmod(0o700)
+    return LOGS
+
+
 def publish(work: Path, branch: str, start: str) -> str:
     """Push Claude's commits (the bundle) to `branch`, from a fresh clone.
 
@@ -289,8 +296,7 @@ def publish(work: Path, branch: str, start: str) -> str:
     changes = with_token("bash", "-c", f"{fetch} && git log -p --format=%B 'origin/{start}..{branch}'", work=work)
     matched = leak(changes)
     if matched:
-        LOGS.mkdir(exist_ok=True)
-        kept = LOGS / f"blocked-{datetime.now():%Y-%m-%d_%H%M%S}.diff"
+        kept = logs() / f"blocked-{datetime.now():%Y-%m-%d_%H%M%S}.diff"
         kept.write_text(f"Privacy check matched: {matched}\n\n{changes}")
         print(f"Privacy check: Claude's commits quote a failed message; not pushed (kept on the Pi: {kept})")
         return BLOCKED
@@ -440,8 +446,7 @@ def run() -> int:
     if not new and not commented:
         return 0
 
-    LOGS.mkdir(exist_ok=True)
-    log = LOGS / f"{datetime.now():%Y-%m-%d_%H%M}.log"
+    log = logs() / f"{datetime.now():%Y-%m-%d_%H%M}.log"
     ok = True
     with tempfile.TemporaryDirectory(prefix="autofix-") as tmp:
         work = Path(tmp)
@@ -453,8 +458,9 @@ def run() -> int:
             ok &= attempt("Fixing new failed messages", fix_new, work, new, log)
     print(f"Claude's log on the Pi: {log}")
 
-    for old in sorted(LOGS.glob("*.log"))[:-KEEP_LOGS]:
-        old.unlink()
+    for pattern in ("*.log", "blocked-*.diff"):
+        for old in sorted(LOGS.glob(pattern))[:-KEEP_LOGS]:
+            old.unlink()
     return 0 if ok else 1
 
 

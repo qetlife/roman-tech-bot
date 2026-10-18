@@ -203,6 +203,7 @@ def test_safe_falls_back_and_publish_refuses(private, monkeypatch, tmp_path):
     assert run.publish(tmp_path, "autofix/2026-10-18-0400", "master") == run.BLOCKED
     assert len(pushed) == 1 and "git push" not in pushed[0][-1]     # only the check ran
     [kept] = (tmp_path / "logs").glob("blocked-*.diff")
+    assert (tmp_path / "logs").stat().st_mode & 0o777 == 0o700
     assert kept.read_text().startswith("Privacy check matched: call mark about the\n")
 
 
