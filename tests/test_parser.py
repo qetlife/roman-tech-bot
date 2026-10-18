@@ -126,3 +126,24 @@ def test_parse_reminder_errors(request_, message):
 def test_past_time_rejected():
     with pytest.raises(ParseError, match="already passed"):
         parse_reminder("today at 9:00 to call mom", AFTERNOON)
+
+
+@pytest.mark.parametrize("request_text", [
+    "to borrow at nine twenty am too start the oven",
+    "to borrow at nine twenty am to start the oven",
+])
+def test_misheard_tomorrow(request_text):
+    r = parse_reminder(request_text, NOW)
+    assert r.when == datetime(2026, 10, 11, 9, 20, tzinfo=TZ)
+    assert r.text == "start the oven"
+
+
+def test_to_borrow_as_written_is_text():
+    r = parse_reminder("to borrow a book at 5pm", NOW)
+    assert r.text == "borrow a book"
+
+
+def test_misheard_tomorrow_keeps_too_in_text():
+    r = parse_reminder("to borrow at nine am buy milk too and eggs", NOW)
+    assert r.when == datetime(2026, 10, 11, 9, 0, tzinfo=TZ)
+    assert r.text == "buy milk too and eggs"
