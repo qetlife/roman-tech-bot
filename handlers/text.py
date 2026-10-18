@@ -8,6 +8,7 @@ from    enums                       import Awaiting, IntentName
 from    handlers.failed             import record_not_understood
 from    handlers                    import reminders as rh
 from    handlers.replies            import handle_reply
+from    handlers                    import people
 from    handlers                    import settings as sh
 from    handlers.intents            import INTENTS
 from    handlers.ui                 import ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, PENDING_PART
@@ -66,6 +67,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
         await rh.answer_what(update, context, text)
     elif awaiting == Awaiting.REMINDER_TIME:
         await rh.answer_when(update, context, text)
+    elif awaiting == Awaiting.CONTACT_USERNAME:
+        await people.on_contact_username_text(update, context, text)
+    elif awaiting == Awaiting.CONTACT_NAME:
+        await people.on_contact_name_text(update, context, text)
     elif awaiting == Awaiting.TIMEZONE:
         await sh.on_timezone_text(update, context, text)
     elif awaiting == Awaiting.SNOOZE_OPTIONS:

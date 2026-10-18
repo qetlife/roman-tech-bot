@@ -11,6 +11,7 @@ from db.models.user import Base
 import db.models.reminder  # noqa: F401
 import db.models.user_setting  # noqa: F401
 import db.models.failed_message  # noqa: F401
+import db.models.contact  # noqa: F401
 
 load_dotenv()
 

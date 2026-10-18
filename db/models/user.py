@@ -17,3 +17,7 @@ class User(Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     # IANA timezone name, e.g. "Europe/Kyiv"; asked for on the first reminder
     timezone: Mapped[Optional[str]] = mapped_column(String(64))
+    # From Telegram, refreshed when they change: the default name as someone's contact
+    first_name: Mapped[Optional[str]] = mapped_column(String(64))
+    # @username without the @, lowercase; for "invite @anna"
+    username: Mapped[Optional[str]] = mapped_column(String(64), index=True)

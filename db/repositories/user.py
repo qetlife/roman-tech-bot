@@ -53,6 +53,21 @@ class UserRepository:
                 session.rollback()
                 return session.scalar(select(User).where(User.telegram_id == telegram_id))
 
+    def get_by_username(self, username: str) -> Optional[User]:
+        with SessionLocal() as session:
+            return session.scalar(select(User).where(User.username == username.lstrip("@").lower()))
+
+    def remember_profile(self, telegram_id: int, first_name: Optional[str], username: Optional[str]) -> None:
+        """Store the user's Telegram first name and @username, if they changed (only for known users)."""
+        first_name = (first_name or "")[:64] or None
+        username = (username or "").lower()[:64] or None
+        with SessionLocal() as session:
+            user = session.scalar(select(User).where(User.telegram_id == telegram_id))
+            if user is None or (user.first_name, user.username) == (first_name, username):
+                return
+            user.first_name, user.username = first_name, username
+            session.commit()
+
     def set_timezone(self, telegram_id: int, timezone: str) -> Optional[User]:
         with SessionLocal(expire_on_commit=False) as session:
             user = session.scalar(select(User).where(User.telegram_id == telegram_id))

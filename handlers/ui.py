@@ -1,5 +1,6 @@
 """Telegram UI helpers: the menu message, callback data, user_data keys."""
 
+import logging
 import re
 
 from    telegram                    import Update
@@ -13,6 +14,8 @@ from    enums                       import Callback, CallbackPrefix, MessageSour
 
 # What the user's next plain message answers (an Awaiting value).
 AWAITING = "awaiting"
+# For Awaiting.CONTACT_NAME: the id of the contact being renamed.
+RENAME_CONTACT_ID = "rename_contact_id"
 # For Awaiting.EDIT: the id of the reminder being edited.
 EDIT_REMINDER_ID = "edit_reminder_id"
 # A reminder request waiting for the user to pick a timezone first.
@@ -29,6 +32,19 @@ REMINDER_SETTINGS_BACK = "reminder_settings_back"
 # What "that's wrong" refers to: the id of the reminder made from the user's
 # last message, or None if that message wasn't understood (already saved).
 LAST_REMINDER_ID = "last_reminder_id"
+
+
+async def remember_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Every update: store the user's Telegram first name and @username if they changed (known users only)."""
+    user = update.effective_user
+    if user is None:
+        return
+    try:
+        # Imported here: db code isn't needed for the rest of this module.
+        from db.repositories.user import UserRepository
+        UserRepository().remember_profile(user.id, user.first_name, user.username)
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to store the profile of %s", user.id)
 
 
 def message_source(update: Update) -> MessageSource:

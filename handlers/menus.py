@@ -15,6 +15,7 @@ MAIN_MENU_TEXT = "Menu:"
 def build_main_menu():
     keyboard = [
         [InlineKeyboardButton("⏰ Reminders", callback_data=Callback.REMINDERS_MENU)],
+        [InlineKeyboardButton("👥 People", callback_data=Callback.PEOPLE_MENU)],
         [InlineKeyboardButton("⚙️ Settings", callback_data=Callback.SETTINGS_MENU)],
     ]
     return InlineKeyboardMarkup(keyboard)

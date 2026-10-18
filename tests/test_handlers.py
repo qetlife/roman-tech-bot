@@ -54,8 +54,10 @@ def chat(db, monkeypatch):
     telegram_id = random.randint(10**9, 10**12)
     UserRepository().get_or_create(telegram_id)
     UserRepository().set_timezone(telegram_id, "Europe/Lisbon")
-    context = MagicMock(user_data={}, chat_data={})
+    context = MagicMock(user_data={}, chat_data={}, args=[])
     context.bot.edit_message_text = AsyncMock()
+    context.bot.send_message = AsyncMock()
+    context.bot.username = "testbot"
 
     def send(text=None, data=None, handler=None, reply_to=None):
         update = _update(telegram_id, data=data, text=text, reply_to=reply_to)
@@ -455,7 +457,9 @@ def test_start_registers_and_shows_the_menu(chat):
     assert UserRepository().get_by_telegram_id(new_id) is not None
     text, keyboard = chat.screen()
     assert text.startswith("Hi!")
-    assert _buttons(keyboard) == [[("⏰ Reminders", "menu:reminders")], [("⚙️ Settings", "menu:settings")]]
+    assert _buttons(keyboard) == [
+        [("⏰ Reminders", "menu:reminders")], [("👥 People", "menu:people")], [("⚙️ Settings", "menu:settings")],
+    ]
 
 
 @pytest.mark.parametrize("handler, data, text, back", [
