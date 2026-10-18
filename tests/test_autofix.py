@@ -141,6 +141,16 @@ def test_fix_new_with_odd_output_from_claude(monkeypatch, calls, tmp_path):
     assert calls == [("ignore", 3, "garbled"), ("pr", 1, 44)]
 
 
+def test_fix_new_waiting_for_a_feature(monkeypatch, calls, tmp_path):
+    monkeypatch.setattr(run, "run_claude", lambda *args: {
+        "fixed": [2], "ignored": [{"id": 3, "note": "garbled"}],
+        "waiting": [{"id": 1, "note": "asking when"}, {"id": 3, "note": "already ignored"}, {"id": 2}],
+    })
+    monkeypatch.setattr(run, "publish", lambda work, branch, start: pytest.fail("2 is waiting, nothing is fixed"))
+    run.fix_new(tmp_path, [{"id": 1}, {"id": 2}, {"id": 3}], tmp_path / "log")
+    assert calls == [("ignore", 3, "garbled"), ("wait", 1, "asking when"), ("wait", 2, "a new feature")]
+
+
 def test_fix_new_without_fixes_opens_nothing(monkeypatch, calls, tmp_path):
     monkeypatch.setattr(run, "run_claude", lambda *args: {"fixed": [], "ignored": [{"id": 1, "note": "a test"}]})
     monkeypatch.setattr(run, "publish", lambda work, branch, start: pytest.fail("nothing to publish"))

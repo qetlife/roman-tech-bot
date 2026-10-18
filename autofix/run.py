@@ -71,10 +71,10 @@ COMMON = set("""
 """.split())
 private = []                # the admin's open failed messages (texts), for the privacy check
 
-# Claude has no GitHub token, so these can only touch its own clone.
+# Claude has no GitHub token, so these can only touch its own clone. Any python,
+# so it can try the parser on a message before deciding.
 ALLOWED_TOOLS = ",".join([
-    "Read", "Edit", "Write", "Glob", "Grep",
-    "Bash(git:*)", "Bash(python -m pytest:*)", "Bash(python -m pyflakes:*)",
+    "Read", "Edit", "Write", "Glob", "Grep", "Bash(git:*)", "Bash(python:*)",
 ])
 
 
@@ -258,6 +258,11 @@ def ids(items, known: set) -> list:
     return [i for i in items if type(i) is int and i in known] if isinstance(items, list) else []
 
 
+def notes(items, known: set) -> list:
+    """The {"id", "note"} items in `items` (Claude's output) for entries we gave it."""
+    return [i for i in items if isinstance(i, dict) and ids([i.get("id")], known)] if isinstance(items, list) else []
+
+
 def publish(work: Path, branch: str, start: str) -> bool:
     """Push Claude's commits (the bundle) to `branch`, from a fresh clone.
 
@@ -320,13 +325,18 @@ def fix_new(work: Path, new: list, log: Path):
     ), branch, "master", log)
 
     known = {e["id"] for e in new}
-    ignored = result.get("ignored")
-    ignored = [i for i in ignored if isinstance(i, dict) and ids([i.get("id")], known)] if isinstance(ignored, list) else []
+    ignored = notes(result.get("ignored"), known)
+    waiting = notes(result.get("waiting"), known - {i["id"] for i in ignored})
     for item in ignored:
-        # The note is Claude's, short; it must not quote the message.
+        # The notes are Claude's, short; they must not quote the message.
         failed("ignore", item["id"], safe(str(item.get("note") or "unfixable")[:200], "unfixable"))
+    for item in waiting:
+        failed("wait", item["id"], safe(str(item.get("note") or "a new feature")[:200], "a new feature"))
+    if waiting:
+        print(f"Waiting for a feature: {len(waiting)}")
 
-    fixed = [i for i in ids(result.get("fixed"), known) if i not in {item["id"] for item in ignored}]
+    closed = {i["id"] for i in ignored + waiting}
+    fixed = [i for i in ids(result.get("fixed"), known) if i not in closed]
     if not fixed or not publish(work, branch, "master"):
         print(f"No pull request; ignored {len(ignored)}")
         return
@@ -396,7 +406,8 @@ def run() -> int:
         comments = new_comments(pr["number"], reviewer=True)
         if needs_answer(comments) and BRANCH.match(pr["headRefName"]):
             commented.append((pr["number"], pr["headRefName"], comments))
-    new = [e for e in open_entries() if not e["fix_pr"]]
+    # Not those with a fix on the way, or waiting for a feature (closed on startup once it ships).
+    new = [e for e in open_entries() if not e["fix_pr"] and not e["note"]]
     print(f"New failed messages: {len(new)}; auto-fix pull requests with new comments: "
           f"{[n for n, _, _ in commented] or 'none'}")
     if not new and not commented:

@@ -42,7 +42,7 @@ class FailedMessage(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
     # When it stopped being open (fixed or ignored)
     fixed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime)
-    # Why it was fixed or ignored, e.g. "garbled transcript"
+    # Why it was fixed or ignored, e.g. "garbled transcript"; while open, what it waits for
     note: Mapped[Optional[str]] = mapped_column(Text)
     # The pull request that teaches the parser this message, while waiting to be merged
     fix_pr: Mapped[Optional[int]] = mapped_column(Integer)

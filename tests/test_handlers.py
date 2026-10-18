@@ -292,6 +292,10 @@ def test_failed_list_ignore_button_and_fix_pr(chat, monkeypatch):
         [("✅ 1", f"failfix:{entry.id}")], [("🗑 1", f"failign:{entry.id}")],
     ]
 
+    FailedMessageRepository().set_fix_pr(entry.id, None)
+    FailedMessageRepository().set_waiting(entry.id, "asking when")
+    assert "⏳ Waiting for: asking when" in _replies(chat("/failed", handler=on_failed_cmd))[0]
+
     update = chat(data=f"failign:{entry.id}", handler=on_failed_button)
     assert update.callback_query.answer.call_args.args == ("Ignored",)
     assert _failed(chat.telegram_id) == []

@@ -118,6 +118,19 @@ def test_script(user, capsys, monkeypatch):
     assert (_get(entry).status, _get(entry).note) == (FailureStatus.IGNORED, "a test")
     assert run(["fixed", str(entry.id), "again"]) == 1     # not open any more
 
+    assert run(["reopen", str(entry.id)]) == 0
+    assert (_get(entry).status, _get(entry).note, _get(entry).fixed_at) == (FailureStatus.OPEN, None, None)
+    assert run(["reopen", str(entry.id)]) == 1             # already open
+
+    assert run(["wait", str(entry.id), "asking when"]) == 0
+    assert (_get(entry).status, _get(entry).note) == (FailureStatus.OPEN, "asking when")
+    capsys.readouterr()
+    assert run(["list"]) == 0
+    assert [json.loads(l)["note"] for l in capsys.readouterr().out.splitlines()
+            if json.loads(l)["id"] == entry.id] == ["asking when"]
+    assert run(["wait", str(entry.id), "none"]) == 0
+    assert _get(entry).note is None
+
     assert run(["check"]) == 0
     assert run([]) == 2
     assert run(["ignore", "abc", "x"]) == 2
