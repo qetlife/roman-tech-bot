@@ -244,6 +244,19 @@ The bot sends:
 If the bot was offline, anything that came due meanwhile is sent when it is
 back. For a recurring reminder, only the latest due occurrence is sent.
 
+**Replying** to the reminder message works like its buttons (typed or by
+voice):
+
+| Reply | Does |
+| --- | --- |
+| “done”, “ok”, “👍” | ✅ OK |
+| “snooze”, “later”, “snooze 20 min”, “snooze for an hour” | 💤 for that long; without a time, your first snooze option |
+| “move it to 10”, “move to tomorrow at 9”, “make it 18:30” | sets a new time; for a recurring reminder only this time moves |
+| “cancel”, “delete it” | cancels it |
+
+Any other reply is handled like a normal message, so “remind me …” still
+works.
+
 ### Listing, editing and cancelling
 
 - **List**: “my reminders” or `⏰ Reminders → 📋 My reminders` shows your
