@@ -100,6 +100,13 @@ obvious from the code.
   through [failed messages](#failed-messages), not by making the parser
   looser. Typos are fixed only as a second try, for words the bot knows,
   and never in the reminder text.
+- **A leftover of joining words is part of the time, not a text.** When
+  the parser splits a message into a time and a text, a leftover made only
+  of `TIME_FRAGMENTS` (“at”, “on”, “by”, “yesterday”, …) isn't a text, so
+  “today at 00:00” isn't tomorrow's reminder called “today at”. A time on
+  its own then says “That time has already passed.” if it has (also
+  “yesterday …”), and raises `MissingText` otherwise, so the bot asks what
+  for (#45).
 - **“at 9” means the next 09:00 or 21:00**, whichever comes first; typed
   “9:30” and “18:00” are taken as written. A day without a time means 09:00.
 - **A dot works like a colon in times** (“21.20”), unless the number is a
