@@ -342,8 +342,10 @@ reply: database errors are logged.
 - **The auto-fix job** (`autofix/`, daily on the Pi) opens a pull
   request teaching the parser the admin's open messages, then links them
   with `pr`, marks the ones needing a feature with `wait`, and ignores the
-  unfixable ones. It skips open entries with a `fix_pr` or a `note`; the
-  startup re-check still closes waiting ones once the feature ships. When that pull request is merged
+  unfixable ones. It skips open entries with a `fix_pr` or a `note`.
+  Waiting entries are closed by hand (✅ on `/failed`, or `fixed <id>`) by the
+  change that adds the feature: the startup re-check only replays the parser
+  and intents, and features like asking “when?” live in the handlers. When that pull request is merged
   the not-understood entries close on startup; wrong results are marked
   fixed by the next run. See [setup](setup.md#auto-fix-job).
 - **Privacy:** the entries are the user's own words and stay in the database.
