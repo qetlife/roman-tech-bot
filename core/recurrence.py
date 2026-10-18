@@ -3,6 +3,7 @@
 Stored in `core.recurrence` as one of:
     "mon,tue,wed,thu,fri@08:30"     Weekly: these weekdays at a local time
     "month:15@09:00"                Monthly: this day of the month at a local time
+    "month:2tue@09:00"              MonthlyWeekday: the 2nd Tuesday of the month ("-1fri": the last Friday)
     "every:120m@2026-10-11T07:00Z"  Interval: every N minutes from a start (UTC)
 
 Weekly and monthly times are local to the user, so a daily 09:00 reminder
@@ -103,6 +104,40 @@ class Monthly:
 
 
 @dataclass(frozen=True)
+class MonthlyWeekday:
+    nth: int            # 1-5, or -1 for the last; months without a 5th are skipped
+    weekday: int        # calendar.Day value
+    clock: time
+
+    def serialize(self) -> str:
+        return f"month:{self.nth}{DAY_NAMES[self.weekday]}@{self.clock:%H:%M}"
+
+    def day_in(self, year: int, month: int):
+        """This month's date, or None if it has no such weekday (a 5th)."""
+        days = [d for d in range(1, calendar.monthrange(year, month)[1] + 1)
+                if date(year, month, d).weekday() == self.weekday]
+        if self.nth == -1:
+            return date(year, month, days[-1])
+        return date(year, month, days[self.nth - 1]) if self.nth <= len(days) else None
+
+    def next_after(self, after: datetime, tz: tzinfo) -> datetime:
+        local = after.astimezone(tz)
+        year, month = local.year, local.month
+        for _ in range(14):
+            day = self.day_in(year, month)
+            if day is not None:
+                candidate = datetime.combine(day, self.clock, tzinfo=tz)
+                if candidate > after:
+                    return candidate
+            year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+        raise AssertionError("unreachable")
+
+    def describe(self, tz: tzinfo) -> str:
+        nth = "last" if self.nth == -1 else ordinal(self.nth)
+        return f"monthly on the {nth} {DAY_NAMES[self.weekday].capitalize()} at {self.clock:%H:%M}"
+
+
+@dataclass(frozen=True)
 class Interval:
     every: timedelta
     anchor: datetime    # the first occurrence (aware)
@@ -139,7 +174,7 @@ class Interval:
         return text
 
 
-Recurrence = Union[Weekly, Monthly, Interval]
+Recurrence = Union[Weekly, Monthly, MonthlyWeekday, Interval]
 
 
 def parse(value: str) -> Recurrence:
@@ -153,5 +188,8 @@ def parse(value: str) -> Recurrence:
     hour, minute = at.split(":")
     clock = time(int(hour), int(minute))
     if rule.startswith("month:"):
-        return Monthly(int(rule.removeprefix("month:")), clock)
+        day = rule.removeprefix("month:")
+        if day[-3:] in DAY_NAMES:
+            return MonthlyWeekday(int(day[:-3]), Day(DAY_NAMES.index(day[-3:])), clock)
+        return Monthly(int(day), clock)
     return Weekly(frozenset(Day(DAY_NAMES.index(d)) for d in rule.split(",")), clock)
