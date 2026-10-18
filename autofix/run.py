@@ -64,7 +64,7 @@ BLOCKED_REPLY = ("A fix for these comments was blocked by the privacy check and 
                  "it's kept on the Pi (~/autofix-logs) for the owner to look at.")
 LEAK_CONTENT = 2
 COMMON = set("""
-    a an the and or but to for of in on at by with about from into after before until than then
+    a an the and or but to too two for of in on at by with about from into after before until than then
     me my i you your it its this that these those is are was be been do did not no yes please
     remind reminder reminders set new add create show list every each next last this
     today tonight tomorrow morning afternoon evening night noon midnight week weekend weekday weekdays
