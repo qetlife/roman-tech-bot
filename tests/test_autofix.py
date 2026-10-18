@@ -206,6 +206,15 @@ def test_safe_falls_back_and_publish_refuses(private, monkeypatch, tmp_path):
     assert kept.read_text().startswith("Privacy check matched: call mark about the\n")
 
 
+def test_answer_comments_says_when_a_fix_was_blocked(monkeypatch, tmp_path):
+    monkeypatch.setattr(run, "run_claude", lambda *args: {"reply": "Fixed the parser as asked."})
+    monkeypatch.setattr(run, "publish", lambda work, branch, start: run.BLOCKED)
+    posted = []
+    monkeypatch.setattr(run, "with_token", lambda *args, work=None: posted.append((tmp_path / "reply.md").read_text()))
+    run.answer_comments(tmp_path, 44, "autofix/2026-10-18-0400", [], tmp_path / "log")
+    assert posted == [f"{run.MARKER} {run.BLOCKED_REPLY}"]
+
+
 def test_fix_new_blocked_by_the_privacy_check_waits(monkeypatch, calls, tmp_path):
     monkeypatch.setattr(run, "run_claude", lambda *args: {"fixed": [1]})
     monkeypatch.setattr(run, "publish", lambda work, branch, start: run.BLOCKED)

@@ -60,6 +60,8 @@ running = None              # the Claude container, killed if the job is cancell
 # to … tomorrow at 9") is what tests should copy; the rest is private.
 LEAK_WORDS = 4
 BLOCKED_NOTE = "a fix was blocked by the privacy check (see ~/autofix-logs on the Pi)"
+BLOCKED_REPLY = ("A fix for these comments was blocked by the privacy check and not pushed; "
+                 "it's kept on the Pi (~/autofix-logs) for the owner to look at.")
 LEAK_CONTENT = 2
 COMMON = set("""
     a an the and or but to for of in on at by with about from into after before until than then
@@ -305,12 +307,16 @@ def answer_comments(work: Path, number: int, branch: str, comments: list, log: P
         '`{"reply": "..."}`: one reply covering each comment, saying what you changed or why it '
         "isn't a problem.\n"
     ), branch, branch, log)
-    pushed = publish(work, branch, branch) == PUSHED
-    generic = "Pushed changes for the comments." if pushed else "No changes."
-    reply = safe(str(result.get("reply") or generic), generic)
+    published = publish(work, branch, branch)
+    if published == BLOCKED:
+        # Claude's reply describes changes that weren't pushed.
+        reply = BLOCKED_REPLY
+    else:
+        generic = "Pushed changes for the comments." if published == PUSHED else "No changes."
+        reply = safe(str(result.get("reply") or generic), generic)
     (work / "reply.md").write_text(f"{MARKER} {reply}")
     with_token("gh", "pr", "comment", str(number), "--repo", REPO, "--body-file", "/work/reply.md", work=work)
-    print(f"Pull request #{number}: answered {len(comments)} comments" + (", pushed" if pushed else ""))
+    print(f"Pull request #{number}: answered {len(comments)} comments, {published}")
 
 
 def open_pr(work: Path, branch: str, title: str) -> int:
