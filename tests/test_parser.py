@@ -3,7 +3,7 @@ from zoneinfo   import ZoneInfo
 
 import pytest
 
-from core.parser import ParseError, parse_reminder, parse_when
+from core.parser import MissingText, ParseError, parse_reminder, parse_when
 
 TZ = ZoneInfo("Europe/Kyiv")
 # Saturday 10 Oct 2026, 23:30
@@ -123,9 +123,51 @@ def test_parse_reminder_errors(request_, message):
         parse_reminder(request_, NOW)
 
 
+@pytest.mark.parametrize("request_, expected_when, expected_text", [
+    ("in a fortnight to pay",                 dt(24, 23, 30), "pay"),
+    ("in 2 fortnights to renew",              dt(7, 23, 30, month=11), "renew"),
+    ("next month to renew",                   dt(10, 9, month=11), "renew"),
+    ("next month at 10 to renew",             dt(10, 10, month=11), "renew"),
+    ("end of the month to pay rent",          dt(31, 9), "pay rent"),
+    ("by end of month: report",               dt(31, 9), "report"),
+])
+def test_more_time_phrases(request_, expected_when, expected_text):
+    parsed = parse_reminder(request_, NOW)
+    assert (parsed.when, parsed.text) == (expected_when, expected_text)
+
+
+def test_next_month_on_the_31st_is_its_last_day():
+    jan31 = datetime(2027, 1, 31, 12, 0, tzinfo=TZ)
+    assert parse_reminder("next month to pay", jan31).when == datetime(2027, 2, 28, 9, 0, tzinfo=TZ)
+
+
+def test_end_of_the_month_after_it_is_next_months():
+    late = datetime(2026, 10, 31, 12, 0, tzinfo=TZ)
+    assert parse_reminder("end of the month to pay", late).when == datetime(2026, 11, 30, 9, 0, tzinfo=TZ)
+
+
 def test_past_time_rejected():
     with pytest.raises(ParseError, match="already passed"):
         parse_reminder("today at 9:00 to call mom", AFTERNOON)
+
+
+@pytest.mark.parametrize("request_", ["today at 9:00", "today at 9am", "yesterday at 9", "yesterday"])
+def test_past_time_on_its_own_rejected(request_):
+    # Not a reminder for the next 9:00 called “today at” / “yesterday” (#45).
+    with pytest.raises(ParseError, match="already passed"):
+        parse_reminder(request_, AFTERNOON)
+
+
+@pytest.mark.parametrize("request_", ["at 3pm", "on friday", "at 18:30", "by friday"])
+def test_a_time_on_its_own_has_no_text(request_):
+    # Not a reminder called “at” / “on” / “by”: the bot asks what for.
+    with pytest.raises(MissingText):
+        parse_reminder(request_, AFTERNOON)
+
+
+def test_yesterday_in_the_text_is_kept():
+    parsed = parse_reminder("call the plumber from yesterday at 9", AFTERNOON)
+    assert (parsed.when, parsed.text) == (dt(10, 21), "call the plumber from yesterday")     # 9 in the afternoon: 21:00
 
 
 @pytest.mark.parametrize("request_text", [

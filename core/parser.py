@@ -6,13 +6,14 @@ rephrase instead of guessing wrong.
 
 Supported "when" expressions (case-insensitive):
     in 2 hours / in two hours / in 1.5 hours / in 1h30m / in half an hour
-    in an hour and a half / in 3 days / in a week
+    in an hour and a half / in 3 days / in a week / in a fortnight
     at 9 / at 9am / at 9:30pm / at 18:00 / 18:00 / noon / midnight
     at 21.20 / 21.20 / at 9.20pm  (a dot works like a colon; "10.11" alone is a date)
     today / tonight / tomorrow / day after tomorrow
       (before 04:00, "tomorrow" means the coming day, not the day after)
     morning / afternoon / evening / night
-    monday / on friday / next friday / next week
+    monday / on friday / next friday / next week / next month (the same day)
+    end of the month (its last day)
     24.12 / 24/12 / 2026-12-24 / dec 24 / 24th of december 2026
 and combinations of a day and a time, e.g. "tomorrow at 9", "friday 18:00",
 "at 9 tomorrow", "tomorrow morning", "on dec 24 at 10am".
@@ -25,10 +26,13 @@ bare "at 9" is 09:00 unless a day part says otherwise):
     every 2 hours / every 30 minutes / every hour        (from now, at least 15 min)
     every 3 days / every other day / every 2 weeks       (optionally "at 9")
     monthly / every month on the 15th / every 1st / the 1st of every month
+    every last friday of the month / the 1st monday of every month
+    every fortnight / every other tuesday / every 2nd tuesday  (every two weeks)
 e.g. "every day at 9", "at 8:30 on weekdays", "every friday 18:00",
 "every 2 hours", "every month on the 1st at 10".
 """
 
+import calendar
 import re
 
 from calendar        import Day
@@ -41,7 +45,7 @@ from core.numbers     import TENS as NUMBER_TENS, UNITS as NUMBER_UNITS
 from core.typos       import Vocabulary
 from enums           import RepeatKind
 from core.recurrence import (
-    EVERY_DAY, WEEKDAYS as WORKDAYS, WEEKENDS, Interval, Monthly, Recurrence, Weekly,
+    EVERY_DAY, WEEKDAYS as WORKDAYS, WEEKENDS, Interval, Monthly, MonthlyWeekday, Recurrence, Weekly,
 )
 
 
@@ -132,6 +136,7 @@ TIME_VOCABULARY = Vocabulary({
     **{w: w for w in [
         "today", "tonight", "tomorrow", "next", "after", "every", "everyday", "daily", "monthly",
         "weekday", "weekdays", "weekend", "weekends", "month", "other", "half", "quarter", "past",
+        "fortnight", "end",
     ]},
 })
 
@@ -166,6 +171,7 @@ class _When:
     explicit_year: bool = False
     part: Optional[str] = None      # "tonight", or "in the evening" etc.: applied to the clock at the end
     month_day: Optional[int] = None # "on the 15th": a day of whichever month comes next
+    month_end: bool = False         # "end of the month": its last day, or next month's
 
 
 def _number(token: str) -> Optional[float]:
@@ -195,6 +201,9 @@ def _read_duration(tokens: list, i: int):
             unit = UNITS[tokens[i + 2]]
             total += timedelta(**{unit: 0.5})
             i += 3
+        elif (value := _number(tok)) is not None and tokens[i + 1:i + 2] in (["fortnight"], ["fortnights"]):
+            total += timedelta(days=14 * value)
+            i += 2
         elif (value := _number(tok)) is not None and i + 1 < len(tokens) and tokens[i + 1] in UNITS:
             unit = UNITS[tokens[i + 1]]
             i += 2
@@ -323,6 +332,22 @@ def _tokenize(phrase: str) -> list:
     return normalize_numbers(tokens)
 
 
+def _skip(tokens: list, i: int, words: tuple) -> int:
+    while i < len(tokens) and tokens[i] in words:
+        i += 1
+    return i
+
+
+def _add_month(day: date) -> date:
+    """The same day next month (the last day if that month is shorter)."""
+    year, month = (day.year + 1, 1) if day.month == 12 else (day.year, day.month + 1)
+    return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
+
+
+def _month_end(day: date) -> date:
+    return day.replace(day=calendar.monthrange(day.year, day.month)[1])
+
+
 def _tomorrow(now: datetime) -> date:
     if now.time() < LATE_NIGHT_END:
         # Still "last night": the user hasn't slept yet.
@@ -376,6 +401,14 @@ def _parse_when_tokens(tokens: list, now: datetime) -> Optional[_When]:
                 continue
             if tok == "next" and tokens[i + 1:i + 2] == ["week"]:
                 w.day, i = today + timedelta(days=7), i + 2
+                continue
+            if tok == "next" and tokens[i + 1:i + 2] == ["month"]:
+                w.day, i = _add_month(today), i + 2
+                continue
+            # "end of the month", "end of month"
+            if tok == "end" and (j := _skip(tokens, i + 1, ("of", "the", "this"))) < len(tokens) \
+                    and tokens[j] == "month":
+                w.day, w.month_end, i = _month_end(today), True, j + 1
                 continue
             if tok in WEEKDAYS:
                 w.weekday, i = WEEKDAYS[tok], i + 1
@@ -463,6 +496,9 @@ def _resolve(w: _When, now: datetime) -> datetime:
         if w.weekday is not None:
             # "friday 9:00" said on Friday at 10:00 means next Friday
             result += timedelta(days=7)
+        elif w.month_end:
+            # "end of the month" on its last day, after that time: next month's
+            result = at(_month_end(_add_month(today.replace(day=1))), clock)
         elif w.month_day is not None:
             # "the 15th" said on the 15th after that time means next month's
             nxt = _next_month_day(day + timedelta(days=1), w.month_day)
@@ -524,6 +560,23 @@ class _Repeat:
     day: Optional[int] = None           # monthly; None = to be found, or today's
     every: Optional[timedelta] = None   # interval
     clock: Optional[time] = None        # from a day part ("every evening")
+    weekday: Optional[int] = None       # monthly on a weekday ("the last friday"), or every two weeks on one
+    nth: Optional[int] = None           # which one in the month: 1-5, -1 = the last
+
+
+# "the 2nd tuesday of the month", "every last friday"
+NTH = {
+    "first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3,
+    "fourth": 4, "4th": 4, "fifth": 5, "5th": 5, "last": -1,
+}
+
+
+def _read_nth_weekday(tokens: list, i: int):
+    """Read "2nd tuesday [of the month]" at i: (next index, nth, weekday, of the month?) or None."""
+    if i + 1 >= len(tokens) or tokens[i] not in NTH or tokens[i + 1] not in WEEKDAYS:
+        return None
+    j = _skip_month_words(tokens, i + 2)
+    return j, NTH[tokens[i]], WEEKDAYS[tokens[i + 1]], j > i + 2
 
 
 def _month_day(tok: str) -> Optional[int]:
@@ -555,12 +608,18 @@ def _read_recurrence(tokens: list, i: int, now: datetime):
         return i + 1, _Repeat(RepeatKind.WEEKLY, days=WEEKENDS)
     if tok == "monthly":
         return i + 1, _Repeat(RepeatKind.MONTHLY)
+    if tok == "fortnightly":
+        return i + 1, _Repeat(RepeatKind.INTERVAL, every=timedelta(weeks=2))
     j, days = _read_weekday_list(tokens, i, plural=True)
     if days:
         return j, _Repeat(RepeatKind.WEEKLY, days=frozenset(days))
     # "the 1st of every month"
     if (day := _month_day(tok)) is not None and (j := _skip_month_words(tokens, i + 1)) > i + 1:
         return j, _Repeat(RepeatKind.MONTHLY, day=day)
+    # "the last friday of the month"
+    if (nth := _read_nth_weekday(tokens, i)) and nth[3]:
+        j, n, weekday, _ = nth
+        return j, _Repeat(RepeatKind.MONTHLY, weekday=weekday, nth=n)
 
     if tok != "every" or nxt is None:
         return i, None
@@ -574,6 +633,16 @@ def _read_recurrence(tokens: list, i: int, now: datetime):
         return i + 2, _Repeat(RepeatKind.WEEKLY, days=frozenset({Day(now.weekday())}))
     if nxt == "month":
         return i + 2, _Repeat(RepeatKind.MONTHLY)
+    # "every last friday [of the month]"; "every 2nd tuesday" alone is every other one
+    if nth := _read_nth_weekday(tokens, i + 1):
+        j, n, weekday, of_month = nth
+        if n == 2 and not of_month:
+            return j, _Repeat(RepeatKind.INTERVAL, every=timedelta(weeks=2), weekday=weekday)
+        return j, _Repeat(RepeatKind.MONTHLY, weekday=weekday, nth=n)
+    if nxt == "other" and i + 2 < len(tokens) and tokens[i + 2] in WEEKDAYS:
+        return i + 3, _Repeat(RepeatKind.INTERVAL, every=timedelta(weeks=2), weekday=WEEKDAYS[tokens[i + 2]])
+    if nxt in ("fortnight", "fortnightly"):
+        return i + 2, _Repeat(RepeatKind.INTERVAL, every=timedelta(weeks=2))
     if nxt in ("morning", "afternoon", "evening", "night"):
         return i + 2, _Repeat(RepeatKind.WEEKLY, days=EVERY_DAY, clock=DAY_PARTS[nxt])
     # "every 15th [of the month]"
@@ -636,6 +705,8 @@ def parse_recurrence(phrase: str, now: datetime) -> Optional[tuple]:
 
     if repeat.kind == RepeatKind.WEEKLY:
         recurrence = Weekly(repeat.days, clock or DEFAULT_TIME)
+    elif repeat.kind == RepeatKind.MONTHLY and repeat.weekday is not None:
+        recurrence = MonthlyWeekday(repeat.nth, repeat.weekday, clock or DEFAULT_TIME)
     elif repeat.kind == RepeatKind.MONTHLY:
         recurrence = Monthly(repeat.day or now.day, clock or DEFAULT_TIME)
     else:
@@ -645,8 +716,10 @@ def parse_recurrence(phrase: str, now: datetime) -> Optional[tuple]:
         if every % timedelta(minutes=1):
             raise ParseError("Repeats must be in whole minutes.")
         if every % timedelta(days=1) == timedelta():
-            # "every 3 days [at 9]": the first one at the next 09:00
-            first = Weekly(EVERY_DAY, clock or DEFAULT_TIME).next_after(now, now.tzinfo)
+            # "every 3 days [at 9]": the first one at the next 09:00; "every
+            # other tuesday": the next Tuesday
+            days = frozenset({repeat.weekday}) if repeat.weekday is not None else EVERY_DAY
+            first = Weekly(days, clock or DEFAULT_TIME).next_after(now, now.tzinfo)
         elif clock is not None:
             return None
         else:
@@ -675,10 +748,23 @@ def _clean_text(text: str) -> str:
     return text.strip(" ,:;-—").strip()
 
 
+# Words that only join a time to the rest ("today at" + "9"): on their own,
+# a leftover of them is part of the time, not a text.
+TIME_FRAGMENTS = {"at", "on", "in", "by", "around", "from", "until", "till", "yesterday"}
+
+
 def _is_text(text: str, now: datetime) -> bool:
     # Leftover words that are themselves a time ("tomorrow" in
-    # "tomorrow at 9") mean the split was wrong.
-    return bool(text) and _parse_time(text, now) is None
+    # "tomorrow at 9"), or fragments of one ("today at" in "today at 00:00"),
+    # mean the split was wrong.
+    if not text or _parse_time(text, now) is not None:
+        return False
+    words = text.lower().split()
+    while words and words[-1] in TIME_FRAGMENTS:
+        words.pop()
+    while words and words[0] in TIME_FRAGMENTS:
+        words.pop(0)
+    return bool(words) and _parse_time(" ".join(words), now) is None
 
 
 def _split(words: list, time_words: list, fixed: list, now: datetime) -> Optional[tuple]:
@@ -706,6 +792,15 @@ def _split(words: list, time_words: list, fixed: list, now: datetime) -> Optiona
         if best is not None:
             return best
     return None
+
+
+def _is_yesterday(words: list, now: datetime) -> bool:
+    """ "yesterday" plus a time ("yesterday at 9"): a time that has passed."""
+    lowered = [w.lower() for w in words]
+    if "yesterday" not in lowered:
+        return False
+    rest = [w for w in lowered if w != "yesterday"]
+    return not rest or _parse_time(" ".join(rest), now) is not None
 
 
 def _mishearings(words: list, now: datetime) -> list:
@@ -755,7 +850,10 @@ def parse_reminder(request: str, now: datetime) -> ParsedReminder:
             best = _split(words, fixed, fixed, now)
 
     if best is None:
-        if _parse_time(request, now) is not None or _parse_time(" ".join(fixed), now) is not None:
+        alone = _parse_time(request, now) or _parse_time(" ".join(fixed), now)
+        if alone is not None and alone[0] <= now or _is_yesterday(fixed, now):
+            raise ParseError("That time has already passed.")
+        if alone is not None:
             raise MissingText("What should I remind you about?")
         raise MissingTime("I couldn't understand when.", _clean_text(request))
 

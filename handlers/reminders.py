@@ -1,6 +1,7 @@
 """⏰ Reminders: create, edit, list, and the buttons on reminder messages."""
 
 from    datetime                        import datetime, timedelta
+from    typing                          import Optional
 from    zoneinfo                        import ZoneInfo
 
 from    telegram                        import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -385,28 +386,15 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if reminder is None:
         return
 
-    if action == ReminderAction.OK and reminder.recurrence:
-        if reminder.status != ReminderStatus.FIRING:
+    if action == ReminderAction.OK:
+        text = finish(users.get_or_create(update.effective_user.id), reminder)
+        if text is None:
             # A stale message; the reminder has already moved on.
             await query.answer("Already done.")
             await query.edit_message_reply_markup(reply_markup=None)
             return
-        user = users.get_or_create(update.effective_user.id)
-        tz_name = user.timezone or "UTC"
-        recurrence = recurrences.parse(reminder.recurrence)
-        next_at = recurrence.next_after(max(utcnow(), reminder.remind_at), ZoneInfo(tz_name))
-        next_at = outside_quiet_hours(user, recurrence, next_at)
-        updated = reminders.advance(reminder_id, next_at)
         await query.answer("Done!")
-        if updated is None:
-            await query.edit_message_text(f"✅ {reminder.text}")
-            return
-        await query.edit_message_text(f"✅ {reminder.text}\n\nNext: {format_when(next_at, tz_name, utcnow())}")
-
-    elif action == ReminderAction.OK:
-        reminders.acknowledge(reminder_id)
-        await query.answer("Done!")
-        await query.edit_message_text(f"✅ {reminder.text}")
+        await query.edit_message_text(text)
 
     elif action == ReminderAction.SNOOZE:
         user = users.get_or_create(update.effective_user.id)
@@ -443,6 +431,26 @@ async def on_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.answer("Deleted and saved as failed")
         # Shown on the confirmation itself, like ↩️ Undo, so its buttons go away.
         await query.edit_message_text(await flag_wrong(update, context, reminder))
+
+
+def finish(user, reminder) -> Optional[str]:
+    """✅ OK: a one-off is done, a repeat moves on to its next time.
+
+    The reminder message's new text, or None if a repeat isn't firing (it
+    has already moved on).
+    """
+    if not reminder.recurrence:
+        reminders.acknowledge(reminder.id)
+        return f"✅ {reminder.text}"
+    if reminder.status != ReminderStatus.FIRING:
+        return None
+    tz_name = user.timezone or "UTC"
+    recurrence = recurrences.parse(reminder.recurrence)
+    next_at = recurrence.next_after(max(utcnow(), reminder.remind_at), ZoneInfo(tz_name))
+    next_at = outside_quiet_hours(user, recurrence, next_at)
+    if reminders.advance(reminder.id, next_at) is None:
+        return f"✅ {reminder.text}"
+    return f"✅ {reminder.text}\n\nNext: {format_when(next_at, tz_name, utcnow())}"
 
 
 async def start_edit(context: ContextTypes.DEFAULT_TYPE, reminder, reply, intro: str = ""):

@@ -29,6 +29,7 @@ handlers/           everything that talks to Telegram (messages, buttons)
     failed.py       saving failed messages; /failed list (admin only)
     menus.py        main, ⏰ Reminders and ⚙️ Settings menu screens
     reminders.py    create, edit, list; OK / snooze / undo / edit / delete / 👎 wrong buttons
+    replies.py      replies to a reminder message: “done”, “snooze 20 min”, “move it to 10”, “cancel”
     settings.py     🌍 timezone and ⏰ reminder settings screens
     text.py         typed messages: trigger phrases, answers to questions
     voice.py        voice messages: transcribe, then handle like text
@@ -39,11 +40,12 @@ core/               the logic: no Telegram, no database sessions
     parser.py       "in 2 hours to call mom" → time + text
     numbers.py      spoken numbers → digits ("nine thirty" → 9:30), used by the parser
     typos.py        fixing typos of known words ("tomorow", "remid me"), a second try for parser and intents
-    recurrence.py   Weekly / Monthly / Interval
+    recurrence.py   Weekly / Monthly / MonthlyWeekday / Interval
     quiet.py        quiet hours
     timezones.py    resolving and formatting timezones
     settings.py     setting definitions and validation
     intents.py      trigger phrase matching
+    replies.py      reading replies to a reminder message (“snooze 20 min” → ReplyCommand)
     commands.py     plain-language commands: which reminder “cancel the dentist reminder” means, which day “what do I have tomorrow?” is
 
 jobs/
@@ -101,6 +103,13 @@ obvious from the code.
   through [failed messages](#failed-messages), not by making the parser
   looser. Typos are fixed only as a second try, for words the bot knows,
   and never in the reminder text.
+- **A leftover of joining words is part of the time, not a text.** When
+  the parser splits a message into a time and a text, a leftover made only
+  of `TIME_FRAGMENTS` (“at”, “on”, “by”, “yesterday”, …) isn't a text, so
+  “today at 00:00” isn't tomorrow's reminder called “today at”. A time on
+  its own then says “That time has already passed.” if it has (also
+  “yesterday …”), and raises `MissingText` otherwise, so the bot asks what
+  for (#45).
 - **“at 9” means the next 09:00 or 21:00**, whichever comes first; typed
   “9:30” and “18:00” are taken as written. A day without a time means 09:00.
 - **A dot works like a colon in times** (“21.20”), unless the number is a
@@ -145,6 +154,9 @@ chats still carry it. `tests/test_callbacks.py` pins them.
 
 **Free text** (`handlers/text.py`):
 
+0. A Telegram reply to a delivered reminder (`reminders.last_message_id`)
+   that is a reply command (`core/replies.parse_reply`) acts on that
+   reminder (`handlers/replies.py`); other replies go on below.
 1. A message starting with a trigger phrase runs that intent's action with
    the rest of the message (`handlers/intents.py`, matched by
    `core/intents.py`; longest phrase wins, whole words only, polite filler
@@ -195,13 +207,14 @@ asked about is kept in `user_data["asked_request"]`; “that's wrong” while
 counts it as understood, except for those flagged entries. ✏️ Edit doesn't
 ask: it says what's wrong.
 
-**Recurrence** (`core/recurrence.py`): three types, stored as a string
+**Recurrence** (`core/recurrence.py`): four types, stored as a string
 in `reminders.recurrence` (`NULL` = one-off):
 
 | Type       | Stored as                       | Meaning |
 | ---------- | ------------------------------- | ------- |
 | `Weekly`   | `mon,tue,wed,thu,fri@08:30`     | these weekdays (`calendar.Day`) at a local time |
 | `Monthly`  | `month:15@09:00`                | this day of the month (last day in shorter months) at a local time |
+| `MonthlyWeekday` | `month:2tue@09:00`, `month:-1fri@09:00` | the 2nd Tuesday / last Friday of the month at a local time; months without a 5th weekday are skipped |
 | `Interval` | `every:120m@2026-10-11T07:00Z`  | every N minutes from a start (UTC); whole days keep the local time |
 
 Each has `serialize()`, `next_after(after, tz)` (first occurrence strictly
@@ -396,6 +409,7 @@ ones there too.
 | --------------------------------------- | --- |
 | `ReminderStatus` (+ `ACTIVE_STATUSES`)  | reminder lifecycle; stored as its value in `reminders.status`, a `VARCHAR(16)` (non-native SQLAlchemy `Enum` in `db/models/reminder.py`) |
 | `RepeatKind`                            | the kind of repeat the parser found |
+| `ReplyCommand`                          | what a reply to a reminder message asks for (`core/replies.py`) |
 | `Awaiting`                              | what the next typed message answers |
 | `IntentName`                            | free-text intents; stored in `failed_messages.intent` |
 | `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source` |
