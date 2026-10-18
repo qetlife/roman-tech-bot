@@ -767,5 +767,6 @@ def test_set_timezone_by_text(chat):
     update = chat("set my timezone to Berlin")
     assert _replies(update)[0].startswith("🌍 Timezone set to Europe/Berlin")
     assert UserRepository().get_by_telegram_id(chat.telegram_id).timezone == "Europe/Berlin"
-    assert "I don't know that timezone" in _replies(chat("set my timezone to Atlantis"))[0]
+    assert _replies(chat("set my timezone to Atlantis"))[0].startswith("I don't know that timezone. Which timezone")
+    assert _replies(chat("Lisbon"))[0].startswith("🌍 Timezone set to Europe/Lisbon")     # still the answer
     assert _replies(chat("change my timezone"))[0].startswith("Which timezone are you in?")
