@@ -43,13 +43,16 @@ class ReminderRepository:
             return session.scalar(stmt)
 
     def get_by_message(self, message_id: int, chat_id: int, telegram_id: int) -> Optional[Reminder]:
-        """The active reminder last delivered as this message, if it is meant for `telegram_id`."""
+        """The reminder going off as this message (firing, waiting for OK), if it is meant for `telegram_id`.
+
+        Not once it was snoozed or answered: then the message is an old one.
+        """
         with SessionLocal(expire_on_commit=False) as session:
             stmt = (
                 select(Reminder)
                 .join(User, User.id == Reminder.target_user_id)
                 .where(Reminder.last_message_id == message_id, Reminder.chat_id == chat_id,
-                       User.telegram_id == telegram_id, Reminder.status.in_(ACTIVE_STATUSES))
+                       User.telegram_id == telegram_id, Reminder.status == ReminderStatus.FIRING)
             )
             return session.scalar(stmt)
 

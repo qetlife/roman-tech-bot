@@ -767,6 +767,16 @@ def test_reply_cancel(chat):
     assert _reminder(reminder.id).status == "cancelled"
 
 
+def test_a_reply_to_an_old_message_is_a_plain_message(chat):
+    from handlers.reminders import on_reminder_button
+    from handlers.text import HELP_TEXT
+
+    reminder = _firing(chat)
+    chat(data=f"rem:snz:{reminder.id}:10", handler=on_reminder_button)     # 💤 by button
+    assert _replies(chat("done", reply_to=555)) == [HELP_TEXT]
+    assert _reminder(reminder.id).status == "pending"                      # still snoozed
+
+
 def test_other_replies_are_plain_messages(chat):
     from handlers.text import HELP_TEXT
 

@@ -254,8 +254,9 @@ voice):
 | “move it to 10”, “move to tomorrow at 9”, “make it 18:30” | sets a new time; for a recurring reminder only this time moves |
 | “cancel”, “delete it” | cancels it |
 
-Any other reply is handled like a normal message, so “remind me …” still
-works.
+This works while the reminder is going off (waiting for ✅ OK); once it's
+snoozed or answered, the old message is just a message. Any other reply is
+handled like a normal message, so “remind me …” still works.
 
 ### Listing, editing and cancelling
 
