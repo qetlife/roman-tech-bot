@@ -63,10 +63,13 @@ class ContactRepository:
             if contact is not None and contact.status == ContactStatus.ACCEPTED:
                 session.commit()
                 return Accepted(InviteResult.ALREADY, contact, owner)
+            name = default_name(user.first_name, user.username)
             if contact is None:
-                contact = Contact(owner_user_id=owner.id, contact_user_id=user.id,
-                                  name=self._free_name(session, owner.id, default_name(user.first_name, user.username)))
+                contact = Contact(owner_user_id=owner.id, contact_user_id=user.id, name=self._free_name(session, owner.id, name))
                 session.add(contact)
+            elif contact.status == ContactStatus.DECLINED:
+                # An old "no": its name may have been given to someone else since.
+                contact.name = self._free_name(session, owner.id, name)
             contact.status, contact.accepted_at = ContactStatus.ACCEPTED, utcnow()
             session.commit()
             return Accepted(InviteResult.ACCEPTED, contact, owner)

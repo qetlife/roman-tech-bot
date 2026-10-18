@@ -207,6 +207,17 @@ def test_request_declined(person):
     assert _people(roman) == [("Anna", "accepted")]
 
 
+def test_an_invite_after_a_no_gets_a_free_name(person):
+    roman, anna, anna_b = person("Roman", "roman_i"), person("Anna", "anna"), person("Anna", "anna_b")
+    _invite(roman)
+    roman("@anna")
+    [request] = anna.messages()
+    _tap(anna, _buttons(request.kwargs["reply_markup"])[0][1][1])     # ❌ No
+    _tap(anna_b, f"inv:yes:{_invite(roman)}")                         # another Anna takes "Anna"
+    _tap(anna, f"inv:yes:{_invite(roman)}")                           # the first changes her mind
+    assert _people(roman) == [("Anna", "accepted"), ("Anna 2", "accepted")]
+
+
 def test_requests_per_day(person):
     from db.repositories.contact import REQUESTS_PER_DAY
 
