@@ -22,6 +22,9 @@ from    enums                       import ReplyCommand
 from    handlers                    import reminders as rh
 
 
+# Stands in for the reminder's text when parsing the new time of "move it to …".
+MOVE_PLACEHOLDER = "x"
+
 reminders = ReminderRepository()
 settings = SettingsRepository()
 users = UserRepository()
@@ -63,7 +66,10 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
 
     elif command.command == ReplyCommand.MOVE:
         try:
-            parsed = parse_reminder(f"{command.when} to {reminder.text}", user_now(tz_name))
+            # Only the reply's time: words in the reminder's text ("pay rent at 5") don't count.
+            parsed = parse_reminder(f"{command.when} to {MOVE_PLACEHOLDER}", user_now(tz_name))
+            if parsed.text != MOVE_PLACEHOLDER:
+                raise ParseError("I couldn't understand when.")
         except ParseError as e:
             await reply(f"{e} Try e.g. “move it to 10” or “move it to tomorrow at 9”.")
             return True

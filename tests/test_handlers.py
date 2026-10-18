@@ -731,6 +731,23 @@ def test_reply_move(chat):
     assert _reminder(reminder.id).recurrence is None
 
 
+def test_reply_move_ignores_time_words_in_the_text(chat):
+    from datetime import timedelta
+    from db.models.reminder import utcnow
+    from db.repositories.reminder import ReminderRepository
+    from db.repositories.user import UserRepository
+    from enums import MessageSource
+
+    user = UserRepository().get_by_telegram_id(chat.telegram_id)
+    reminder = ReminderRepository().create(user, chat.telegram_id, "pay rent at 5 every sunday",
+                                           utcnow() + timedelta(hours=1), None, "…", MessageSource.TYPED)
+    _fire(reminder.id, 555)
+    update = chat("move it to friday at 10", reply_to=555)
+    assert _replies(update)[0].startswith("⏰ pay rent at 5 every sunday\n🗓 Moved to Fri ")
+    text, when = _local_when(chat)
+    assert (text, when.weekday(), when.hour) == ("pay rent at 5 every sunday", 4, 10)
+
+
 def test_reply_move_a_repeat_moves_only_this_time(chat):
     reminder = _firing(chat, "remind me every day at 9 to take pills")
     chat("move it to 11:00", reply_to=555)
