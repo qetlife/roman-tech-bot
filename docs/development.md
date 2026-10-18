@@ -154,7 +154,9 @@ chats still carry it. `tests/test_callbacks.py` pins them.
    holds an `Awaiting` value (`enums.py`; keys in `handlers/ui.py`) and the message is the
    answer. For `Awaiting.EDIT`, the reminder id is in
    `user_data["edit_reminder_id"]`.
-3. Otherwise the bot replies with a help text (and saves the message as
+3. Otherwise, a message that is only a time (“tomorrow at 12”) starts a
+   reminder, which asks for its text (`is_bare_time`, below).
+4. Otherwise the bot replies with a help text (and saves the message as
    failed, see [Failed messages](#failed-messages)).
 
 `user_data` lives in memory, so a restart forgets pending questions.
@@ -168,7 +170,24 @@ longest time expression at the start or the end of the message
 not itself a time. It understands a fixed set of English expressions (module
 docstring and [user guide](user-guide.md#time-expressions)) and raises
 `ParseError` with a user-facing message otherwise. `now` is timezone-aware
-in the user's timezone.
+in the user's timezone. Two subclasses say which half is missing:
+`MissingText` (a time, no text) and `MissingTime` (no time it understands;
+`.text` is the request cleaned up as reminder text).
+
+**Asking for the missing half** (`handlers/reminders.py`): `create_reminder`
+turns `MissingText` into `ask_what` and `MissingTime` into `ask_when`,
+instead of failing. They set `Awaiting.REMINDER_TEXT` / `REMINDER_TIME` and
+keep the half they have in `user_data["pending_part"]`; `answer_what` /
+`answer_when` join it with the answer (“<time> to <text>”) and parse that.
+A wrong answer to “when?” is saved as failed (intent
+`IntentName.REMINDER_WHEN`; the re-check closes it once that answer parses
+as a time) and asked again. A trigger phrase other than “that's wrong”, or
+a new failure, ends the question. The message
+asked about is kept in `user_data["asked_request"]`; “that's wrong” while
+`awaiting` is still the question saves it as failed with `ASKED_ERROR`
+(`flag_question`, called from `handlers/text.py`, the only reader). Asking isn't saved as a failure, and the startup re-check
+counts it as understood, except for those flagged entries. ✏️ Edit doesn't
+ask: it says what's wrong.
 
 **Recurrence** (`core/recurrence.py`): three types, stored as a string
 in `reminders.recurrence` (`NULL` = one-off):

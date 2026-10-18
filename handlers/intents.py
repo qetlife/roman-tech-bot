@@ -13,7 +13,7 @@ INTENTS = [
     Intent(
         name=IntentName.REMINDER_CREATE,
         phrases=[
-            "remind me", "set a reminder", "set reminder", "create a reminder",
+            "remind me", "remind", "set a reminder", "set reminder", "create a reminder",
             "add a reminder", "new reminder",
         ],
         action=create_reminder,

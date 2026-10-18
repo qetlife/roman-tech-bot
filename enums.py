@@ -64,6 +64,7 @@ class IntentName(StrEnum):
 
     REMINDER_CREATE = "reminder.create"
     REMINDER_EDIT = "reminder.edit"     # the answer to ✏️ Edit, not a trigger phrase
+    REMINDER_WHEN = "reminder.when"     # the answer to "when should I remind you?", not a trigger phrase
     REMINDER_LIST = "reminder.list"
     FLAG_FAILED = "failed.flag"         # "that's wrong", "save the last one as failed"
 
@@ -73,6 +74,8 @@ class Awaiting(StrEnum):
     """What the user's next plain message answers (context.user_data["awaiting"])."""
 
     REMINDER = "reminder"               # ➕ New: time and text of a new reminder
+    REMINDER_TEXT = "reminder_text"     # what to remind about, for a time already given
+    REMINDER_TIME = "reminder_time"     # when to remind, for a text already given
     EDIT = "edit"                       # ✏️ Edit: new time and text
     TIMEZONE = "timezone"               # a city or offset
     SNOOZE_OPTIONS = "snooze_options"   # custom snooze options

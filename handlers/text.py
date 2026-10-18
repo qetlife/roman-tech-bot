@@ -4,12 +4,12 @@ from    telegram                    import Update
 from    telegram.ext                import ContextTypes
 
 from    core.intents                import match_intent
-from    enums                       import Awaiting
+from    enums                       import Awaiting, IntentName
 from    handlers.failed             import record_not_understood
 from    handlers                    import reminders as rh
 from    handlers                    import settings as sh
 from    handlers.intents            import INTENTS
-from    handlers.ui                 import AWAITING, EDIT_REMINDER_ID
+from    handlers.ui                 import ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, PENDING_PART
 
 
 HELP_TEXT = (
@@ -31,11 +31,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
     # A trigger phrase always wins, so "remind me ..." works at any point.
     if match is not None:
         context.user_data.pop(AWAITING, None)
+        asked = context.user_data.pop(ASKED_REQUEST, None)
+        context.user_data.pop(PENDING_PART, None)
+        if match.intent.name == IntentName.FLAG_FAILED and asked is not None \
+                and awaiting in (Awaiting.REMINDER_TEXT, Awaiting.REMINDER_TIME):
+            # "that's wrong" while the bot asks for a time or a text: asking was the mistake.
+            await rh.flag_question(update, context, asked)
+            return
         await match.intent.action(update, context, match.rest)
         return
 
     if awaiting == Awaiting.REMINDER:
         await rh.create_reminder(update, context, text)
+    elif awaiting == Awaiting.REMINDER_TEXT:
+        await rh.answer_what(update, context, text)
+    elif awaiting == Awaiting.REMINDER_TIME:
+        await rh.answer_when(update, context, text)
     elif awaiting == Awaiting.TIMEZONE:
         await sh.on_timezone_text(update, context, text)
     elif awaiting == Awaiting.SNOOZE_OPTIONS:
@@ -44,6 +55,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
         await sh.on_quiet_text(update, context, text)
     elif awaiting == Awaiting.EDIT:
         await rh.edit_reminder(update, context, context.user_data[EDIT_REMINDER_ID], text)
+    elif rh.is_bare_time(update, text):
+        # "tomorrow at 12" on its own: a reminder without its text yet.
+        await rh.create_reminder(update, context, text)
     else:
         record_not_understood(update, context, text)
         await update.effective_message.reply_text(HELP_TEXT)

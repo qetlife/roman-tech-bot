@@ -17,6 +17,13 @@ AWAITING = "awaiting"
 EDIT_REMINDER_ID = "edit_reminder_id"
 # A reminder request waiting for the user to pick a timezone first.
 PENDING_REQUEST = "pending_request"
+# For Awaiting.REMINDER_TEXT: the time as the user gave it ("tomorrow at 12");
+# for Awaiting.REMINDER_TIME: the reminder text ("call mom").
+PENDING_PART = "pending_part"
+# The message the bot is asking about (ask_what / ask_when): "that's wrong"
+# while it still asks means it shouldn't have (handlers/text.py, the only
+# reader, which checks `awaiting` too).
+ASKED_REQUEST = "asked_request"
 # Where ↩️ Back on ⏰ Reminder settings returns to (a Callback).
 REMINDER_SETTINGS_BACK = "reminder_settings_back"
 # What "that's wrong" refers to: the id of the reminder made from the user's

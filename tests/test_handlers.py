@@ -157,11 +157,138 @@ def test_not_understood_is_saved(chat):
 
 
 def test_unparsed_reminder_is_saved(chat):
-    chat("remind me someday to call mom")
+    chat("remind me every 5 minutes to call mom")
     [entry] = _failed(chat.telegram_id)
-    assert entry.text == "someday to call mom"
+    assert entry.text == "every 5 minutes to call mom"
     assert entry.intent == "reminder.create"
-    assert entry.bot_understood == {"error": "I couldn't understand when."}
+    assert entry.bot_understood == {"error": "The shortest repeat is every 15 minutes."}
+
+
+# --- asking for the missing half ------------------------------------------------
+
+def _local_when(chat):
+    from core.timezones import to_local
+    [reminder] = _active(chat.telegram_id)
+    return reminder.text, to_local(reminder.remind_at, "Europe/Lisbon")
+
+
+@pytest.mark.parametrize("request_", ["remind me to call mom", "remind to call mom", "remind me someday to call mom"])
+def test_a_reminder_without_a_time_asks_when(chat, request_):
+    update = chat(request_)
+    text = "someday to call mom" if "someday" in request_ else "call mom"
+    assert _replies(update)[0].startswith(f"⏰ When should I remind you: “{text}”?")
+    assert _active(chat.telegram_id) == [] and _failed(chat.telegram_id) == []
+
+    update = chat("tomorrow at 9")
+    assert _replies(update)[0].startswith(f"⏰ Got it: {text}")
+    text_, when = _local_when(chat)
+    assert (when.hour, when.minute) == (9, 0)
+    assert _active(chat.telegram_id)[0].request == f"tomorrow at 9 to {text}"
+
+
+def test_asking_when_again_if_the_answer_isnt_a_time(chat):
+    chat("remind me to call mom")
+    update = chat("whenever")
+    assert _replies(update)[0].startswith("I couldn't understand when. ⏰ When should I remind you: “call mom”?")
+    [entry] = _failed(chat.telegram_id)
+    assert (entry.text, entry.intent) == ("whenever", "reminder.when")
+
+    update = chat("in 2 hours")
+    assert _replies(update)[0].startswith("⏰ Got it: call mom")
+
+
+@pytest.mark.parametrize("request_", ["remind me tomorrow at 12", "tomorrow at 12", "Tomorrow at 12"])
+def test_a_time_without_a_text_asks_what_for(chat, request_):
+    update = chat(request_)
+    assert _replies(update)[0] == f"⏰ {request_.removeprefix('remind me ')}: what should I remind you about?"
+    assert _failed(chat.telegram_id) == []
+
+    update = chat("call the bank")
+    assert _replies(update)[0].startswith("⏰ Got it: call the bank")
+    text, when = _local_when(chat)
+    assert (when.hour, when.minute) == (12, 0)
+
+
+def test_answer_with_its_own_to(chat):
+    chat("tomorrow at 12")
+    chat("to call the bank")
+    assert _local_when(chat)[0] == "call the bank"
+
+
+def test_a_repeat_without_a_text(chat):
+    chat("remind me every day at 9")
+    chat("take pills")
+    [reminder] = _active(chat.telegram_id)
+    assert (reminder.text, reminder.recurrence) == ("take pills", "mon,tue,wed,thu,fri,sat,sun@09:00")
+
+
+def test_a_trigger_phrase_wins_over_the_question(chat):
+    chat("remind me to call mom")
+    chat("remind me in 1 hour to stretch")
+    assert _local_when(chat)[0] == "stretch"
+    # The question is over: a plain message isn't its answer any more.
+    update = chat("tomorrow at 9")
+    assert _replies(update)[0] == "⏰ tomorrow at 9: what should I remind you about?"
+
+
+def test_thats_wrong_while_asking_saves_the_asked_message(chat):
+    chat("remind me tomorrow at 9 to call mom")
+    chat("remind me to stretch")
+    update = chat("that's wrong")
+    assert _replies(update)[0].startswith("👎 Saved as failed")
+    [entry] = _failed(chat.telegram_id)
+    assert (entry.text, entry.bot_understood) == ("to stretch", {"error": "asked for the missing time or text"})
+    assert len(_active(chat.telegram_id)) == 1      # the earlier reminder is untouched
+    # Asked about once: saying it again doesn't save it twice.
+    assert _replies(chat("that's wrong"))[0] == "👎 That one is already saved as failed."
+
+
+def test_a_failed_message_ends_the_question(chat):
+    chat("remind me tomorrow at 9 to call mom")
+    from handlers.reminders import on_new
+
+    chat("tomorrow at 12")                      # the bot asks what for
+    chat(data="rem:new", handler=on_new)        # ➕ New instead
+    chat("every 5 minutes to stretch")          # fails: too short a repeat
+    [entry] = _failed(chat.telegram_id)
+    assert entry.text == "every 5 minutes to stretch"
+    # "that's wrong" now means that failed message (already saved), not the old question.
+    assert _replies(chat("that's wrong"))[0] == "👎 That one is already saved as failed."
+    assert len(_failed(chat.telegram_id)) == 1
+
+
+def test_a_button_ends_the_question(chat):
+    from handlers.reminders import on_reminder_button
+
+    chat("remind me tomorrow at 9 to call mom")
+    reminder_id = _active(chat.telegram_id)[0].id
+    chat("remind me to stretch")                # the bot asks when
+    chat(data=f"rem:edit:{reminder_id}", handler=on_reminder_button)    # ✏️ Edit instead
+    update = chat("that's wrong")               # about the reminder, not the question
+    assert _replies(update)[0].startswith("👎 Deleted: call mom")
+    assert [e.reason for e in _failed(chat.telegram_id)] == ["wrong_result"]
+
+
+def test_settings_end_the_question(chat):
+    from handlers.settings import on_timezone_settings
+
+    chat("remind me tomorrow at 9 to call mom")
+    chat("remind me to stretch")                # the bot asks when
+    chat(data="settings:timezone", handler=on_timezone_settings)
+    chat("Berlin")                              # answers the timezone question instead
+    update = chat("that's wrong")               # about the reminder, not the question
+    assert _replies(update)[0].startswith("👎 Deleted: call mom")
+    assert [e.reason for e in _failed(chat.telegram_id)] == ["wrong_result"]
+
+
+def test_an_abandoned_question_is_forgotten(chat):
+    chat("remind me tomorrow at 9 to call mom")
+    chat("remind me to stretch")
+    chat("my reminders")                        # moves on without answering
+    update = chat("that's wrong")               # about the reminder, not the question
+    assert _replies(update)[0].startswith("👎 Deleted: call mom")
+    [entry] = _failed(chat.telegram_id)
+    assert entry.reason == "wrong_result"
 
 
 def test_wrong_button_saves_then_deletes(chat):
