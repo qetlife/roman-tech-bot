@@ -47,6 +47,15 @@ def test_parse_day(request_, expected):
     assert parse_day(request_, NOW) == expected
 
 
+def test_parse_day_today_by_name():
+    # Sunday 14:00: "sunday" is today, not next week
+    assert parse_day("sunday", NOW) == date(2026, 10, 18)
+    assert parse_day("on oct 18", NOW) == date(2026, 10, 18)
+    assert parse_day("monday", NOW) == date(2026, 10, 19)
+    # Monday 01:00: "tomorrow" is still the coming day (Monday)
+    assert parse_day("tomorrow", datetime(2026, 10, 19, 1, 0, tzinfo=TZ)) == date(2026, 10, 19)
+
+
 def test_occurs_on():
     monday_9 = datetime(2026, 10, 19, 9, 0, tzinfo=TZ)
     daily, mondays = "mon,tue,wed,thu,fri,sat,sun@09:00", "mon@09:00"

@@ -35,6 +35,11 @@ def parse_day(request: str, now: datetime) -> Optional[date]:
     phrase = re.sub(r"^(?:for|on)\s+", "", phrase)
     if not phrase:
         return None
+    # A day: read it from early today, so "sunday" on a Sunday afternoon is
+    # today, not next week (a day alone means 09:00, which may have passed).
+    # Not before 04:00, when "tomorrow" still means the coming day.
+    if now.hour >= 4:
+        now = now.replace(hour=4, minute=0, second=0, microsecond=0)
     when = parse_when(phrase, now)
     return when.date() if when is not None else None
 
