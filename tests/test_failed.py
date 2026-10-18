@@ -86,7 +86,8 @@ def test_ignore_and_fix_pr(user):
 
 # --- scripts/failed.py ----------------------------------------------------------
 
-def test_script(user, capsys):
+def test_script(user, capsys, monkeypatch):
+    import config
     from db.repositories.user import UserRepository
     from scripts.failed import run
 
@@ -100,6 +101,13 @@ def test_script(user, capsys):
         "Europe/Lisbon", "not_understood", None, None,
     )
     assert line["sent_at"].endswith(("+00:00", "+01:00"))
+
+    monkeypatch.setattr(config, "ADMIN_TELEGRAM_ID", None)
+    assert run(["list", "--admin"]) == 0
+    assert capsys.readouterr().out == ""
+    monkeypatch.setattr(config, "ADMIN_TELEGRAM_ID", user.telegram_id)
+    assert run(["list", "--admin"]) == 0
+    assert [json.loads(l)["id"] for l in capsys.readouterr().out.splitlines()] == [entry.id]
 
     assert run(["pr", str(entry.id), "43"]) == 0
     assert _get(entry).fix_pr == 43

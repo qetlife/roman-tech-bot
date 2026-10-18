@@ -3,7 +3,7 @@
 Usage (inside the bot container, where DB_CONNECTION is set):
     docker exec roman-tech-bot-bot-1 python scripts/failed.py <command>
 
-    list                  open entries as JSON lines, oldest first
+    list [--admin]        open entries as JSON lines, oldest first; --admin: only the admin's
     check                 mark the ones the bot now understands as fixed (as on startup)
     fixed <id> <note>     mark one fixed
     ignore <id> <note>    mark one ignored, e.g. ignore 12 "garbled transcript"
@@ -18,6 +18,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import config  # noqa: E402
 
 from core.timezones                 import to_local  # noqa: E402
 from db.repositories.failed_message import FailedMessageRepository  # noqa: E402
@@ -45,8 +47,12 @@ def as_json(entry, tz_name: str) -> str:
 def run(args: list) -> int:
     command, rest = (args[0], args[1:]) if args else ("", [])
 
-    if command == "list" and not rest:
+    if command == "list" and rest in ([], ["--admin"]):
         entries = list(reversed(failed.list_open()))
+        if rest:
+            # Anyone can message the bot; the auto-fix job only learns from the admin.
+            admin = users.get_by_telegram_id(config.ADMIN_TELEGRAM_ID) if config.ADMIN_TELEGRAM_ID else None
+            entries = [e for e in entries if admin is not None and e.user_id == admin.id]
         timezones = users.get_timezones({e.user_id for e in entries})
         for entry in entries:
             print(as_json(entry, timezones.get(entry.user_id) or "UTC"))

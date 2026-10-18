@@ -159,6 +159,34 @@ and pull requests from forks. It needs the repository secret
 `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`, which uses a Claude
 subscription). The review is advice, not a required check.
 
+### Auto-fix job
+
+Every day at 03:00 UTC, `.github/workflows/autofix.yml` runs
+`autofix/run.py` on the Pi's runner (also **Actions → Auto-fix failed
+messages → Run workflow**). If the admin has new open
+[failed messages](development.md#failed-messages), it runs Claude Code in a
+sandbox container (`autofix/Dockerfile`: no Docker socket, only a temporary
+folder) with `autofix/prompt.md`. Claude opens one pull request (label
+`autofix`) with parser fixes and tests, answers the automatic review, and
+ignores messages that can't be learned. Merging is the only manual step;
+after the deploy the bot closes the messages it now understands.
+
+It needs two repository secrets:
+
+| Secret | What |
+| --- | --- |
+| `CLAUDE_CODE_OAUTH_TOKEN` | the same as the review |
+| `AUTOFIX_GH_TOKEN` | a fine-grained personal access token for this repository only: **Contents** and **Pull requests** read and write. Without the Workflows permission it can't change `.github/workflows/` |
+
+Protect `master` with a ruleset that requires a pull request (Settings →
+Rules), so the token can push branches but never deploy by itself.
+
+The failed messages are private and the repository is public: the job never
+prints them to the Actions log (Claude's output goes to `~/autofix-logs/`
+on the Pi), and the prompt forbids putting their text in code, tests,
+commits or pull requests. Only the admin's messages are used (anyone can
+message the bot, and their text reaches Claude).
+
 ## Migrating from SQLite
 
 The bot originally stored its data in a SQLite file. That data has been

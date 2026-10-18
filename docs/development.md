@@ -59,6 +59,7 @@ db/
     repositories/   user, reminder, settings, failed_message: the only code that opens sessions
 
 alembic/            schema migrations
+autofix/            the daily auto-fix job: sandbox image, prompt, runner script
 docs/               this guide and the user guide
 scripts/            command line: failed.py (failed messages), the one-off SQLite migration
 tests/              pytest, throwaway SQLite database
@@ -335,6 +336,11 @@ reply: database errors are logged.
   `fixed` / `ignore <id> <note>`, and `pr <id> <number>`, which sets `fix_pr`:
   the pull request that teaches the parser that message, shown on `/failed`
   as “🔧 Fix waiting in pull request #n” so it isn't fixed twice.
+- **The auto-fix job** (`autofix/`, daily on the Pi) has Claude open a pull
+  request teaching the parser the admin's open messages, then links them
+  with `pr` and ignores the unfixable ones. When that pull request is merged
+  the not-understood entries close on startup; wrong results are marked
+  fixed by the next run. See [setup](setup.md#auto-fix-job).
 - **Privacy:** the entries are the user's own words and stay in the database.
   The repository is public, so fixes are tested with made-up messages of the
   same shape (“remind to call the bank”), never the saved text.
