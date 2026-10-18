@@ -33,6 +33,15 @@ class RepeatKind(Enum):
     INTERVAL = "interval"   # every N minutes/hours/days: "every 2 hours"
 
 
+class ReplyCommand(StrEnum):
+    """What a reply to a reminder message asks for (core/replies.py)."""
+
+    DONE = "done"           # "done", "ok": like ✅ OK
+    SNOOZE = "snooze"       # "snooze 20 min", "later"
+    MOVE = "move"           # "move it to 10", "change to tomorrow at 9"
+    CANCEL = "cancel"       # "cancel", "delete it"
+
+
 # --- failed messages --------------------------------------------------------
 
 class MessageSource(StrEnum):

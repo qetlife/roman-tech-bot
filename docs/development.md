@@ -29,6 +29,7 @@ handlers/           everything that talks to Telegram (messages, buttons)
     failed.py       saving failed messages; /failed list (admin only)
     menus.py        main, ⏰ Reminders and ⚙️ Settings menu screens
     reminders.py    create, edit, list; OK / snooze / undo / edit / delete / 👎 wrong buttons
+    replies.py      replies to a reminder message: “done”, “snooze 20 min”, “move it to 10”, “cancel”
     settings.py     🌍 timezone and ⏰ reminder settings screens
     text.py         typed messages: trigger phrases, answers to questions
     voice.py        voice messages: transcribe, then handle like text
@@ -44,6 +45,7 @@ core/               the logic: no Telegram, no database sessions
     timezones.py    resolving and formatting timezones
     settings.py     setting definitions and validation
     intents.py      trigger phrase matching
+    replies.py      reading replies to a reminder message (“snooze 20 min” → ReplyCommand)
 
 jobs/
     delivery.py     sends due reminders every 20 seconds
@@ -151,6 +153,9 @@ chats still carry it. `tests/test_callbacks.py` pins them.
 
 **Free text** (`handlers/text.py`):
 
+0. A Telegram reply to a delivered reminder (`reminders.last_message_id`)
+   that is a reply command (`core/replies.parse_reply`) acts on that
+   reminder (`handlers/replies.py`); other replies go on below.
 1. A message starting with a trigger phrase runs that intent's action with
    the rest of the message (`handlers/intents.py`, matched by
    `core/intents.py`; longest phrase wins, whole words only, polite filler
@@ -398,6 +403,7 @@ ones there too.
 | --------------------------------------- | --- |
 | `ReminderStatus` (+ `ACTIVE_STATUSES`)  | reminder lifecycle; stored as its value in `reminders.status`, a `VARCHAR(16)` (non-native SQLAlchemy `Enum` in `db/models/reminder.py`) |
 | `RepeatKind`                            | the kind of repeat the parser found |
+| `ReplyCommand`                          | what a reply to a reminder message asks for (`core/replies.py`) |
 | `Awaiting`                              | what the next typed message answers |
 | `IntentName`                            | free-text intents; stored in `failed_messages.intent` |
 | `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source` |

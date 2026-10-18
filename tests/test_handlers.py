@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
-def _update(telegram_id, data=None, text=None):
+def _update(telegram_id, data=None, text=None, reply_to=None):
     update = MagicMock()
     update.effective_user.id = telegram_id
     update.effective_chat.id = telegram_id
@@ -23,6 +23,12 @@ def _update(telegram_id, data=None, text=None):
         query.message.reply_text = AsyncMock()
     update.effective_message.text = text
     update.effective_message.voice = None     # typed, not a voice message
+    if reply_to is None:
+        update.effective_message.reply_to_message = None
+    else:
+        # A reply to the bot's message with this id
+        update.effective_message.reply_to_message.message_id = reply_to
+        update.effective_message.reply_to_message.from_user.is_bot = True
     update.effective_message.reply_text = AsyncMock()
     return update
 
@@ -51,8 +57,8 @@ def chat(db, monkeypatch):
     context = MagicMock(user_data={}, chat_data={})
     context.bot.edit_message_text = AsyncMock()
 
-    def send(text=None, data=None, handler=None):
-        update = _update(telegram_id, data=data, text=text)
+    def send(text=None, data=None, handler=None, reply_to=None):
+        update = _update(telegram_id, data=data, text=text, reply_to=reply_to)
         asyncio.run((handler or on_text)(update, context))
         return update
 
@@ -676,3 +682,114 @@ def test_typos_in_the_trigger_and_the_time(chat):
     assert _replies(update)[0].startswith("⏰ Got it: call mom\n🗓 Wed ")
     reminder = _active(chat.telegram_id)[0]
     assert reminder.request == "on wensday at 18:00 to call mom"     # saved as typed
+
+
+# --- replies to a reminder message ------------------------------------------------
+
+def _firing(chat, request_="remind me tomorrow at 9 to call mom", message_id=555):
+    chat(request_)
+    reminder = _active(chat.telegram_id)[0]
+    _fire(reminder.id, message_id)
+    return reminder
+
+
+def _reminder(reminder_id):
+    from db.models.reminder import Reminder
+    from db.session import SessionLocal
+    with SessionLocal() as session:
+        return session.get(Reminder, reminder_id)
+
+
+def test_reply_done(chat):
+    reminder = _firing(chat)
+    update = chat("Done", reply_to=555)
+    assert _replies(update) == ["✅ call mom"]
+    assert _reminder(reminder.id).status == "done"
+    # The delivered message loses its buttons
+    assert chat.context.bot.edit_message_text.call_args.kwargs["message_id"] == 555
+
+
+def test_reply_done_to_a_repeat_moves_it_on(chat):
+    reminder = _firing(chat, "remind me every day at 9 to take pills")
+    update = chat("ok", reply_to=555)
+    assert _replies(update)[0].startswith("✅ take pills\n\nNext: ")
+    assert _reminder(reminder.id).status == "pending"
+
+
+@pytest.mark.parametrize("text, minutes", [("snooze 20 min", 20), ("snooze for an hour", 60), ("later", 10)])
+def test_reply_snooze(chat, text, minutes):
+    from datetime import timedelta
+    from db.models.reminder import utcnow
+
+    reminder = _firing(chat)
+    update = chat(text, reply_to=555)
+    assert _replies(update)[0].startswith("💤 call mom\nSnoozed until ")
+    after = _reminder(reminder.id)
+    assert after.status == "pending"
+    assert abs((after.remind_at - utcnow()) - timedelta(minutes=minutes)) < timedelta(seconds=5)
+
+
+def test_reply_move(chat):
+    reminder = _firing(chat)
+    update = chat("move it to friday at 10", reply_to=555)
+    assert _replies(update)[0].startswith("⏰ call mom\n🗓 Moved to Fri ")
+    text, when = _local_when(chat)
+    assert (text, when.weekday(), when.hour) == ("call mom", 4, 10)
+    assert _reminder(reminder.id).recurrence is None
+
+
+def test_reply_move_ignores_time_words_in_the_text(chat):
+    from datetime import timedelta
+    from db.models.reminder import utcnow
+    from db.repositories.reminder import ReminderRepository
+    from db.repositories.user import UserRepository
+    from enums import MessageSource
+
+    user = UserRepository().get_by_telegram_id(chat.telegram_id)
+    reminder = ReminderRepository().create(user, chat.telegram_id, "pay rent at 5 every sunday",
+                                           utcnow() + timedelta(hours=1), None, "…", MessageSource.TYPED)
+    _fire(reminder.id, 555)
+    update = chat("move it to friday at 10", reply_to=555)
+    assert _replies(update)[0].startswith("⏰ pay rent at 5 every sunday\n🗓 Moved to Fri ")
+    text, when = _local_when(chat)
+    assert (text, when.weekday(), when.hour) == ("pay rent at 5 every sunday", 4, 10)
+
+
+def test_reply_move_a_repeat_moves_only_this_time(chat):
+    reminder = _firing(chat, "remind me every day at 9 to take pills")
+    chat("move it to 11:00", reply_to=555)
+    assert _reminder(reminder.id).recurrence == "mon,tue,wed,thu,fri,sat,sun@09:00"
+    assert _local_when(chat)[1].hour == 11
+
+
+def test_reply_move_to_a_repeat_points_to_edit(chat):
+    _firing(chat)
+    assert "✏️ Edit" in _replies(chat("move it to every day at 10", reply_to=555))[0]
+
+
+def test_reply_cancel(chat):
+    reminder = _firing(chat)
+    update = chat("cancel it", reply_to=555)
+    assert _replies(update) == ["↩️ Cancelled: call mom"]
+    assert _reminder(reminder.id).status == "cancelled"
+
+
+def test_a_reply_to_an_old_message_is_a_plain_message(chat):
+    from handlers.reminders import on_reminder_button
+    from handlers.text import HELP_TEXT
+
+    reminder = _firing(chat)
+    chat(data=f"rem:snz:{reminder.id}:10", handler=on_reminder_button)     # 💤 by button
+    assert _replies(chat("done", reply_to=555)) == [HELP_TEXT]
+    assert _reminder(reminder.id).status == "pending"                      # still snoozed
+
+
+def test_other_replies_are_plain_messages(chat):
+    from handlers.text import HELP_TEXT
+
+    reminder = _firing(chat)
+    assert _replies(chat("thanks!", reply_to=555)) == [HELP_TEXT]          # not a command
+    assert _replies(chat("done", reply_to=777)) == [HELP_TEXT]             # not a reminder message
+    assert _reminder(reminder.id).status == "firing"
+    # A trigger phrase in a reply still works
+    assert _replies(chat("remind me in 1 hour to stretch", reply_to=555))[0].startswith("⏰ Got it: stretch")
