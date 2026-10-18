@@ -39,7 +39,7 @@ core/               the logic: no Telegram, no database sessions
     parser.py       "in 2 hours to call mom" → time + text
     numbers.py      spoken numbers → digits ("nine thirty" → 9:30), used by the parser
     typos.py        fixing typos of known words ("tomorow", "remid me"), a second try for parser and intents
-    recurrence.py   Weekly / Monthly / Interval
+    recurrence.py   Weekly / Monthly / MonthlyWeekday / Interval
     quiet.py        quiet hours
     timezones.py    resolving and formatting timezones
     settings.py     setting definitions and validation
@@ -189,13 +189,14 @@ asked about is kept in `user_data["asked_request"]`; “that's wrong” while
 counts it as understood, except for those flagged entries. ✏️ Edit doesn't
 ask: it says what's wrong.
 
-**Recurrence** (`core/recurrence.py`): three types, stored as a string
+**Recurrence** (`core/recurrence.py`): four types, stored as a string
 in `reminders.recurrence` (`NULL` = one-off):
 
 | Type       | Stored as                       | Meaning |
 | ---------- | ------------------------------- | ------- |
 | `Weekly`   | `mon,tue,wed,thu,fri@08:30`     | these weekdays (`calendar.Day`) at a local time |
 | `Monthly`  | `month:15@09:00`                | this day of the month (last day in shorter months) at a local time |
+| `MonthlyWeekday` | `month:2tue@09:00`, `month:-1fri@09:00` | the 2nd Tuesday / last Friday of the month at a local time; months without a 5th weekday are skipped |
 | `Interval` | `every:120m@2026-10-11T07:00Z`  | every N minutes from a start (UTC); whole days keep the local time |
 
 Each has `serialize()`, `next_after(after, tz)` (first occurrence strictly
