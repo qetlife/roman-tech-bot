@@ -33,6 +33,7 @@ import time
 
 from datetime import datetime
 from pathlib  import Path
+from typing   import Optional
 
 BOT = "roman-tech-bot-bot-1"
 IMAGE = "roman-tech-bot-autofix"
@@ -48,8 +49,8 @@ REVIEWER = ("github-actions", "github-actions[bot]")   # the automatic review's 
 DEPLOYED = Path("/home/apps/roman-tech-bot")            # the bot's checkout, see deploy.yml
 REVIEW_ROUNDS = 2
 HERE = Path(__file__).resolve().parent
-LOGS = Path.home() / "autofix-logs"
-KEEP_LOGS = 30
+LOGS = Path.home() / "autofix-logs"     # private: Claude's output and blocked changes quote the messages
+KEEP_LOGS = 30                          # of each kind (*.log, blocked-*.diff)
 TIMEOUT = 40 * 60           # one Claude run
 DEADLINE = 120 * 60         # no new Claude run after this (+ 40 min for the last one); the workflow allows 180
 STARTED = time.monotonic()
@@ -58,6 +59,9 @@ running = None              # the Claude container, killed if the job is cancell
 # failed message, with at least LEAK_CONTENT of them not COMMON: the phrasing ("remind me
 # to … tomorrow at 9") is what tests should copy; the rest is private.
 LEAK_WORDS = 4
+BLOCKED_NOTE = "a fix was blocked by the privacy check (see ~/autofix-logs on the Pi)"
+BLOCKED_REPLY = ("A fix for these comments was blocked by the privacy check and not pushed; "
+                 "it's kept on the Pi (~/autofix-logs) for the owner to look at.")
 LEAK_CONTENT = 2
 COMMON = set("""
     a an the and or but to for of in on at by with about from into after before until than then
@@ -225,11 +229,12 @@ def run_claude(work: Path, task: str, branch: str, start: str, log: Path) -> dic
 
 
 def _words(text: str) -> list:
-    return re.findall(r"[a-z0-9']+", text.lower())
+    # "don't" is one word; quotes around a word ("'call'") aren't part of it.
+    return re.findall(r"[a-z0-9]+(?:'[a-z]+)?", text.lower())
 
 
-def leaks(text: str) -> bool:
-    """Whether `text` (about to be made public) contains part of a failed message.
+def leak(text: str) -> Optional[str]:
+    """The part of a failed message that `text` (about to be made public) contains, if any.
 
     Part: LEAK_WORDS words in a row with LEAK_CONTENT not COMMON, ignoring
     case and punctuation. Digits count as common.
@@ -241,8 +246,12 @@ def leaks(text: str) -> bool:
             run_ = m[i:i + LEAK_WORDS]
             content = [w for w in run_ if w not in COMMON and not w.isdigit()]
             if len(content) >= LEAK_CONTENT and f" {' '.join(run_)} " in words:
-                return True
-    return False
+                return " ".join(run_)
+    return None
+
+
+def leaks(text: str) -> bool:
+    return leak(text) is not None
 
 
 def safe(text: str, fallback: str) -> str:
@@ -263,21 +272,36 @@ def notes(items, known: set) -> list:
     return [i for i in items if isinstance(i, dict) and ids([i.get("id")], known)] if isinstance(items, list) else []
 
 
-def publish(work: Path, branch: str, start: str) -> bool:
+PUSHED, NOTHING, BLOCKED = "pushed", "nothing", "blocked"
+
+
+def logs() -> Path:
+    """LOGS, readable by this user only."""
+    LOGS.mkdir(exist_ok=True)
+    LOGS.chmod(0o700)
+    return LOGS
+
+
+def publish(work: Path, branch: str, start: str) -> str:
     """Push Claude's commits (the bundle) to `branch`, from a fresh clone.
 
-    False if there are none, or if the privacy check refuses them (their
-    messages or changes contain part of a failed message).
+    NOTHING if there are none; BLOCKED if the privacy check refuses them
+    (their messages or changes contain part of a failed message). Blocked
+    changes are kept, with what matched, in LOGS on the Pi (private).
     """
     if not BRANCH.match(branch) or not (work / "out.bundle").exists():
-        return False
+        return NOTHING
     fetch = (f"git clone -q {CLONE_URL} /tmp/repo && cd /tmp/repo"
              f" && git fetch -q /work/out.bundle '{branch}:{branch}'")
-    if leaks(with_token("bash", "-c", f"{fetch} && git log -p --format=%B 'origin/{start}..{branch}'", work=work)):
-        print("Privacy check: Claude's commits quote a failed message; not pushed")
-        return False
+    changes = with_token("bash", "-c", f"{fetch} && git log -p --format=%B 'origin/{start}..{branch}'", work=work)
+    matched = leak(changes)
+    if matched:
+        kept = logs() / f"blocked-{datetime.now():%Y-%m-%d_%H%M%S}.diff"
+        kept.write_text(f"Privacy check matched: {matched}\n\n{changes}")
+        print(f"Privacy check: Claude's commits quote a failed message; not pushed (kept on the Pi: {kept})")
+        return BLOCKED
     with_token("bash", "-c", f"{fetch} && git push -q origin '{branch}'", work=work)
-    return True
+    return PUSHED
 
 
 def answer_comments(work: Path, number: int, branch: str, comments: list, log: Path):
@@ -289,12 +313,16 @@ def answer_comments(work: Path, number: int, branch: str, comments: list, log: P
         '`{"reply": "..."}`: one reply covering each comment, saying what you changed or why it '
         "isn't a problem.\n"
     ), branch, branch, log)
-    pushed = publish(work, branch, branch)
-    generic = "Pushed changes for the comments." if pushed else "No changes."
-    reply = safe(str(result.get("reply") or generic), generic)
+    published = publish(work, branch, branch)
+    if published == BLOCKED:
+        # Claude's reply describes changes that weren't pushed.
+        reply = BLOCKED_REPLY
+    else:
+        generic = "Pushed changes for the comments." if published == PUSHED else "No changes."
+        reply = safe(str(result.get("reply") or generic), generic)
     (work / "reply.md").write_text(f"{MARKER} {reply}")
     with_token("gh", "pr", "comment", str(number), "--repo", REPO, "--body-file", "/work/reply.md", work=work)
-    print(f"Pull request #{number}: answered {len(comments)} comments" + (", pushed" if pushed else ""))
+    print(f"Pull request #{number}: answered {len(comments)} comments, {published}")
 
 
 def open_pr(work: Path, branch: str, title: str) -> int:
@@ -337,7 +365,12 @@ def fix_new(work: Path, new: list, log: Path):
 
     closed = {i["id"] for i in ignored + waiting}
     fixed = [i for i in ids(result.get("fixed"), known) if i not in closed]
-    if not fixed or not publish(work, branch, "master"):
+    published = publish(work, branch, "master") if fixed else NOTHING
+    if published == BLOCKED:
+        # Not retried every day: a person looks at the kept changes first.
+        for entry_id in fixed:
+            failed("wait", entry_id, BLOCKED_NOTE)
+    if published != PUSHED:
         print(f"No pull request; ignored {len(ignored)}")
         return
 
@@ -413,8 +446,7 @@ def run() -> int:
     if not new and not commented:
         return 0
 
-    LOGS.mkdir(exist_ok=True)
-    log = LOGS / f"{datetime.now():%Y-%m-%d_%H%M}.log"
+    log = logs() / f"{datetime.now():%Y-%m-%d_%H%M}.log"
     ok = True
     with tempfile.TemporaryDirectory(prefix="autofix-") as tmp:
         work = Path(tmp)
@@ -426,8 +458,9 @@ def run() -> int:
             ok &= attempt("Fixing new failed messages", fix_new, work, new, log)
     print(f"Claude's log on the Pi: {log}")
 
-    for old in sorted(LOGS.glob("*.log"))[:-KEEP_LOGS]:
-        old.unlink()
+    for pattern in ("*.log", "blocked-*.diff"):
+        for old in sorted(LOGS.glob(pattern))[:-KEEP_LOGS]:
+            old.unlink()
     return 0 if ok else 1
 
 

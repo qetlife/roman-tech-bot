@@ -211,7 +211,10 @@ commits or pull requests. The job checks too, before anything goes public: commi
 that contain four words in a row from an open failed message, two of them
 not common words (the phrasing, “remind me to … at 9”, is fine to copy), aren't
 pushed, and a title, description, reply or note like that is replaced
-with a generic one (`leaks()` in `autofix/run.py`).
+with a generic one (`leaks()` in `autofix/run.py`). Blocked commits are kept on the
+Pi (`~/autofix-logs/blocked-*.diff`, with what matched; the folder is
+readable by the job's user only, and the last 30 of each kind are kept), and their messages
+wait (“a fix was blocked by the privacy check”) until a person looks.
 
 ## Migrating from SQLite
 
