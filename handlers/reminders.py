@@ -8,7 +8,7 @@ from    telegram.error                  import TelegramError
 from    telegram.ext                    import ContextTypes
 
 from    core                            import recurrence as recurrences
-from    core.parser                     import ParseError, parse_reminder
+from    core.parser                     import MissingText, MissingTime, ParseError, parse_reminder
 from    core.quiet                      import skip_quiet
 from    core.settings                   import (
     QUIET_HOURS, SNOOZE_MAX_MINUTES, SNOOZE_MIN_MINUTES, format_minutes, quiet_window,
@@ -26,7 +26,8 @@ from    enums                           import (
 from    handlers.failed                 import record, record_not_understood
 from    handlers.settings               import ask_timezone
 from    handlers.ui                     import (
-    AWAITING, EDIT_REMINDER_ID, LAST_REMINDER_ID, PENDING_REQUEST, message_source, reminder_callback, render_menu,
+    ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, LAST_REMINDER_ID, PENDING_PART, PENDING_REQUEST, message_source,
+    reminder_callback, render_menu,
 )
 
 
@@ -34,6 +35,9 @@ users = UserRepository()
 reminders = ReminderRepository()
 settings = SettingsRepository()
 failed = FailedMessageRepository()
+
+# bot_understood["error"] of a message flagged with "that's wrong" while the bot asked about it.
+ASKED_ERROR = "asked for the missing time or text"
 
 EXAMPLES = (
     "Examples:\n"
@@ -152,13 +156,89 @@ async def create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, re
 
     try:
         parsed = parse_reminder(request, user_now(user.timezone))
+    except MissingText:
+        await ask_what(update, context, request)
+        return
+    except MissingTime as e:
+        if e.text:
+            await ask_when(update, context, e.text, request=request)
+            return
+        await not_understood(update, context, request, e)
+        return
     except ParseError as e:
-        record_not_understood(update, context, request, IntentName.REMINDER_CREATE, str(e))
-        context.user_data[AWAITING] = Awaiting.REMINDER
-        await update.effective_message.reply_text(f"{e} Send it again, e.g. “in 2 hours to call mom”.\n\n{EXAMPLES}")
+        await not_understood(update, context, request, e)
         return
 
+    await save_reminder(update, context, user, parsed, request)
+
+
+async def not_understood(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str, error: ParseError):
+    record_not_understood(update, context, request, IntentName.REMINDER_CREATE, str(error))
+    context.user_data[AWAITING] = Awaiting.REMINDER
+    await update.effective_message.reply_text(f"{error} Send it again, e.g. “in 2 hours to call mom”.\n\n{EXAMPLES}")
+
+
+def is_bare_time(update: Update, text: str) -> bool:
+    """Whether `text` is only a time ("tomorrow at 12"), with no trigger phrase or text."""
+    user = users.get_or_create(update.effective_user.id)
+    try:
+        parse_reminder(text, user_now(user.timezone or "UTC"))
+    except MissingText:
+        return True
+    except ParseError:
+        pass
+    return False
+
+
+# --- asking for the missing half --------------------------------------------
+# "tomorrow at 12" has no text, "remind me to call mom" no time: instead of
+# failing, the bot asks for the other half and puts the two together.
+
+async def ask_what(update: Update, context: ContextTypes.DEFAULT_TYPE, when: str):
+    context.user_data[AWAITING] = Awaiting.REMINDER_TEXT
+    context.user_data[PENDING_PART] = when
+    context.user_data[ASKED_REQUEST] = when
+    await update.effective_message.reply_text(f"⏰ {when}: what should I remind you about?")
+
+
+async def ask_when(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, prefix: str = "",
+                   request: str = None):
+    context.user_data[AWAITING] = Awaiting.REMINDER_TIME
+    context.user_data[PENDING_PART] = text
+    if request is not None:
+        context.user_data[ASKED_REQUEST] = request
+    await update.effective_message.reply_text(
+        f"{prefix}⏰ When should I remind you: “{text}”?\n"
+        "e.g. “tomorrow at 9”, “in 2 hours”, “every Monday at 8”"
+    )
+
+
+async def answer_what(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """The answer to ask_what: the text for the time given before."""
+    when = context.user_data.pop(PENDING_PART, "")
+    joiner = " " if text.lower().startswith(("to ", "about ", "that ")) else " to "
+    await create_reminder(update, context, f"{when}{joiner}{text}")
+
+
+async def answer_when(update: Update, context: ContextTypes.DEFAULT_TYPE, when: str):
+    """The answer to ask_when: the time for the text given before. Asks again if it isn't one."""
+    user = users.get_or_create(update.effective_user.id)
+    text = context.user_data.get(PENDING_PART, "")
+    request = f"{when} to {text}"
+    try:
+        parsed = parse_reminder(request, user_now(user.timezone))
+    except ParseError as e:
+        # The text is known, so whatever failed is the time.
+        record_not_understood(update, context, when, IntentName.REMINDER_CREATE, str(e))
+        await ask_when(update, context, text, prefix=f"{e} ")
+        return
+    context.user_data.pop(PENDING_PART, None)
+    await save_reminder(update, context, user, parsed, request)
+
+
+async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, user, parsed, request: str):
     context.user_data.pop(AWAITING, None)
+    context.user_data.pop(ASKED_REQUEST, None)
     recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
     when = outside_quiet_hours(user, parsed.recurrence, parsed.when)
     reminder = reminders.create(
@@ -352,6 +432,13 @@ async def flag_wrong(update: Update, context: ContextTypes.DEFAULT_TYPE, reminde
 async def flag_last_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = ""):
     """Intent action for "that's wrong" / "save the last one as failed"."""
     reply = update.effective_message.reply_text
+    asked = context.user_data.pop(ASKED_REQUEST, None)
+    if asked is not None:
+        # Said while the bot asks for a time or a text: asking was the mistake.
+        context.user_data.pop(PENDING_PART, None)
+        record_not_understood(update, context, asked, IntentName.REMINDER_CREATE, ASKED_ERROR)
+        await reply("👎 Saved as failed, so I can learn it. Send it again if you still need it.")
+        return
     if LAST_REMINDER_ID in context.user_data and context.user_data[LAST_REMINDER_ID] is None:
         await reply("👎 That one is already saved as failed.")
         return

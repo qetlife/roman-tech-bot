@@ -18,13 +18,19 @@ NOW = datetime(2026, 10, 10, 8, 0, tzinfo=ZoneInfo("Europe/Lisbon"))
     ("remind me tomorrow at 9 to stretch",  None,                       True),
     ("my reminders",                        None,                       True),
     ("that's wrong",                        None,                       True),
-    ("remind me someday to stretch",        None,                       False),
+    ("remind me someday to stretch",        None,                       True),     # asks when
+    ("remind to stretch",                   None,                       True),
+    ("tomorrow at 12",                      None,                       True),     # asks what for
+    ("remind me every 5 minutes to stretch", None,                      False),
     ("hello there",                         None,                       False),
     # The time and text of a reminder (after "remind me", or the answer to ✏️ Edit)
     ("tomorrow at 9 to stretch",            IntentName.REMINDER_CREATE, True),
     ("at 9 to stretch",                     IntentName.REMINDER_EDIT,   True),
-    ("someday to stretch",                  IntentName.REMINDER_CREATE, False),
-    ("tomorrow at 9",                       IntentName.REMINDER_CREATE, False),
+    ("someday to stretch",                  IntentName.REMINDER_CREATE, True),     # asks when
+    ("tomorrow at 9",                       IntentName.REMINDER_CREATE, True),     # asks what for
+    ("every 5 minutes to stretch",          IntentName.REMINDER_CREATE, False),
+    # ✏️ Edit doesn't ask: it says what's wrong
+    ("someday to stretch",                  IntentName.REMINDER_EDIT,   False),
 ])
 def test_understood(text, intent, expected):
     from jobs.failed import understood
@@ -53,13 +59,19 @@ def test_resolve_understood_closes_only_what_is_understood_now(user):
 
     learned = _create(user, "remind me tomorrow at 9 to stretch")
     learned_time = _create(user, "tomorrow at 9 to stretch", intent=IntentName.REMINDER_CREATE)
-    still_failing = _create(user, "remind me someday to stretch")
+    still_failing = _create(user, "remind me every 5 minutes to stretch")
+    # Flagged with "that's wrong" while the bot asked about it: asking again doesn't fix it.
+    from handlers.reminders import ASKED_ERROR
+    from db.repositories.failed_message import FailedMessageRepository
+    flagged = FailedMessageRepository().create(user.id, "to stretch", MessageSource.TYPED,
+                                               FailureReason.NOT_UNDERSTOOD, IntentName.REMINDER_CREATE,
+                                               {"error": ASKED_ERROR})
     # Wrong results are never closed automatically: the bot did understand something.
     wrong = _create(user, "tomorrow at 9 to stretch", FailureReason.WRONG_RESULT, IntentName.REMINDER_CREATE)
 
     resolved = {e.id for e in resolve_understood()}
     assert {learned.id, learned_time.id} <= resolved
-    assert not {still_failing.id, wrong.id} & resolved
+    assert not {still_failing.id, wrong.id, flagged.id} & resolved
 
     assert (_get(learned).status, _get(learned).note) == (FailureStatus.FIXED, FIXED_NOTE)
     assert _get(learned).fixed_at is not None

@@ -36,6 +36,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
 
     if awaiting == Awaiting.REMINDER:
         await rh.create_reminder(update, context, text)
+    elif awaiting == Awaiting.REMINDER_TEXT:
+        await rh.answer_what(update, context, text)
+    elif awaiting == Awaiting.REMINDER_TIME:
+        await rh.answer_when(update, context, text)
     elif awaiting == Awaiting.TIMEZONE:
         await sh.on_timezone_text(update, context, text)
     elif awaiting == Awaiting.SNOOZE_OPTIONS:
@@ -44,6 +48,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
         await sh.on_quiet_text(update, context, text)
     elif awaiting == Awaiting.EDIT:
         await rh.edit_reminder(update, context, context.user_data[EDIT_REMINDER_ID], text)
+    elif rh.is_bare_time(update, text):
+        # "tomorrow at 12" on its own: a reminder without its text yet.
+        await rh.create_reminder(update, context, text)
     else:
         record_not_understood(update, context, text)
         await update.effective_message.reply_text(HELP_TEXT)

@@ -102,7 +102,7 @@ are fine; small typos too, see [Typos](#typos)):
 
 | To…               | Start the message with                                                                    |
 | ----------------- | ----------------------------------------------------------------------------------------- |
-| create a reminder | “remind me”, “set a reminder”, “set reminder”, “create a reminder”, “add a reminder”, “new reminder” |
+| create a reminder | “remind me”, “remind”, “set a reminder”, “set reminder”, “create a reminder”, “add a reminder”, “new reminder” |
 | list reminders    | “my reminders”, “show my reminders”, “show reminders”, “list reminders”, “list my reminders”, “reminders” |
 | flag the last reminder as wrong | “that's wrong”, “that is wrong”, “that was wrong”, “that's not right”, “you got that wrong”, “wrong reminder”, “save the last one as failed”, “mark the last one as failed”, “save it as failed”, “mark as failed” |
 
@@ -122,7 +122,20 @@ dropped. The bot replies with what it understood:
 [↩️ Undo] [✏️ Edit] [👎 Wrong]
 ```
 
-If it can't understand the time, it says so and asks you to send it again.
+If half is missing, the bot asks for it and puts the two together:
+
+- **No time** (“remind me to call mom”): it asks
+  `⏰ When should I remind you: “call mom”?`; answer with just the time
+  (“tomorrow at 9”). If the answer isn't a time it asks again.
+- **No text** (“remind me tomorrow at 12”, or just “tomorrow at 12” on its
+  own): it asks `⏰ tomorrow at 12: what should I remind you about?`; answer
+  with the text (“call the bank”).
+
+A message starting with a trigger phrase still wins while it asks. Saying
+“that's wrong” then saves the message it asked about as failed: asking was
+the mistake. If it can't understand the time in some other way (a repeat
+under 15 minutes, a time that has passed), it says so and asks you to send
+it again.
 
 ### Time expressions
 

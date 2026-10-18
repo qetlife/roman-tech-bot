@@ -49,6 +49,21 @@ class ParseError(ValueError):
     """The request could not be understood; the message is shown to the user."""
 
 
+class MissingText(ParseError):
+    """A time but nothing to remind about ("tomorrow at 12"): the bot asks what for."""
+
+
+class MissingTime(ParseError):
+    """No time the parser understands ("to call mom"): the bot asks when.
+
+    `text` is the request cleaned up as reminder text ("call mom").
+    """
+
+    def __init__(self, message: str, text: str):
+        super().__init__(message)
+        self.text = text
+
+
 @dataclass
 class ParsedReminder:
     when: datetime   # timezone-aware, in the user's timezone; first occurrence if recurring
@@ -741,8 +756,8 @@ def parse_reminder(request: str, now: datetime) -> ParsedReminder:
 
     if best is None:
         if _parse_time(request, now) is not None or _parse_time(" ".join(fixed), now) is not None:
-            raise ParseError("What should I remind you about?")
-        raise ParseError("I couldn't understand when.")
+            raise MissingText("What should I remind you about?")
+        raise MissingTime("I couldn't understand when.", _clean_text(request))
 
     _, (when, recurrence), text = best
     if when <= now:
