@@ -133,7 +133,7 @@ def test_fix_new_with_odd_output_from_claude(monkeypatch, calls, tmp_path):
         "ignored": [{"id": 3, "note": "garbled"}, {"id": [4]}, "5", {"note": "no id"}],
     }
     monkeypatch.setattr(run, "run_claude", lambda *args: result)
-    monkeypatch.setattr(run, "publish", lambda work, branch, start: True)
+    monkeypatch.setattr(run, "publish", lambda work, branch, start: run.PUSHED)
     monkeypatch.setattr(run, "with_token", lambda *args, work=None: "https://github.com/qetlife/roman-tech-bot/pull/44\n")
     monkeypatch.setattr(run, "time_left", lambda: False)   # stop before waiting for the review
 
@@ -185,6 +185,7 @@ def private(monkeypatch):
     ("+    parse('Call Mark about, the LISBON flat!')", True),           # case and punctuation ignored
     ('assert parse("tomorrow at 12 to stretch")', False),              # only the phrasing
     ("remind me to call Mark", True),
+    ("parse('call mark about the')", True),                            # quotes aren't part of a word
 ])
 def test_leaks(private, text, leaks):
     assert run.leaks(text) is leaks
@@ -198,8 +199,18 @@ def test_safe_falls_back_and_publish_refuses(private, monkeypatch, tmp_path):
     pushed = []
     monkeypatch.setattr(run, "with_token", lambda *args, work=None:
                         pushed.append(args) or "+ text = 'call mark about the lisbon flat'")
-    assert run.publish(tmp_path, "autofix/2026-10-18-0400", "master") is False
+    monkeypatch.setattr(run, "LOGS", tmp_path / "logs")
+    assert run.publish(tmp_path, "autofix/2026-10-18-0400", "master") == run.BLOCKED
     assert len(pushed) == 1 and "git push" not in pushed[0][-1]     # only the check ran
+    [kept] = (tmp_path / "logs").glob("blocked-*.diff")
+    assert kept.read_text().startswith("Privacy check matched: call mark about the\n")
+
+
+def test_fix_new_blocked_by_the_privacy_check_waits(monkeypatch, calls, tmp_path):
+    monkeypatch.setattr(run, "run_claude", lambda *args: {"fixed": [1]})
+    monkeypatch.setattr(run, "publish", lambda work, branch, start: run.BLOCKED)
+    run.fix_new(tmp_path, [{"id": 1}], tmp_path / "log")
+    assert calls == [("wait", 1, run.BLOCKED_NOTE)]
 
 
 def test_a_failed_step_doesnt_stop_the_run(capsys):
