@@ -31,9 +31,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
     # A trigger phrase always wins, so "remind me ..." works at any point.
     if match is not None:
         context.user_data.pop(AWAITING, None)
-        # A question for a missing time or text is dropped, unless this says
-        # "that's wrong" about it.
-        if match.intent.name != IntentName.FLAG_FAILED:
+        # The question for a missing time or text is over, unless it's still
+        # being asked and this says "that's wrong" about it. (Buttons that
+        # move on, like ✏️ Edit or ➕ New, replace `awaiting`, so they end it too.)
+        asking = awaiting in (Awaiting.REMINDER_TEXT, Awaiting.REMINDER_TIME)
+        if not (asking and match.intent.name == IntentName.FLAG_FAILED):
             context.user_data.pop(ASKED_REQUEST, None)
             context.user_data.pop(PENDING_PART, None)
         await match.intent.action(update, context, match.rest)

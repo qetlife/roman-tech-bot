@@ -257,6 +257,18 @@ def test_a_failed_message_ends_the_question(chat):
     assert len(_failed(chat.telegram_id)) == 1
 
 
+def test_a_button_ends_the_question(chat):
+    from handlers.reminders import on_reminder_button
+
+    chat("remind me tomorrow at 9 to call mom")
+    reminder_id = _active(chat.telegram_id)[0].id
+    chat("remind me to stretch")                # the bot asks when
+    chat(data=f"rem:edit:{reminder_id}", handler=on_reminder_button)    # ✏️ Edit instead
+    update = chat("that's wrong")               # about the reminder, not the question
+    assert _replies(update)[0].startswith("👎 Deleted: call mom")
+    assert [e.reason for e in _failed(chat.telegram_id)] == ["wrong_result"]
+
+
 def test_an_abandoned_question_is_forgotten(chat):
     chat("remind me tomorrow at 9 to call mom")
     chat("remind me to stretch")
