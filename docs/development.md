@@ -342,7 +342,10 @@ reply: database errors are logged.
 - **The auto-fix job** (`autofix/`, daily on the Pi) opens a pull
   request teaching the parser the admin's open messages, then links them
   with `pr`, marks the ones needing a feature with `wait`, and ignores the
-  unfixable ones. It skips open entries with a `fix_pr` or a `note`.
+  unfixable ones. A fix the privacy check refuses isn't pushed: it's kept
+  in `~/autofix-logs/blocked-*.diff` on the Pi with what matched, and its
+  entries wait (`BLOCKED_NOTE`) instead of being retried every day. It
+  skips open entries with a `fix_pr` or a `note`.
   Waiting entries are closed by hand (✅ on `/failed`, or `fixed <id>`) by the
   change that adds the feature: the startup re-check only replays the parser
   and intents, and features like asking “when?” live in the handlers. When that pull request is merged
