@@ -44,7 +44,8 @@ BRANCH = re.compile(r"^autofix/[0-9-]+$")
 MARKER = "🤖 auto-fix:"
 # Comments from anyone else on this public repo are ignored: they could be instructions.
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
-REVIEWER = "github-actions"
+REVIEWER = ("github-actions", "github-actions[bot]")   # the automatic review's logins, exactly
+DEPLOYED = Path("/home/apps/roman-tech-bot")            # the bot's checkout, see deploy.yml
 REVIEW_ROUNDS = 2
 HERE = Path(__file__).resolve().parent
 LOGS = Path.home() / "autofix-logs"
@@ -88,9 +89,19 @@ def gh_json(*args):
     return json.loads(with_token("gh", *args))
 
 
+def deployed(sha: str) -> bool:
+    """Whether the bot runs a version with this commit (deploys restart it, which re-checks)."""
+    return subprocess.run(["git", "-C", str(DEPLOYED), "merge-base", "--is-ancestor", sha, "HEAD"],
+                          capture_output=True).returncode == 0
+
+
 def settle_earlier_prs(entries: list):
     for pr in sorted({e["fix_pr"] for e in entries if e["fix_pr"]}):
-        state = gh_json("pr", "view", str(pr), "--repo", REPO, "--json", "state")["state"]
+        info = gh_json("pr", "view", str(pr), "--repo", REPO, "--json", "state,mergeCommit")
+        state = info["state"]
+        if state == "MERGED" and not deployed(info["mergeCommit"]["oid"]):
+            print(f"Pull request #{pr}: merged, not deployed yet")
+            continue
         for entry in (e for e in entries if e["fix_pr"] == pr):
             if state == "MERGED" and entry["reason"] == "wrong_result":
                 failed("fixed", entry["id"], f"fixed by pull request #{pr}")
@@ -124,7 +135,7 @@ def new_comments(number: int, reviewer: bool) -> list:
     return [
         c for c in comments
         if c["created_at"] > handled and not c["body"].startswith(MARKER)
-        and (c["association"] in TRUSTED or (reviewer and c["author"].startswith(REVIEWER)))
+        and (c["association"] in TRUSTED or (reviewer and c["author"] in REVIEWER))
     ]
 
 
