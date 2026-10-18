@@ -180,6 +180,36 @@ def test_request_declined(person):
     _tap(anna, decline[1])
     assert _people(roman) == []
     assert roman.told() == ["Anna (@anna) declined your request."]
+    # Not asked again for a while
+    _invite(roman)
+    assert _replies(roman("@anna"))[0].startswith("@anna said no recently.")
+    assert len(anna.messages()) == 1
+    # An invite link still works, if she changes her mind
+    _tap(anna, f"inv:yes:{_invite(roman)}")
+    assert _people(roman) == [("Anna", "accepted")]
+
+
+def test_requests_per_day(person):
+    from db.repositories.contact import REQUESTS_PER_DAY
+
+    roman = person("Roman", "roman_i")
+    others = [person(f"P{n}", f"p{n}_x") for n in range(REQUESTS_PER_DAY + 1)]
+    for other in others[:-1]:
+        _invite(roman)
+        assert _replies(roman(f"@{other.user().username}"))[0].startswith("📨 Asked")
+    _invite(roman)
+    assert _replies(roman(f"@{others[-1].user().username}"))[0].startswith(f"That's {REQUESTS_PER_DAY} requests today.")
+
+
+def test_a_stale_username_belongs_to_whoever_has_it_now(person):
+    from db.repositories.user import UserRepository
+
+    anna = person("Anna", "anna")
+    ben = person("Ben", "ben")
+    # Ben takes @anna (Anna changed hers, but hasn't written to the bot since)
+    UserRepository().remember_profile(ben.telegram_id, "Ben", "anna")
+    assert anna.user().username is None
+    assert UserRepository().get_by_username("anna").telegram_id == ben.telegram_id
 
 
 @pytest.mark.parametrize("text, reply", [
@@ -238,6 +268,17 @@ def test_rename_invalid(person, name, reply):
     _tap(roman, f"ppl:ren:{contact.id}")
     assert _replies(roman(name))[0].startswith(reply)
     assert _people(roman) == [("Anna", "accepted")]
+
+
+def test_rename_after_the_contact_is_gone(person):
+    roman, anna, contact = _connected(person)
+    _tap(roman, f"ppl:ren:{contact.id}")
+    _tap(anna, f"ppl:stop:{contact.id}")             # meanwhile, Anna stops it
+    assert _replies(roman("Mom"))[0] == "That person is no longer in your 👥 People."
+    assert "awaiting" not in roman.context.user_data
+    # The next message is a normal message again
+    from handlers.text import HELP_TEXT
+    assert _replies(roman("hello there"))[0] == HELP_TEXT
 
 
 def test_rename_to_a_taken_name(person):

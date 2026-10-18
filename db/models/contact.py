@@ -32,6 +32,7 @@ class Contact(Base):
         nullable=False, default=ContactStatus.PENDING,
     )
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
+    # Accepted, or declined (status), at
     accepted_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime)
 
     __table_args__ = (

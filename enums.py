@@ -49,6 +49,16 @@ class ContactStatus(StrEnum):
 
     PENDING = "pending"     # asked by @username, not answered yet
     ACCEPTED = "accepted"   # the contact allowed it: reminders can be sent
+    DECLINED = "declined"   # said ❌ No to a request: not asked again for a while (REQUEST_COOLDOWN)
+
+
+class RequestResult(StrEnum):
+    """What asking someone by @username did (ContactRepository.request)."""
+
+    ASKED = "asked"
+    EXISTS = "exists"       # already a contact, or asked and not answered
+    DECLINED = "declined"   # they said no recently
+    TOO_MANY = "too_many"   # REQUESTS_PER_DAY reached
 
 
 class InviteResult(StrEnum):

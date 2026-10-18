@@ -345,7 +345,9 @@ works **once**, for **7 days**; if they tap ❌ No, it stops working and
 you're told.
 
 **If they already use the bot**, you can send their @username instead of the
-link (on the same ➕ Invite screen). They get the same question.
+link (on the same ➕ Invite screen). They get the same question. If they say
+no, you can't ask them that way again for 30 days (an invite link still
+works if they change their mind), and you can send at most 5 requests a day.
 
 **Names**: each person gets a name (their Telegram first name, or “Anna 2”
 if you already have an Anna). Rename it with `👤 <name> → ✏️ Rename`, e.g.

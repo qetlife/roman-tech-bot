@@ -429,7 +429,13 @@ why the other person always opts in.
 - **By @username**: the same screen sets `Awaiting.CONTACT_USERNAME`. A
   known `users.username` gets a pending `contacts` row and a message with
   `ppl:yes|no:<contact id>`; if Telegram refuses (they blocked the bot), the
-  row is removed again.
+  row is removed again. Against spam: ❌ No keeps the row as `declined`
+  (not a contact: lists, names and senders skip it) so the same owner can't
+  ask again for `REQUEST_COOLDOWN` (30 days), and an owner can send
+  `REQUESTS_PER_DAY` (5) requests a day. Usernames can go stale (the bot only
+  sees changes when someone writes to it): `remember_profile` takes a
+  username away from anyone else who had it, and `get_by_username` treats
+  more than one match as unknown.
 - **Messages to the other person** go through `tell()` (`bot.send_message`
   to their private chat, whose id is their Telegram id); a refusal is
   logged, not raised.
@@ -459,7 +465,8 @@ ones there too.
 | `IntentName`                            | free-text intents; stored in `failed_messages.intent` |
 | `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source` |
 | `FailureReason`, `FailureStatus`        | `failed_messages.reason` and `.status` (open, fixed, ignored) |
-| `ContactStatus`                         | `contacts.status`: pending (asked by @username) or accepted |
+| `ContactStatus`                         | `contacts.status`: pending (asked by @username), accepted, or declined (a note not to ask again) |
+| `RequestResult`                         | what asking by @username did (`ContactRepository.request`) |
 | `InviteResult`                          | what opening an invite did (`ContactRepository.use_invite`) |
 | `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction`, `PeopleAction` | callback data of every button |
 

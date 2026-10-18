@@ -12,9 +12,13 @@ from db.session         import SessionLocal
 from db.models.contact  import Contact, Invite
 from db.models.reminder import Reminder, utcnow
 from db.models.user     import User
-from enums              import ACTIVE_STATUSES, ContactStatus, InviteResult, ReminderStatus
+from enums              import ACTIVE_STATUSES, ContactStatus, InviteResult, ReminderStatus, RequestResult
 
 INVITE_LIFETIME = timedelta(days=7)
+# After ❌ No to a request by @username, the same person can't be asked again for this long.
+REQUEST_COOLDOWN = timedelta(days=30)
+# Requests by @username one person can send a day.
+REQUESTS_PER_DAY = 5
 
 
 @dataclass
@@ -80,32 +84,45 @@ class ContactRepository:
 
     # --- requests by @username --------------------------------------------------
 
-    def request(self, owner_id: uuid.UUID, contact_user: User) -> Optional[Contact]:
-        """A pending contact row for `contact_user`, to be answered by them; None if one exists."""
+    def request(self, owner_id: uuid.UUID, contact_user: User) -> tuple:
+        """Ask `contact_user`: (RequestResult, the pending contact row if one was made)."""
         with SessionLocal(expire_on_commit=False) as session:
             existing = session.scalar(select(Contact).where(
                 Contact.owner_user_id == owner_id, Contact.contact_user_id == contact_user.id,
             ))
+            if existing is not None and existing.status != ContactStatus.DECLINED:
+                return RequestResult.EXISTS, None
+            if existing is not None and existing.accepted_at > utcnow() - REQUEST_COOLDOWN:
+                return RequestResult.DECLINED, None
+            asked_today = session.scalar(select(func.count()).select_from(Contact).where(
+                Contact.owner_user_id == owner_id, Contact.created_at > utcnow() - timedelta(days=1),
+                Contact.status != ContactStatus.ACCEPTED,
+            ))
+            if asked_today >= REQUESTS_PER_DAY:
+                return RequestResult.TOO_MANY, None
             if existing is not None:
-                return None
+                session.delete(existing)
+                session.flush()
             contact = Contact(owner_user_id=owner_id, contact_user_id=contact_user.id,
                               name=self._free_name(session, owner_id,
                                                    default_name(contact_user.first_name, contact_user.username)))
             session.add(contact)
             session.commit()
-            return contact
+            return RequestResult.ASKED, contact
 
     def answer(self, contact_id: int, contact_user_id: uuid.UUID, allow: bool) -> Optional[Contact]:
-        """The asked person allows (accepted) or declines (row deleted) a pending request."""
+        """The asked person allows (accepted) or declines a pending request.
+
+        A declined row is kept, as a note not to ask again for REQUEST_COOLDOWN;
+        it isn't a contact (people_of / senders_of skip it).
+        """
         with SessionLocal(expire_on_commit=False) as session:
             contact = session.get(Contact, contact_id, with_for_update=True)
             if contact is None or contact.contact_user_id != contact_user_id \
                     or contact.status != ContactStatus.PENDING:
                 return None
-            if allow:
-                contact.status, contact.accepted_at = ContactStatus.ACCEPTED, utcnow()
-            else:
-                session.delete(contact)
+            contact.status = ContactStatus.ACCEPTED if allow else ContactStatus.DECLINED
+            contact.accepted_at = utcnow()
             session.commit()
             return contact
 
@@ -119,7 +136,8 @@ class ContactRepository:
         """[(contact, their user)] the owner can (or asked to) remind, by name."""
         with SessionLocal(expire_on_commit=False) as session:
             stmt = (select(Contact, User).join(User, User.id == Contact.contact_user_id)
-                    .where(Contact.owner_user_id == owner_id).order_by(func.lower(Contact.name)))
+                    .where(Contact.owner_user_id == owner_id, Contact.status != ContactStatus.DECLINED)
+                    .order_by(func.lower(Contact.name)))
             return [tuple(row) for row in session.execute(stmt)]
 
     def senders_of(self, contact_user_id: uuid.UUID) -> list:
@@ -138,6 +156,7 @@ class ContactRepository:
                 return None
             clash = session.scalar(select(Contact.id).where(
                 Contact.owner_user_id == owner_id, func.lower(Contact.name) == name.lower(), Contact.id != contact_id,
+                Contact.status != ContactStatus.DECLINED,
             ))
             if clash is not None:
                 return None
@@ -173,5 +192,7 @@ class ContactRepository:
 
     @staticmethod
     def _free_name(session, owner_id: uuid.UUID, name: str) -> str:
-        taken = session.scalars(select(Contact.name).where(Contact.owner_user_id == owner_id))
+        taken = session.scalars(select(Contact.name).where(
+            Contact.owner_user_id == owner_id, Contact.status != ContactStatus.DECLINED,
+        ))
         return unique_name(name, list(taken))

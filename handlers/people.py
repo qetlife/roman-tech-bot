@@ -13,9 +13,11 @@ from    telegram.error                  import TelegramError
 from    telegram.ext                    import ContextTypes
 
 from    core.contacts                   import clean_name
-from    db.repositories.contact         import INVITE_LIFETIME, ContactRepository
+from    db.repositories.contact         import INVITE_LIFETIME, REQUESTS_PER_DAY, ContactRepository
 from    db.repositories.user            import UserRepository
-from    enums                           import Awaiting, Callback, CallbackPrefix, ContactStatus, InviteResult, PeopleAction
+from    enums                           import (
+    Awaiting, Callback, CallbackPrefix, ContactStatus, InviteResult, PeopleAction, RequestResult,
+)
 from    handlers.ui                     import AWAITING, RENAME_CONTACT_ID, render_menu
 
 
@@ -165,8 +167,14 @@ async def on_contact_name_text(update: Update, context: ContextTypes.DEFAULT_TYP
         await reply("Use a name of up to 32 letters, digits, spaces, ' or -, starting with a letter (not “me”).")
         return
     user = users.get_or_create(update.effective_user.id)
-    renamed = contacts.rename(context.user_data.get(RENAME_CONTACT_ID), user.id, name)
-    if renamed is None:
+    contact = contacts.get(context.user_data.get(RENAME_CONTACT_ID) or 0)
+    if contact is None or contact.owner_user_id != user.id or contact.status == ContactStatus.DECLINED:
+        # Removed meanwhile: there's nothing to rename any more.
+        context.user_data.pop(AWAITING, None)
+        context.user_data.pop(RENAME_CONTACT_ID, None)
+        await reply("That person is no longer in your 👥 People.")
+        return
+    if contacts.rename(contact.id, user.id, name) is None:
         await reply(f"You already have someone called “{name}”. Pick another name.")
         return
     context.user_data.pop(AWAITING, None)
@@ -263,9 +271,15 @@ async def on_contact_username_text(update: Update, context: ContextTypes.DEFAULT
     if other.id == owner.id:
         await reply("That's you.")
         return
-    contact = contacts.request(owner.id, other)
-    if contact is None:
+    result, contact = contacts.request(owner.id, other)
+    if result == RequestResult.EXISTS:
         await reply(f"@{other.username} is already in your 👥 People (or hasn't answered yet).")
+        return
+    if result == RequestResult.DECLINED:
+        await reply(f"@{other.username} said no recently. If they change their mind, send them the invite link.")
+        return
+    if result == RequestResult.TOO_MANY:
+        await reply(f"That's {REQUESTS_PER_DAY} requests today. Try again tomorrow, or send the invite link.")
         return
     asked = await tell(context, other, f"👥 {display(owner)} wants to send you reminders.\n\n"
                        "They'll see that you got them and whether you tapped ✅. "
