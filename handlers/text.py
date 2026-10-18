@@ -17,6 +17,7 @@ from    handlers.ui                 import ASKED_REQUEST, AWAITING, EDIT_REMINDE
 NEEDS_KEYWORD = {
     IntentName.REMINDER_CANCEL: "reminder",
     IntentName.REMINDER_LIST: "reminder",
+    IntentName.REMINDER_AGENDA: "reminder",
     IntentName.TIMEZONE_SET: "timezone",
 }
 

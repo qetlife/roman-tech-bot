@@ -739,6 +739,16 @@ def test_agenda_needs_a_day(chat):
     assert _replies(chat("what's on my mind"))[0].startswith("I can show one day")
 
 
+def test_agenda_without_a_day_is_today(chat):
+    assert _replies(chat("what do I have?"))[0].startswith("Nothing on ")
+
+
+@pytest.mark.parametrize("text", ["my reminders please", "show my reminders now", "reminders"])
+def test_my_reminders_with_other_words_lists_all(chat, text):
+    chat("remind me in 3 days to pay rent")
+    assert _replies(chat(text))[0].startswith("Your reminders (tap ❌ to cancel):")
+
+
 def test_set_timezone_by_text(chat):
     from db.repositories.user import UserRepository
 
