@@ -123,6 +123,29 @@ def test_parse_reminder_errors(request_, message):
         parse_reminder(request_, NOW)
 
 
+@pytest.mark.parametrize("request_, expected_when, expected_text", [
+    ("in a fortnight to pay",                 dt(24, 23, 30), "pay"),
+    ("in 2 fortnights to renew",              dt(7, 23, 30, month=11), "renew"),
+    ("next month to renew",                   dt(10, 9, month=11), "renew"),
+    ("next month at 10 to renew",             dt(10, 10, month=11), "renew"),
+    ("end of the month to pay rent",          dt(31, 9), "pay rent"),
+    ("by end of month: report",               dt(31, 9), "report"),
+])
+def test_more_time_phrases(request_, expected_when, expected_text):
+    parsed = parse_reminder(request_, NOW)
+    assert (parsed.when, parsed.text) == (expected_when, expected_text)
+
+
+def test_next_month_on_the_31st_is_its_last_day():
+    jan31 = datetime(2027, 1, 31, 12, 0, tzinfo=TZ)
+    assert parse_reminder("next month to pay", jan31).when == datetime(2027, 2, 28, 9, 0, tzinfo=TZ)
+
+
+def test_end_of_the_month_after_it_is_next_months():
+    late = datetime(2026, 10, 31, 12, 0, tzinfo=TZ)
+    assert parse_reminder("end of the month to pay", late).when == datetime(2026, 11, 30, 9, 0, tzinfo=TZ)
+
+
 def test_past_time_rejected():
     with pytest.raises(ParseError, match="already passed"):
         parse_reminder("today at 9:00 to call mom", AFTERNOON)

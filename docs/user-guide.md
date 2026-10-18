@@ -102,7 +102,7 @@ are fine; small typos too, see [Typos](#typos)):
 
 | To…               | Start the message with                                                                    |
 | ----------------- | ----------------------------------------------------------------------------------------- |
-| create a reminder | “remind me”, “remind”, “set a reminder”, “set reminder”, “create a reminder”, “add a reminder”, “new reminder” |
+| create a reminder | “remind me”, “remind”, “set a reminder”, “set reminder”, “create a reminder”, “add a reminder”, “new reminder”, “don't let me forget”, “don't forget” |
 | list reminders    | “my reminders”, “show my reminders”, “show reminders”, “list reminders”, “list my reminders”, “reminders” |
 | flag the last reminder as wrong | “that's wrong”, “that is wrong”, “that was wrong”, “that's not right”, “you got that wrong”, “wrong reminder”, “save the last one as failed”, “mark the last one as failed”, “save it as failed”, “mark as failed” |
 
@@ -143,10 +143,10 @@ All times are in your timezone.
 
 | Kind            | Examples |
 | --------------- | -------- |
-| In some time    | “in 2 hours”, “in two hours”, “in 30 min”, “in 1.5 hours”, “in 1h30m”, “in half an hour”, “in an hour and a half”, “in 3 days”, “in a week” |
+| In some time    | “in 2 hours”, “in two hours”, “in 30 min”, “in 1.5 hours”, “in 1h30m”, “in half an hour”, “in an hour and a half”, “in 3 days”, “in a week”, “in a fortnight” |
 | At a time       | “at 9”, “at 9am”, “at 9:30pm”, “at 18:00”, “18:00”, “at 21.20”, “at 9.20pm”, “noon”, “midnight”, “at 9 o'clock” |
 | Spoken times    | “at nine”, “at nine thirty”, “at nine oh five”, “at half past six”, “at a quarter past nine”, “at quarter to five”, “at ten to five”, “at nine p m” |
-| On a day        | “today”, “tonight”, “tomorrow”, “day after tomorrow”, “monday”, “on friday”, “next friday”, “next week” |
+| On a day        | “today”, “tonight”, “tomorrow”, “day after tomorrow”, “monday”, “on friday”, “next friday”, “next week”, “next month” (the same day), “end of the month” (its last day) |
 | On a date       | “24.12”, “24/12”, “2026-12-24”, “dec 24”, “24th of december 2026”, “december twenty fourth”, “on the 15th” / “on the fifteenth” (the next 15th) |
 | Part of the day | “morning” (09:00), “afternoon” (15:00), “evening” (19:00), “night” (21:00), “tonight” (20:00) |
 | Combined        | “tomorrow at 9”, “friday 18:00”, “at 9 tomorrow”, “tomorrow morning”, “on dec 24 at 10am”, “tonight at 9”, “at 7 in the evening”, “tomorrow at 9 in the morning” |
@@ -200,8 +200,10 @@ Add a repeat to any reminder:
 | On weekdays         | “every weekday at 8:30”, “on weekdays”, “every weekend”, “weekends” |
 | On certain days     | “every monday”, “every mon and thu 18:00”, “mondays and fridays”, “every week” (today's weekday) |
 | Every few minutes/hours | “every 2 hours”, “every 30 minutes”, “every hour”, “every 1h30m” |
-| Every few days/weeks | “every 3 days”, “every other day at 20:00”, “every 2 weeks at 7am” |
+| Every few days/weeks | “every 3 days”, “every other day at 20:00”, “every 2 weeks at 7am”, “every fortnight”, “fortnightly” |
+| Every other weekday | “every other tuesday at 19”, “every 2nd tuesday”, “every second thursday” (every two weeks, from the next one) |
 | Monthly             | “monthly”, “every month on the 15th”, “on the 1st of every month”, “every 1st at 10” |
+| Monthly on a weekday | “every last friday of the month”, “the first monday of every month at 10”, “every 2nd tuesday of the month”, “every last friday” (a 5th weekday skips months without one) |
 
 Rules:
 

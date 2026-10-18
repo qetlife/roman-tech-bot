@@ -15,6 +15,7 @@ INTENTS = [
         phrases=[
             "remind me", "remind", "set a reminder", "set reminder", "create a reminder",
             "add a reminder", "new reminder",
+            "don't let me forget", "dont let me forget", "do not let me forget", "don't forget", "dont forget",
         ],
         action=create_reminder,
     ),

@@ -6,7 +6,7 @@ from zoneinfo   import ZoneInfo
 import pytest
 
 from core.parser       import ParseError, parse_recurrence, parse_reminder
-from core.recurrence   import EVERY_DAY, WEEKDAYS, WEEKENDS, Interval, Monthly, Weekly, parse
+from core.recurrence   import EVERY_DAY, WEEKDAYS, WEEKENDS, Interval, Monthly, MonthlyWeekday, Weekly, parse
 
 TZ = ZoneInfo("Europe/Kyiv")
 # Saturday 10 Oct 2026, 23:30
@@ -303,3 +303,47 @@ def test_one_off_still_marked_missed(user):
     _deliver(reminder, dt(12, 9, 1))
     _deliver(_reload(reminder), dt(13, 9, 1))
     assert _reload(reminder).status == ReminderStatus.MISSED
+
+
+# --- monthly on a weekday, every other weekday ------------------------------------
+
+@pytest.mark.parametrize("recurrence, text", [
+    (MonthlyWeekday(-1, 4, time(9)),        "month:-1fri@09:00"),
+    (MonthlyWeekday(2, 1, time(18, 30)),    "month:2tue@18:30"),
+])
+def test_serialize_roundtrip_monthly_weekday(recurrence, text):
+    assert recurrence.serialize() == text
+    assert parse(text) == recurrence
+
+
+@pytest.mark.parametrize("recurrence, after, expected", [
+    (MonthlyWeekday(-1, 4, time(9)),  dt(10, 8),    dt(30, 9)),                # last Friday of October 2026
+    (MonthlyWeekday(-1, 4, time(9)),  dt(30, 9),    dt(27, 9, month=11)),
+    (MonthlyWeekday(1, 0, time(10)),  dt(10, 8),    dt(2, 10, month=11)),      # Oct's first Monday has passed
+    (MonthlyWeekday(5, 0, time(9)),   dt(10, 8),    dt(30, 9, month=11)),      # October 2026 has no 5th Monday; November 30 is one
+])
+def test_next_after_monthly_weekday(recurrence, after, expected):
+    assert recurrence.next_after(after, TZ) == expected
+
+
+def test_monthly_weekday_skips_months_without_a_5th():
+    fifth_monday = MonthlyWeekday(5, 0, time(9))
+    first = fifth_monday.next_after(dt(30, 9, month=11), TZ)
+    assert (first.year, first.month, first.day) == (2027, 3, 29)
+
+
+@pytest.mark.parametrize("request_, text, recurrence, first", [
+    ("every last friday of the month to review",        "review", "monthly on the last Fri at 09:00", dt(30, 9)),
+    ("on the last friday of each month to pay",         "pay",    "monthly on the last Fri at 09:00", dt(30, 9)),
+    ("the first monday of every month at 10 to plan",   "plan",   "monthly on the 1st Mon at 10:00",  dt(2, 10, month=11)),
+    ("every 2nd tuesday of the month to club",          "club",   "monthly on the 2nd Tue at 09:00",  dt(13, 9)),
+    ("every last friday to drinks",                     "drinks", "monthly on the last Fri at 09:00", dt(30, 9)),
+    ("every other tuesday at 19 to padel",              "padel",  "every 2 weeks at 19:00",           dt(13, 19)),
+    ("every 2nd tuesday to put the bins out",           "put the bins out", "every 2 weeks at 09:00", dt(13, 9)),
+    ("to read every second thursday",                   "read",   "every 2 weeks at 09:00",           dt(15, 9)),
+    ("every fortnight to water the plants",             "water the plants", "every 2 weeks at 09:00", dt(11, 9)),
+    ("fortnightly to clean",                            "clean",  "every 2 weeks at 09:00",           dt(11, 9)),
+])
+def test_parse_reminder_new_repeats(request_, text, recurrence, first):
+    parsed = parse_reminder(request_, NOW)
+    assert (parsed.text, parsed.recurrence.describe(TZ), parsed.when) == (text, recurrence, first)

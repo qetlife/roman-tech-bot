@@ -88,6 +88,13 @@ def test_create_snooze_and_delete(chat):
     assert _active(chat.telegram_id) == []
 
 
+@pytest.mark.parametrize("request_", [
+    "don't let me forget to call mom tomorrow at 9", "Dont forget to call mom tomorrow at 9",
+])
+def test_dont_let_me_forget(chat, request_):
+    assert _replies(chat(request_))[0].startswith("⏰ Got it: call mom")
+
+
 def test_edit(chat):
     from handlers.reminders import on_reminder_button
 
