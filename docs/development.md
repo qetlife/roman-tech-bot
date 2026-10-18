@@ -432,7 +432,9 @@ why the other person always opts in.
   row is removed again. Against spam: ❌ No keeps the row as `declined`
   (not a contact: lists, names and senders skip it) so the same owner can't
   ask again for `REQUEST_COOLDOWN` (30 days), and an owner can send
-  `REQUESTS_PER_DAY` (5) requests a day. Usernames can go stale (the bot only
+  `REQUESTS_PER_DAY` (5) requests a day, at most one per person. Both
+  limits count from `contact_requests`, a log that only grows (cancelling a
+  pending request deletes its `contacts` row, but not its log entry). Usernames can go stale (the bot only
   sees changes when someone writes to it): `remember_profile` takes a
   username away from anyone else who had it, and `get_by_username` treats
   more than one match as unknown.
@@ -488,6 +490,7 @@ changes go through Alembic; see [Database migrations](setup.md#database-migratio
 | `reminders`     | creator/target user, chat, text, `remind_at`, `next_fire_at`, `status`, `fire_count`, `last_message_id`, `recurrence`, `request` and `source` (the message it was made from) |
 | `user_settings` | `(user_id, key)` → JSON value, only non-defaults |
 | `contacts`      | `owner_user_id` may remind `contact_user_id`; `name` (what the owner calls them, unique per owner, case-insensitive, checked in code), `status`, `created_at`, `accepted_at`; unique `(owner, contact)` |
+| `contact_requests` | log of requests by @username: `owner_user_id`, `contact_user_id`, `created_at` (for the daily limits) |
 | `invites`       | `token` (the link), `owner_user_id`, `created_at`, `expires_at`, `used_at`, `used_by_user_id` |
 | `failed_messages` | user, `text`, `source`, `reason`, `intent`, `bot_understood` (JSON), optional `reminder_id`, `status`, `created_at`, `fixed_at`, `note`, `fix_pr` |
 

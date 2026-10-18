@@ -41,6 +41,23 @@ class Contact(Base):
     )
 
 
+class ContactRequest(Base):
+    """A request sent by @username, kept for a day or more to limit them.
+
+    Separate from `contacts`, whose pending rows can be cancelled (deleted):
+    this log only grows, so cancelling and asking again still counts.
+    """
+
+    __tablename__ = "contact_requests"
+
+    id: Mapped[int] = mapped_column(BigIntId, primary_key=True)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    contact_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (Index("ix_contact_requests_owner_created_at", "owner_user_id", "created_at"),)
+
+
 class Invite(Base):
     """A single-use link (t.me/<bot>?start=inv_<token>) that makes whoever opens it a contact of `owner`."""
 

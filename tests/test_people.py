@@ -230,6 +230,18 @@ def test_requests_per_day(person):
     assert _replies(roman(f"@{others[-1].user().username}"))[0].startswith(f"That's {REQUESTS_PER_DAY} requests today.")
 
 
+def test_cancel_and_ask_again_still_counts(person):
+    roman, anna = person("Roman", "roman_i"), person("Anna", "anna")
+    _invite(roman)
+    roman("@anna")
+    from db.repositories.contact import ContactRepository
+    [(contact, _)] = ContactRepository().people_of(roman.user().id)
+    _tap(roman, f"ppl:del:{contact.id}")             # 🗑 Cancel request
+    _invite(roman)
+    assert _replies(roman("@anna"))[0].startswith("You asked @anna today already.")
+    assert len(anna.messages()) == 1                # asked once
+
+
 def test_a_stale_username_belongs_to_whoever_has_it_now(person):
     from db.repositories.user import UserRepository
 

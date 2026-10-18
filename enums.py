@@ -58,6 +58,7 @@ class RequestResult(StrEnum):
     ASKED = "asked"
     EXISTS = "exists"       # already a contact, or asked and not answered
     DECLINED = "declined"   # they said no recently
+    RECENT = "recent"       # asked them in the last day already (then cancelled)
     TOO_MANY = "too_many"   # REQUESTS_PER_DAY reached
 
 

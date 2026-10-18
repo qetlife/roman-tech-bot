@@ -9,7 +9,7 @@ from sqlalchemy         import func, select, update
 
 from core.contacts      import default_name, unique_name
 from db.session         import SessionLocal
-from db.models.contact  import Contact, Invite
+from db.models.contact  import Contact, ContactRequest, Invite
 from db.models.reminder import Reminder, utcnow
 from db.models.user     import User
 from enums              import ACTIVE_STATUSES, ContactStatus, InviteResult, ReminderStatus, RequestResult
@@ -97,12 +97,16 @@ class ContactRepository:
                 return RequestResult.EXISTS, None
             if existing is not None and existing.accepted_at > utcnow() - REQUEST_COOLDOWN:
                 return RequestResult.DECLINED, None
-            asked_today = session.scalar(select(func.count()).select_from(Contact).where(
-                Contact.owner_user_id == owner_id, Contact.created_at > utcnow() - timedelta(days=1),
-                Contact.status != ContactStatus.ACCEPTED,
-            ))
-            if asked_today >= REQUESTS_PER_DAY:
+            # Counted from the request log, which cancelling a request doesn't shrink.
+            day_ago = utcnow() - timedelta(days=1)
+            sent = session.scalars(select(ContactRequest.contact_user_id).where(
+                ContactRequest.owner_user_id == owner_id, ContactRequest.created_at > day_ago,
+            )).all()
+            if contact_user.id in sent:
+                return RequestResult.RECENT, None
+            if len(sent) >= REQUESTS_PER_DAY:
                 return RequestResult.TOO_MANY, None
+            session.add(ContactRequest(owner_user_id=owner_id, contact_user_id=contact_user.id))
             if existing is not None:
                 session.delete(existing)
                 session.flush()

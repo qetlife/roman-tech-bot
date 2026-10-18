@@ -1,4 +1,4 @@
-"""contacts and invites
+"""contacts, contact requests and invites
 
 Revision ID: 0007
 Revises: 0006
@@ -39,6 +39,18 @@ def upgrade() -> None:
     )
     op.create_index('ix_contacts_contact_user_id', 'contacts', ['contact_user_id'], unique=False)
 
+    op.create_table('contact_requests',
+    sa.Column('id', sa.BigInteger().with_variant(sa.Integer(), 'sqlite'), nullable=False),
+    sa.Column('owner_user_id', sa.Uuid(), nullable=False),
+    sa.Column('contact_user_id', sa.Uuid(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['owner_user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['contact_user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id'),
+    )
+    op.create_index('ix_contact_requests_owner_created_at', 'contact_requests', ['owner_user_id', 'created_at'],
+                    unique=False)
+
     op.create_table('invites',
     sa.Column('token', sa.String(length=32), nullable=False),
     sa.Column('owner_user_id', sa.Uuid(), nullable=False),
@@ -54,6 +66,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table('invites')
+    op.drop_index('ix_contact_requests_owner_created_at', table_name='contact_requests')
+    op.drop_table('contact_requests')
     op.drop_index('ix_contacts_contact_user_id', table_name='contacts')
     op.drop_table('contacts')
     op.drop_index('ix_users_username', table_name='users')

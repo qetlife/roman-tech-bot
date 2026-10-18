@@ -279,6 +279,9 @@ async def on_contact_username_text(update: Update, context: ContextTypes.DEFAULT
     if result == RequestResult.DECLINED:
         await reply(f"@{other.username} said no recently. If they change their mind, send them the invite link.")
         return
+    if result == RequestResult.RECENT:
+        await reply(f"You asked @{other.username} today already. Try again tomorrow, or send the invite link.")
+        return
     if result == RequestResult.TOO_MANY:
         await reply(f"That's {REQUESTS_PER_DAY} requests today. Try again tomorrow, or send the invite link.")
         return
