@@ -104,7 +104,8 @@ def new_comments(number: int, reviewer: bool) -> list:
     Only from the owner, and from the automatic review if `reviewer`.
     """
     pr = gh_json("pr", "view", str(number), "--repo", REPO, "--json", "commits,comments")
-    inline = gh_json("api", f"repos/{REPO}/pulls/{number}/comments")
+    pages = gh_json("api", "--paginate", "--slurp", f"repos/{REPO}/pulls/{number}/comments?per_page=100")
+    inline = [c for page in pages for c in page]
     comments = [
         {"author": c["author"]["login"], "association": c["authorAssociation"],
          "created_at": c["createdAt"], "body": c["body"]}
@@ -167,9 +168,15 @@ def run_claude(work: Path, task: str, branch: str, start: str, log: Path) -> dic
             print(f"Claude timed out after {TIMEOUT // 60} min")
     path = work / "result.json"
     try:
-        return json.loads(path.read_text()) if path.exists() else {}
+        result = json.loads(path.read_text()) if path.exists() else {}
     except json.JSONDecodeError:
-        return {}
+        result = {}
+    return result if isinstance(result, dict) else {}
+
+
+def ids(items, known: set) -> list:
+    """The ids in `items` (Claude's output) that are entries we gave it."""
+    return [i for i in items if type(i) is int and i in known] if isinstance(items, list) else []
 
 
 def publish(work: Path, branch: str) -> bool:
@@ -211,14 +218,15 @@ def fix_new(work: Path, new: list, log: Path):
     ), branch, "master", log)
 
     known = {e["id"] for e in new}
-    for item in result.get("ignored", []):
-        if isinstance(item, dict) and item.get("id") in known:
-            # The note is Claude's, short; it must not quote the message.
-            failed("ignore", item["id"], str(item.get("note") or "unfixable")[:200])
+    ignored = result.get("ignored")
+    ignored = [i for i in ignored if isinstance(i, dict) and ids([i.get("id")], known)] if isinstance(ignored, list) else []
+    for item in ignored:
+        # The note is Claude's, short; it must not quote the message.
+        failed("ignore", item["id"], str(item.get("note") or "unfixable")[:200])
 
-    fixed = [i for i in result.get("fixed", []) if i in known]
+    fixed = [i for i in ids(result.get("fixed"), known) if i not in {item["id"] for item in ignored}]
     if not fixed or not publish(work, branch):
-        print(f"No pull request; ignored {len(result.get('ignored', []))}")
+        print(f"No pull request; ignored {len(ignored)}")
         return
 
     (work / "body.md").write_text(str(result.get("body") or ""))
@@ -228,7 +236,7 @@ def fix_new(work: Path, new: list, log: Path):
     number = int(url.rstrip("/").rsplit("/", 1)[-1])
     for entry_id in fixed:
         failed("pr", entry_id, number)
-    print(f"Opened pull request #{number}: {len(fixed)} fixed, {len(result.get('ignored', []))} ignored")
+    print(f"Opened pull request #{number}: {len(fixed)} fixed, {len(ignored)} ignored")
 
     for _ in range(REVIEW_ROUNDS):
         wait_for_review(branch)
