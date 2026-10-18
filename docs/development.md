@@ -151,9 +151,11 @@ chats still carry it. `tests/test_callbacks.py` pins them.
    like “please” allowed in front). This always wins. If no phrase matches
    as written, it's tried again with typos of the phrases' words fixed
    (“remid me”, see [Typos](#typos)); the rest keeps the original words.
-   “cancel/delete/remove …” (`IntentName.REMINDER_CANCEL`) only counts during
-   a question if the message says “reminder”, so “delete old photos” can
-   be the answer to “what should I remind you about?”.
+   During a question, the command intents in `NEEDS_KEYWORD`
+   (`handlers/text.py`: cancel, list, timezone) count only if the message
+   has their word (“reminder”, “timezone”), so “delete old photos” or
+   “what's on the agenda” can be the answer to “what should I remind you
+   about?”.
 2. Otherwise, if the bot asked a question, `context.user_data["awaiting"]`
    holds an `Awaiting` value (`enums.py`; keys in `handlers/ui.py`) and the message is the
    answer. For `Awaiting.EDIT`, the reminder id is in

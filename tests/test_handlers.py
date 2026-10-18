@@ -707,6 +707,19 @@ def test_delete_as_the_answer_to_a_question_is_the_answer(chat):
     assert _replies(update)[0].startswith("⏰ Got it: delete old photos")
 
 
+@pytest.mark.parametrize("answer", ["what's on the agenda for the meeting", "timezone sync with the team",
+                                    "anything on sale"])
+def test_command_words_as_the_answer_to_a_question(chat, answer):
+    chat("tomorrow at 12")                         # the bot asks what for
+    assert _replies(chat(answer))[0].startswith(f"⏰ Got it: {answer}")
+
+
+def test_my_reminders_during_a_question_still_lists(chat):
+    chat("remind me tomorrow at 9 to call mom")
+    chat("tomorrow at 12")
+    assert _replies(chat("my reminders"))[0].startswith("Your reminders")
+
+
 def test_what_do_i_have_tomorrow(chat):
     chat("remind me tomorrow at 9 to call mom")
     chat("remind me every day at 8 to take pills")

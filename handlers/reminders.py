@@ -313,7 +313,7 @@ async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE, req
                 "I can show one day, e.g. “what do I have tomorrow?” or “my reminders on friday”."
             )
             return
-        items = [r for r in items if occurs_on(r.remind_at, r.recurrence, day, ZoneInfo(tz_name))]
+        items = [r for r in items if occurs_on(r.remind_at, r.recurrence, day, ZoneInfo(tz_name), r.created_at)]
         title = f"{day:%a %d %b}"
         text = reminders_list_text(user, items, f"Your reminders on {title}", f"Nothing on {title}. 🎉")
     text = text or reminders_list_text(user, items)

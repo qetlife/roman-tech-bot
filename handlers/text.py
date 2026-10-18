@@ -12,6 +12,14 @@ from    handlers.intents            import INTENTS
 from    handlers.ui                 import ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, PENDING_PART
 
 
+# During a question, these intents count only if the message has the word:
+# "cancel the dentist reminder" does, "delete old photos" (an answer) doesn't.
+NEEDS_KEYWORD = {
+    IntentName.REMINDER_CANCEL: "reminder",
+    IntentName.REMINDER_LIST: "reminder",
+    IntentName.TIMEZONE_SET: "timezone",
+}
+
 HELP_TEXT = (
     "I didn't get that. Try “remind me in 2 hours to call mom”, "
     "“my reminders”, or /menu."
@@ -28,9 +36,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
     match = match_intent(text, INTENTS)
     awaiting = context.user_data.get(AWAITING)
 
-    if match is not None and match.intent.name == IntentName.REMINDER_CANCEL \
-            and awaiting is not None and "reminder" not in text.lower():
-        # While the bot asks something, "delete old photos" is an answer, not a command.
+    if match is not None and awaiting is not None and match.intent.name in NEEDS_KEYWORD \
+            and NEEDS_KEYWORD[match.intent.name] not in text.lower():
+        # While the bot asks something, "delete old photos" or "what's on the
+        # agenda" is an answer, not a command.
         match = None
 
     # A trigger phrase always wins, so "remind me ..." works at any point.

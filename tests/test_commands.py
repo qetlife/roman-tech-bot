@@ -50,10 +50,17 @@ def test_parse_day(request_, expected):
 def test_occurs_on():
     monday_9 = datetime(2026, 10, 19, 9, 0, tzinfo=TZ)
     daily, mondays = "mon,tue,wed,thu,fri,sat,sun@09:00", "mon@09:00"
-    assert occurs_on(monday_9, None, monday_9.date(), TZ)
-    assert not occurs_on(monday_9, None, monday_9.date() + timedelta(days=1), TZ)
-    assert occurs_on(monday_9, daily, monday_9.date() + timedelta(days=3), TZ)
-    assert not occurs_on(monday_9, mondays, monday_9.date() + timedelta(days=3), TZ)
-    assert occurs_on(monday_9, mondays, monday_9.date() + timedelta(days=7), TZ)
-    # Not before it starts
-    assert not occurs_on(monday_9, daily, monday_9.date() - timedelta(days=1), TZ)
+    made = NOW
+    assert occurs_on(monday_9, None, monday_9.date(), TZ, made)
+    assert not occurs_on(monday_9, None, monday_9.date() + timedelta(days=1), TZ, made)
+    assert occurs_on(monday_9, daily, monday_9.date() + timedelta(days=3), TZ, made)
+    assert not occurs_on(monday_9, mondays, monday_9.date() + timedelta(days=3), TZ, made)
+    assert occurs_on(monday_9, mondays, monday_9.date() + timedelta(days=7), TZ, made)
+    # Not before it was made: made today at 14:00, the first 09:00 is tomorrow
+    assert not occurs_on(monday_9, daily, NOW.date(), TZ, made)
+
+
+def test_a_repeat_that_went_off_today_is_on_today():
+    # Daily at 08:00, made last week; today's has gone off, so the next is tomorrow.
+    tomorrow_8 = datetime(2026, 10, 19, 8, 0, tzinfo=TZ)
+    assert occurs_on(tomorrow_8, "mon,tue,wed,thu,fri,sat,sun@08:00", NOW.date(), TZ, NOW - timedelta(days=7))

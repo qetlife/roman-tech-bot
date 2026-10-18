@@ -41,7 +41,7 @@ INTENTS = [
         name=IntentName.TIMEZONE_SET,
         phrases=[
             "set my timezone to", "set timezone to", "change my timezone to", "change timezone to",
-            "my timezone is", "set my timezone", "change my timezone", "timezone",
+            "my timezone is", "set my timezone", "change my timezone",
         ],
         action=set_timezone,
     ),
