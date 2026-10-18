@@ -25,10 +25,12 @@ def test_search_words(request_, words):
 
 @pytest.mark.parametrize("text, words, expected", [
     ("Dentist at 5",    ["dentist"],        True),
-    ("call mom",        ["call", "mo"],     True),      # the start of a word is enough
+    ("call mommy",      ["call", "mom"],    True),      # the start of a word is enough
     ("call dad",        ["mom"],            False),
     ("go to the gym",   ["gym", "go"],      True),
     ("gymnastics",      ["gym"],            True),
+    ("google docs",     ["go"],             False),     # under 3 letters: whole words only
+    ("go to the gym",   ["go"],             True),
 ])
 def test_matches(text, words, expected):
     assert matches(text, words) is expected

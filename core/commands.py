@@ -23,10 +23,14 @@ def search_words(request: str) -> list:
     return [w for w in words if w not in FILLER]
 
 
+# Shorter words must match a whole word: "go" isn't "google".
+MIN_PREFIX = 3
+
+
 def matches(text: str, words: list) -> bool:
-    """Whether a reminder's text has all the words (as words or the start of one)."""
+    """Whether a reminder's text has all the words (as words, or the start of one if 3+ letters)."""
     own = re.findall(r"[\w']+", text.lower())
-    return all(any(o.startswith(w) for o in own) for w in words)
+    return all(any(o == w or (len(w) >= MIN_PREFIX and o.startswith(w)) for o in own) for w in words)
 
 
 def parse_day(request: str, now: datetime) -> Optional[date]:

@@ -691,10 +691,16 @@ def _texts(chat):
 
 
 def test_cancel_by_name(chat):
+    from handlers.reminders import on_reminder_button
+
     chat("remind me tomorrow at 9 to call the dentist")
     chat("remind me tomorrow at 10 to call mom")
     update = chat("cancel the dentist reminder")
-    assert _replies(update) == ["↩️ Cancelled: call the dentist"]
+    assert _replies(update)[0].startswith("Cancel “call the dentist”?")
+    assert len(_texts(chat)) == 2                  # asked, not done yet
+    [[(label, data)]] = _buttons(update.effective_message.reply_text.call_args.kwargs["reply_markup"])
+    assert label == "❌ Cancel it"
+    chat(data=data, handler=on_reminder_button)
     assert _texts(chat) == ["call mom"]
 
 

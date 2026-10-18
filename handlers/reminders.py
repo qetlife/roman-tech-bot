@@ -353,10 +353,14 @@ async def cancel_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, re
     reply = update.effective_message.reply_text
 
     if words and len(found) == 1:
+        # Asked, not done: a loose match shouldn't cancel the wrong one.
         [reminder] = found
-        reminders.cancel(reminder.id)
-        await retire_fired_message(context, reminder, "↩️ Cancelled.")
-        await reply(f"↩️ Cancelled: {reminder.text}")
+        await reply(
+            f"Cancel “{reminder.text}”?\n{schedule_text(reminder, user.timezone or 'UTC')}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+                "❌ Cancel it", callback_data=reminder_callback(ReminderAction.DELETE, reminder.id),
+            )]]),
+        )
         return
     if words and not found:
         await reply(reminders_list_text(user, items, f"No reminder matches “{' '.join(words)}”. Yours",
