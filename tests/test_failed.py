@@ -29,6 +29,9 @@ NOW = datetime(2026, 10, 10, 8, 0, tzinfo=ZoneInfo("Europe/Lisbon"))
     ("someday to stretch",                  IntentName.REMINDER_CREATE, True),     # asks when
     ("tomorrow at 9",                       IntentName.REMINDER_CREATE, True),     # asks what for
     ("every 5 minutes to stretch",          IntentName.REMINDER_CREATE, False),
+    # The answer to "when?": only a time will do
+    ("whenever",                            IntentName.REMINDER_WHEN,   False),
+    ("tomorrow at 9",                       IntentName.REMINDER_WHEN,   True),
     # ✏️ Edit doesn't ask: it says what's wrong
     ("someday to stretch",                  IntentName.REMINDER_EDIT,   False),
 ])

@@ -179,7 +179,10 @@ turns `MissingText` into `ask_what` and `MissingTime` into `ask_when`,
 instead of failing. They set `Awaiting.REMINDER_TEXT` / `REMINDER_TIME` and
 keep the half they have in `user_data["pending_part"]`; `answer_what` /
 `answer_when` join it with the answer (“<time> to <text>”) and parse that.
-A wrong answer to “when?” is saved as failed and asked again. The message
+A wrong answer to “when?” is saved as failed (intent
+`IntentName.REMINDER_WHEN`; the re-check closes it once that answer parses
+as a time) and asked again. A trigger phrase other than “that's wrong”, or
+a new failure, ends the question. The message
 asked about is kept in `user_data["asked_request"]` until a reminder is
 made: “that's wrong” meanwhile saves it as failed with
 `ASKED_ERROR`. Asking isn't saved as a failure, and the startup re-check

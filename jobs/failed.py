@@ -33,10 +33,19 @@ def understood(text: str, intent: Optional[str], now: datetime) -> bool:
     """Whether the bot would now handle `text`, sent at `now` (in the user's timezone).
 
     `intent` is where it failed: a reminder's time and text (create, or the
-    answer to ✏️ Edit), or None for a message that matched no trigger phrase.
+    answer to ✏️ Edit), the answer to "when?", or None for a message that
+    matched no trigger phrase.
     Asking for the missing half counts: a new reminder with a time but no
     text, or a text but no time (handlers/reminders.ask_what / ask_when).
     """
+    if intent == IntentName.REMINDER_WHEN:
+        # The answer to "when?": understood once it is a time.
+        try:
+            parse_reminder(f"{text} to remind", now)
+        except ParseError:
+            return False
+        return True
+
     asks = (MissingText, MissingTime) if intent != IntentName.REMINDER_EDIT else ()
     if intent not in (IntentName.REMINDER_CREATE, IntentName.REMINDER_EDIT):
         match = match_intent(text, INTENTS)

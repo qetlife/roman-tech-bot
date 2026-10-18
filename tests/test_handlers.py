@@ -191,7 +191,7 @@ def test_asking_when_again_if_the_answer_isnt_a_time(chat):
     update = chat("whenever")
     assert _replies(update)[0].startswith("I couldn't understand when. ⏰ When should I remind you: “call mom”?")
     [entry] = _failed(chat.telegram_id)
-    assert (entry.text, entry.intent) == ("whenever", "reminder.create")
+    assert (entry.text, entry.intent) == ("whenever", "reminder.when")
 
     update = chat("in 2 hours")
     assert _replies(update)[0].startswith("⏰ Got it: call mom")
@@ -241,6 +241,20 @@ def test_thats_wrong_while_asking_saves_the_asked_message(chat):
     assert len(_active(chat.telegram_id)) == 1      # the earlier reminder is untouched
     # Asked about once: saying it again doesn't save it twice.
     assert _replies(chat("that's wrong"))[0] == "👎 That one is already saved as failed."
+
+
+def test_a_failed_message_ends_the_question(chat):
+    chat("remind me tomorrow at 9 to call mom")
+    from handlers.reminders import on_new
+
+    chat("tomorrow at 12")                      # the bot asks what for
+    chat(data="rem:new", handler=on_new)        # ➕ New instead
+    chat("every 5 minutes to stretch")          # fails: too short a repeat
+    [entry] = _failed(chat.telegram_id)
+    assert entry.text == "every 5 minutes to stretch"
+    # "that's wrong" now means that failed message (already saved), not the old question.
+    assert _replies(chat("that's wrong"))[0] == "👎 That one is already saved as failed."
+    assert len(_failed(chat.telegram_id)) == 1
 
 
 def test_an_abandoned_question_is_forgotten(chat):

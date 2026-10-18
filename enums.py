@@ -64,6 +64,7 @@ class IntentName(StrEnum):
 
     REMINDER_CREATE = "reminder.create"
     REMINDER_EDIT = "reminder.edit"     # the answer to ✏️ Edit, not a trigger phrase
+    REMINDER_WHEN = "reminder.when"     # the answer to "when should I remind you?", not a trigger phrase
     REMINDER_LIST = "reminder.list"
     FLAG_FAILED = "failed.flag"         # "that's wrong", "save the last one as failed"
 

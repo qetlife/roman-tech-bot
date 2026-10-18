@@ -173,6 +173,8 @@ async def create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, re
 
 
 async def not_understood(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str, error: ParseError):
+    # Saved as failed: a question it answered is over.
+    context.user_data.pop(ASKED_REQUEST, None)
     record_not_understood(update, context, request, IntentName.REMINDER_CREATE, str(error))
     context.user_data[AWAITING] = Awaiting.REMINDER
     await update.effective_message.reply_text(f"{error} Send it again, e.g. “in 2 hours to call mom”.\n\n{EXAMPLES}")
@@ -229,7 +231,7 @@ async def answer_when(update: Update, context: ContextTypes.DEFAULT_TYPE, when: 
         parsed = parse_reminder(request, user_now(user.timezone))
     except ParseError as e:
         # The text is known, so whatever failed is the time.
-        record_not_understood(update, context, when, IntentName.REMINDER_CREATE, str(e))
+        record_not_understood(update, context, when, IntentName.REMINDER_WHEN, str(e))
         await ask_when(update, context, text, prefix=f"{e} ")
         return
     context.user_data.pop(PENDING_PART, None)
