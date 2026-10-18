@@ -693,18 +693,21 @@ def _split(words: list, time_words: list, fixed: list, now: datetime) -> Optiona
     return None
 
 
-def _mishearings(words: list) -> list:
+def _mishearings(words: list, now: datetime) -> list:
     """Words with speech-to-text mishearings fixed: "to borrow" is "tomorrow",
-    and a "too" before the text is "to". Only used on a second try."""
+    and a "too" right after the time is "to". Only used on a second try."""
     out, i = [], 0
     while i < len(words):
         if words[i].lower() == "to" and i + 1 < len(words) and words[i + 1].lower() == "borrow":
             out.append("tomorrow")
             i += 2
-            # "to borrow at 9 too start ...": the text's "too" is "to"
+            # "to borrow at 9 too start ...": the first "too" is "to" only if
+            # everything before it is the time, so a "too" inside the text stays.
             for j in range(i, len(words)):
-                if words[j].lower() == "too" and j + 1 < len(words):
-                    words = words[:j] + ["to"] + words[j + 1:]
+                if words[j].lower() == "too":
+                    before = TIME_VOCABULARY.fix_all(out + words[i:j])
+                    if j + 1 < len(words) and _parse_time(" ".join(before), now) is not None:
+                        words = words[:j] + ["to"] + words[j + 1:]
                     break
         else:
             out.append(words[i])
@@ -730,7 +733,7 @@ def parse_reminder(request: str, now: datetime) -> ParsedReminder:
         best = _split(words, fixed, fixed, now)
 
     if best is None:
-        heard = _mishearings(words)
+        heard = _mishearings(words, now)
         if heard != words:
             fixed = TIME_VOCABULARY.fix_all(heard)
             words = heard

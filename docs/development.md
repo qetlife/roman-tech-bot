@@ -236,7 +236,8 @@ change.
   “tomorow”.
 - The intent vocabulary is the words of all trigger phrases.
 - `parser._mishearings` is a third try for voice transcripts: “to borrow”
-  becomes “tomorrow” and the first “too” after it becomes “to”. It's a
+  becomes “tomorrow” and a “too” directly after the time becomes “to” (a “too”
+  later in the text is left alone). It's a
   separate, phrase-level step (not in `Vocabulary`) because it merges two
   words, and it only runs when both earlier tries fail, so “remind me to
   borrow a book at 5” is untouched.
