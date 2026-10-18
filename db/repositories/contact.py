@@ -5,7 +5,7 @@ from dataclasses        import dataclass
 from datetime           import timedelta
 from typing             import Optional
 
-from sqlalchemy         import delete, func, or_, select, update
+from sqlalchemy         import func, select, update
 
 from core.contacts      import default_name, unique_name
 from db.session         import SessionLocal
@@ -168,7 +168,9 @@ class ContactRepository:
         """Either side ends it: the row is deleted, and the owner's waiting reminders for them cancelled."""
         with SessionLocal(expire_on_commit=False) as session:
             contact = session.get(Contact, contact_id, with_for_update=True)
-            if contact is None or user_id not in (contact.owner_user_id, contact.contact_user_id):
+            if contact is None or user_id not in (contact.owner_user_id, contact.contact_user_id) \
+                    or contact.status == ContactStatus.DECLINED:
+                # A declined row is a note not to ask again, not a contact.
                 return None
             session.execute(
                 update(Reminder)
@@ -180,15 +182,6 @@ class ContactRepository:
             session.delete(contact)
             session.commit()
             return contact
-
-    def remove_all_for(self, user_id: uuid.UUID) -> int:
-        """Delete every contact row with this user on either side (e.g. they blocked the bot)."""
-        with SessionLocal() as session:
-            result = session.execute(delete(Contact).where(
-                or_(Contact.owner_user_id == user_id, Contact.contact_user_id == user_id)
-            ))
-            session.commit()
-            return result.rowcount
 
     @staticmethod
     def _free_name(session, owner_id: uuid.UUID, name: str) -> str:

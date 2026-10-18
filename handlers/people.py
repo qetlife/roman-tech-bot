@@ -108,8 +108,9 @@ async def on_people_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await answer_request(update, context, user, contact_id, action == PeopleAction.ALLOW)
         return
 
-    # Only the two people in it can see or change a contact.
-    if contact is None or user.id not in (contact.owner_user_id, contact.contact_user_id):
+    # Only the two people in it can see or change a contact; a declined row isn't one.
+    if contact is None or user.id not in (contact.owner_user_id, contact.contact_user_id) \
+            or contact.status == ContactStatus.DECLINED:
         await query.answer("That's gone.")
         await show_people(update, context)
         return

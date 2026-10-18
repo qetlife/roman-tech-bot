@@ -158,6 +158,24 @@ def test_two_contacts_with_the_same_name(person):
 
 # --- requests by @username -------------------------------------------------------
 
+def test_a_stale_button_cant_undo_a_decline(person):
+    from db.repositories.contact import ContactRepository
+
+    roman, anna = person("Roman", "roman_i"), person("Anna", "anna")
+    _invite(roman)
+    roman("@anna")
+    [request] = anna.messages()
+    [[_, decline]] = _buttons(request.kwargs["reply_markup"])
+    contact_id = int(decline[1].rsplit(":", 1)[1])
+    _tap(anna, decline[1])
+    # Roman still has the "🗑 Cancel request" button open
+    _tap(roman, f"ppl:del:{contact_id}")
+    _tap(roman, f"ppl:open:{contact_id}")
+    assert ContactRepository().get(contact_id).status == "declined"
+    _invite(roman)
+    assert _replies(roman("@anna"))[0].startswith("@anna said no recently.")
+
+
 def test_request_by_username(person):
     roman, anna = person("Roman", "roman_i"), person("Anna", "anna")
     _invite(roman)                                  # ➕ Invite also asks for an @username
