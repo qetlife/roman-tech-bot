@@ -43,7 +43,7 @@ or what the bot made of it).
    with made-up messages of the same shape, each checking the time and text
    the bot should get. Keep fixes small and general. Update the docs as
    `CLAUDE.md` says (new phrasings go in `docs/user-guide.md`).
-3. Run `python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts services tests`
+3. Run `python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts services tests autofix`
    and `python -m pytest -q` until both pass. Never weaken or delete an
    existing test to make a change pass: if one breaks, your change is wrong.
    Don't change `.github/` or `autofix/`.

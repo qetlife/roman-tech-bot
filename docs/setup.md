@@ -61,7 +61,7 @@ python bot.py
 Migrations run automatically on startup. To run the checks CI runs:
 
 ```bash
-python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts services tests
+python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts services tests autofix
 pytest
 ```
 

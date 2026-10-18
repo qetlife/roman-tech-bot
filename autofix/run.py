@@ -25,6 +25,7 @@ prints them, and Claude's output goes to a log file on the Pi only.
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -48,7 +49,10 @@ REVIEW_ROUNDS = 2
 HERE = Path(__file__).resolve().parent
 LOGS = Path.home() / "autofix-logs"
 KEEP_LOGS = 30
-TIMEOUT = 40 * 60
+TIMEOUT = 40 * 60           # one Claude run
+DEADLINE = 120 * 60         # no new Claude run after this (+ 40 min for the last one); the workflow allows 180
+STARTED = time.monotonic()
+running = None              # the Claude container, killed if the job is cancelled
 
 # Claude has no GitHub token, so these can only touch its own clone.
 ALLOWED_TOOLS = ",".join([
@@ -139,11 +143,23 @@ def wait_for_review(branch: str):
 
 # --- Claude, without the token ----------------------------------------------
 
+def time_left() -> bool:
+    return time.monotonic() - STARTED < DEADLINE
+
+
+def on_cancel(signum, frame):
+    """Actions cancels with SIGTERM/SIGINT; killing `docker run` would leave the container running."""
+    if running:
+        subprocess.run(["docker", "kill", running], capture_output=True)
+    sys.exit(1)
+
+
 def run_claude(work: Path, task: str, branch: str, start: str, log: Path) -> dict:
     """Claude does `task` on `branch` (created from `start`); returns its result.json.
 
     Its new commits are left in /work/out.bundle.
     """
+    global running
     (work / "task.md").write_text(task)
     (work / "result.json").unlink(missing_ok=True)
     (work / "out.bundle").unlink(missing_ok=True)
@@ -154,7 +170,7 @@ def run_claude(work: Path, task: str, branch: str, start: str, log: Path) -> dic
         f" --permission-mode acceptEdits --allowedTools '{ALLOWED_TOOLS}'"
         f"; git bundle create /work/out.bundle 'origin/{start}..{branch}' 2>/dev/null"
     )
-    name = f"autofix-{datetime.now():%Y%m%d%H%M%S}"
+    name = running = f"autofix-{datetime.now():%Y%m%d%H%M%S}"
     with open(log, "a") as out:
         try:
             subprocess.run(
@@ -166,6 +182,8 @@ def run_claude(work: Path, task: str, branch: str, start: str, log: Path) -> dic
             # Killing `docker run` leaves the container running.
             subprocess.run(["docker", "kill", name], capture_output=True)
             print(f"Claude timed out after {TIMEOUT // 60} min")
+        finally:
+            running = None
     path = work / "result.json"
     try:
         result = json.loads(path.read_text()) if path.exists() else {}
@@ -239,6 +257,9 @@ def fix_new(work: Path, new: list, log: Path):
     print(f"Opened pull request #{number}: {len(fixed)} fixed, {len(ignored)} ignored")
 
     for _ in range(REVIEW_ROUNDS):
+        if not time_left():
+            print("Out of time; the review is answered on the next run")
+            break
         wait_for_review(branch)
         comments = new_comments(number, reviewer=True)
         if not [c for c in comments if "path" in c or c["association"] in TRUSTED]:
@@ -247,6 +268,8 @@ def fix_new(work: Path, new: list, log: Path):
 
 
 def main() -> int:
+    signal.signal(signal.SIGTERM, on_cancel)
+    signal.signal(signal.SIGINT, on_cancel)
     for name in ("GH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
         if not os.environ.get(name):
             print(f"{name} isn't set", file=sys.stderr)
@@ -277,8 +300,9 @@ def main() -> int:
         work = Path(tmp)
         (work / "prompt.md").write_text((HERE / "prompt.md").read_text())
         for number, branch, comments in commented:
-            answer_comments(work, number, branch, comments, log)
-        if new:
+            if time_left():
+                answer_comments(work, number, branch, comments, log)
+        if new and time_left():
             fix_new(work, new, log)
     print(f"Claude's log on the Pi: {log}")
 

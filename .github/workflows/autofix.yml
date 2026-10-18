@@ -17,7 +17,7 @@ permissions:
 jobs:
   autofix:
     runs-on: [self-hosted, roman-tech-bot]
-    timeout-minutes: 90
+    timeout-minutes: 180     # run.py starts no Claude run after 120
     steps:
       - uses: actions/checkout@v7
         with:

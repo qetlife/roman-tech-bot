@@ -384,7 +384,7 @@ changes go through Alembic; see [Database migrations](setup.md#database-migratio
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts services tests
+python -m pyflakes bot.py config.py enums.py core db handlers jobs scripts services tests autofix
 pytest
 ```
 
