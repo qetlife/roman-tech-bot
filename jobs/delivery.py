@@ -17,15 +17,18 @@ from    core                        import recurrence as recurrences
 from    core.quiet                  import is_quiet, quiet_end, skip_quiet
 from    core.settings               import QUIET_HOURS, REPEAT_MINUTES, SNOOZE_OPTIONS, quiet_window
 from    db.models.reminder          import utcnow
+from    db.repositories.contact     import ContactRepository
 from    db.repositories.reminder    import ReminderRepository
 from    db.repositories.settings    import SettingsRepository
 from    db.repositories.user        import UserRepository
 from    enums                       import ReminderStatus
+from    handlers.people             import display
 from    handlers.reminders          import build_fire_keyboard, from_line, tell_creator
 
 
 logger = logging.getLogger(__name__)
 
+contacts = ContactRepository()
 reminders = ReminderRepository()
 settings = SettingsRepository()
 users = UserRepository()
@@ -85,6 +88,28 @@ async def _mark_message_missed(bot, reminder, reason):
         )
     except TelegramError:
         pass
+
+
+async def _unreachable(bot, reminder, creator):
+    """A reminder for someone else can't reach them: they leave the creator's 👥 People, who is told.
+
+    Like 🚫 Stop: their other reminders from the creator are cancelled too.
+    Blocking the bot is the one way to say no without the bot.
+    """
+    target = users.get_by_id(reminder.target_user_id)
+    contact = contacts.find(creator.id, reminder.target_user_id)
+    name = contact.name if contact is not None else display(target)
+    removed = contacts.remove(contact.id, creator.id) if contact is not None else None
+    others = len(removed.cancelled) if removed is not None else 0
+    text = (f"⚠️ I couldn't deliver “{reminder.text}” to {name}: they've blocked the bot or left Telegram. "
+            f"I removed them from 👥 People")
+    if others:
+        text += " and cancelled your other " + ("reminder" if others == 1 else f"{others} reminders") + " for them"
+    text += ". If they want your reminders again, send them a new invite."
+    try:
+        await bot.send_message(chat_id=creator.telegram_id, text=text)
+    except TelegramError:
+        logger.info("Couldn't tell user %s about reminder %s", creator.telegram_id, reminder.id)
 
 
 def _catch_up(recurrence, reminder, now, tz):
@@ -147,6 +172,8 @@ async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz, quiet=N
         # The user blocked the bot or deleted the chat; retrying won't help.
         logger.warning("Reminder %s undeliverable (blocked); marking failed", reminder.id)
         reminders.mark_failed(reminder.id)
+        if creator is not None:
+            await _unreachable(bot, reminder, creator)
         return
 
     # Only one copy on screen: remove the previous repeat.

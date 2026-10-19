@@ -367,8 +367,20 @@ to “mom”: up to 32 letters, digits, spaces, ' or -, starting with a letter.
   and they're told.
 
 Either way, reminders they had set for you that haven't gone off are
-cancelled. Each direction is separate: if Anna can remind you, that doesn't
-let you remind her.
+cancelled, and one that's going off right now loses its buttons
+(“↩️ Cancelled.”). The 🗑 Remove confirmation and the 🚫 Stop message say how
+many were cancelled. Each direction is separate: if Anna can remind you,
+that doesn't let you remind her.
+
+**If they block the bot** (or leave Telegram), the next reminder for them
+can't be delivered. The bot then removes them from your 👥 People, cancels
+your other reminders for them, and tells you:
+
+```
+⚠️ I couldn't deliver “bring the keys” to Anna: they've blocked the bot or
+left Telegram. I removed them from 👥 People and cancelled your other
+reminder for them. If they want your reminders again, send them a new invite.
+```
 
 ### Reminding someone
 

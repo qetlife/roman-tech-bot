@@ -281,15 +281,10 @@ def _reminder_for(owner, contact_person):
     from db.repositories.reminder import ReminderRepository
     from enums import MessageSource
 
-    repo = ReminderRepository()
-    reminder = repo.create(owner.user(), contact_person.telegram_id, "bring the ball",
-                           utcnow() + timedelta(hours=1), None, "…", MessageSource.TYPED)
-    # Reminders for others come in the next step; for now set the target by hand.
-    from db.models.reminder import Reminder
-    from db.session import SessionLocal
-    with SessionLocal() as session:
-        session.get(Reminder, reminder.id).target_user_id = contact_person.user().id
-        session.commit()
+    reminder = ReminderRepository().create(
+        owner.user(), contact_person.telegram_id, "bring the ball", utcnow() + timedelta(hours=1), None, "…",
+        MessageSource.TYPED, target=contact_person.user(),
+    )
     return reminder.id
 
 
@@ -315,7 +310,7 @@ def test_contact_stops_a_sender(person):
     _tap(anna, f"ppl:stop:{contact.id}")
     assert _people(roman) == []
     assert _status(reminder_id) == "cancelled"
-    assert roman.told()[-1] == "🚫 Anna stopped your reminders. Ones you'd set for them are cancelled."
+    assert roman.told()[-1] == "🚫 Anna stopped your reminders. Your 1 reminder for them is cancelled."
 
 
 def test_someone_else_cant_touch_a_contact(person):

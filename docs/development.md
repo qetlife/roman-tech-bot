@@ -298,7 +298,8 @@ hours). Both are UTC.
 Snooze buttons, the repeat interval, quiet hours and the chat are the
 target's; repeats follow the creator's timezone (`rule_tz`). A reminder
 from someone else says “📨 from <them>”, and when one is missed, its
-creator is told (`tell_creator`).
+creator is told (`tell_creator`). If Telegram refuses it (`Forbidden`), it
+is marked `failed`; for someone else, see Blocked in [People](#people).
 
 **Quiet hours** (`core/quiet.py`): `is_quiet`, `quiet_end` and
 `skip_quiet`. Only sub-day `Interval`s are skipped; other reminders have an
@@ -489,8 +490,15 @@ why the other person always opts in.
   `user_data["rename_contact_id"]`.
 - **Ending it**: `ContactRepository.remove` (either side; 🗑 Remove by the
   owner, 🚫 Stop by the contact) cancels the owner's active reminders for
-  that contact and deletes the row. Only the two people in a contact can see
-  or change it (`on_people_button`).
+  that contact and deletes the row. It returns `Removed(contact, cancelled)`,
+  the reminders as they were before (the bulk update isn't synchronized),
+  so `retire_cancelled` can take the buttons off one that is firing. Only
+  the two people in a contact can see or change it (`on_people_button`).
+- **Blocked**: when delivering a reminder for someone else raises
+  `Forbidden` (they blocked the bot or deleted their account), it is
+  marked `failed` and `jobs/delivery._unreachable` removes the contact,
+  like 🚫 Stop, and tells the creator. Blocking is the one way to say no
+  without the bot, and every later reminder would fail the same way.
 - **Profiles**: `handlers/ui.remember_profile` runs first for every update
   (`TypeHandler`, group -1) and stores `first_name` / `username` when they
   change, for known users; `/start` also stores them for new ones.

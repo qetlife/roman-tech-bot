@@ -50,6 +50,18 @@ async def tell(context: ContextTypes.DEFAULT_TYPE, user, text: str, reply_markup
         return False
 
 
+def reminders_count(n: int) -> str:
+    return f"{n} reminder" + ("" if n == 1 else "s")
+
+
+async def retire_cancelled(context: ContextTypes.DEFAULT_TYPE, removed):
+    """After a contact is removed: the buttons go from their reminders that are going off right now."""
+    # Imported here: handlers.reminders imports this module (display).
+    from handlers.reminders import retire_fired_message
+    for reminder in removed.cancelled:
+        await retire_fired_message(context, reminder, "↩️ Cancelled.")
+
+
 # --- the 👥 People screen ----------------------------------------------------
 
 def people_text(people, senders) -> str:
@@ -143,15 +155,25 @@ async def on_people_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(f"What should I call {contact.name}? e.g. “mom” or “Anna”.")
 
     elif action == PeopleAction.REMOVE and owner:
-        contacts.remove(contact.id, user.id)
-        await query.answer(f"Removed {contact.name}")
+        removed = contacts.remove(contact.id, user.id)
+        if removed is None:
+            await query.answer("That's gone.")
+        elif removed.cancelled:
+            await query.answer(f"Removed {contact.name} and cancelled {reminders_count(len(removed.cancelled))} for them")
+            await retire_cancelled(context, removed)
+        else:
+            await query.answer(f"Removed {contact.name}")
         await show_people(update, context)
 
     elif action == PeopleAction.STOP and not owner:
-        contacts.remove(contact.id, user.id)
+        removed = contacts.remove(contact.id, user.id)
         await query.answer("Stopped")
-        await tell(context, users.get_by_id(contact.owner_user_id),
-                   f"🚫 {contact.name} stopped your reminders. Ones you'd set for them are cancelled.")
+        if removed is not None:
+            await retire_cancelled(context, removed)
+            n = len(removed.cancelled)
+            cancelled = f" Your {reminders_count(n)} for them {'is' if n == 1 else 'are'} cancelled." if n else ""
+            await tell(context, users.get_by_id(contact.owner_user_id),
+                       f"🚫 {contact.name} stopped your reminders.{cancelled}")
         await show_people(update, context)
 
     else:
