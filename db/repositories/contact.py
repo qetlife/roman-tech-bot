@@ -22,6 +22,13 @@ REQUESTS_PER_DAY = 5
 
 
 @dataclass
+class Removed:
+    """What removing a contact did: the deleted row, and the reminders for them it cancelled."""
+    contact: Contact
+    cancelled: list
+
+
+@dataclass
 class Accepted:
     """What using an invite did: `result`, and the contact row if one was made (or existed)."""
     result: InviteResult
@@ -178,7 +185,7 @@ class ContactRepository:
             session.commit()
             return contact
 
-    def remove(self, contact_id: int, user_id: uuid.UUID) -> Optional[Contact]:
+    def remove(self, contact_id: int, user_id: uuid.UUID) -> Optional[Removed]:
         """Either side ends it: the row is deleted, and the owner's waiting reminders for them cancelled."""
         with SessionLocal(expire_on_commit=False) as session:
             contact = session.get(Contact, contact_id, with_for_update=True)
@@ -186,16 +193,24 @@ class ContactRepository:
                     or contact.status == ContactStatus.DECLINED:
                 # A declined row is a note not to ask again, not a contact.
                 return None
-            session.execute(
-                update(Reminder)
+            cancelled = list(session.scalars(
+                select(Reminder)
                 .where(Reminder.creator_user_id == contact.owner_user_id,
                        Reminder.target_user_id == contact.contact_user_id,
                        Reminder.status.in_(ACTIVE_STATUSES))
-                .values(status=ReminderStatus.CANCELLED)
-            )
+                .with_for_update()
+            ))
+            if cancelled:
+                # Not synchronized: the returned reminders keep their old status.
+                session.execute(
+                    update(Reminder).where(Reminder.id.in_([r.id for r in cancelled]))
+                    .values(status=ReminderStatus.CANCELLED)
+                    .execution_options(synchronize_session=False)
+                )
             session.delete(contact)
             session.commit()
-            return contact
+            # As they were, so a firing one's message can still be retired.
+            return Removed(contact, cancelled)
 
     @staticmethod
     def _free_name(session, owner_id: uuid.UUID, name: str) -> str:

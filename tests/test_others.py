@@ -384,3 +384,84 @@ def test_timezone_first_then_the_reminder_for_the_contact(pair):
     assert _replies(update)[0].startswith("First, one-time setup.")
     roman(data="tz:Europe/Lisbon", handler=on_timezone_button)
     assert [r.text for r in _for(anna)] == ["bring the keys"]
+
+
+# --- ending it --------------------------------------------------------------
+
+def _contact(roman):
+    from db.repositories.contact import ContactRepository
+    [(contact, _)] = ContactRepository().people_of(roman.user().id)
+    return contact
+
+
+def test_removing_a_contact_retires_a_reminder_going_off(pair):
+    from db.repositories.reminder import ReminderRepository
+    from handlers.people import on_people_button
+    roman, anna = pair
+    roman("remind anna tomorrow at 9 to bring the keys")
+    roman("remind anna tomorrow at 10 to buy milk")
+    first = _for(anna)[0]
+    ReminderRepository().mark_fired(first.id, 555, first.remind_at + timedelta(minutes=5))
+
+    update = roman(data=f"ppl:del:{_contact(roman).id}", handler=on_people_button)
+    assert update.callback_query.answer.call_args.args == ("Removed Anna and cancelled 2 reminders for them",)
+    assert _for(anna) == []
+    # Its message in Anna's chat loses its buttons
+    edit = roman.context.bot.edit_message_text.call_args.kwargs
+    assert (edit["chat_id"], edit["message_id"], edit["text"]) == (anna.telegram_id, 555, "⏰ bring the keys\n\n↩️ Cancelled.")
+    assert anna.told() == []
+
+
+def test_stopping_a_sender_says_how_many_were_cancelled(pair):
+    from handlers.people import on_people_button
+    roman, anna = pair
+    roman("remind anna tomorrow at 9 to bring the keys")
+    roman("remind anna tomorrow at 10 to buy milk")
+    anna(data=f"ppl:stop:{_contact(roman).id}", handler=on_people_button)
+    assert roman.told() == ["🚫 Anna stopped your reminders. Your 2 reminders for them are cancelled."]
+
+
+def test_a_contact_who_blocked_the_bot(pair, monkeypatch):
+    from telegram.error import Forbidden
+    roman, anna = pair
+    roman("remind anna tomorrow at 9 to bring the keys")
+    roman("remind anna tomorrow at 10 to buy milk")
+    first, second = _for(anna)
+
+    from jobs import delivery
+    # Both due in the same poll: one warning, and the second stays cancelled.
+    monkeypatch.setattr(delivery.reminders, "get_due", lambda _: [first, second])
+    monkeypatch.setattr(delivery, "utcnow", lambda: second.remind_at + timedelta(seconds=5))
+    context = MagicMock()
+    told = []
+
+    async def send_message(chat_id, text, reply_markup=None):
+        if chat_id == anna.telegram_id:
+            raise Forbidden("Forbidden: bot was blocked by the user")
+        told.append((chat_id, text))
+    context.bot.send_message = send_message
+    asyncio.run(delivery.deliver_due(context))
+
+    assert _reload(first).status == "failed"
+    assert _reload(second).status == "cancelled"
+    from db.repositories.contact import ContactRepository
+    assert ContactRepository().people_of(roman.user().id) == []
+    assert told == [(roman.telegram_id,
+                     "⚠️ I couldn't deliver “bring the keys” to Anna: they've blocked the bot or left Telegram. "
+                     "I removed them from 👥 People and cancelled your other reminder for them. "
+                     "If they want your reminders again, send them a new invite.")]
+
+
+def test_own_reminder_when_blocked_tells_nobody(user, monkeypatch):
+    from telegram.error import Forbidden
+    from db.models.reminder import utcnow
+    from db.repositories.reminder import ReminderRepository
+    from jobs import delivery
+
+    reminder = ReminderRepository().create(user, 1, "call mom", utcnow() - timedelta(seconds=5))
+    monkeypatch.setattr(delivery.reminders, "get_due", lambda _: [reminder])
+    context = MagicMock()
+    context.bot.send_message = AsyncMock(side_effect=Forbidden("Forbidden: bot was blocked by the user"))
+    asyncio.run(delivery.deliver_due(context))
+    assert _reload(reminder).status == "failed"
+    assert context.bot.send_message.call_count == 1
