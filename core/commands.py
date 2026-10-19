@@ -49,17 +49,18 @@ def parse_day(request: str, now: datetime) -> Optional[date]:
 
 
 def occurs_on(remind_at: datetime, recurrence: Optional[str], day: date, tz: tzinfo,
-              created_at: datetime) -> bool:
-    """Whether a reminder is due on `day` (local), including earlier that day.
+              created_at: datetime, rule_tz: Optional[tzinfo] = None) -> bool:
+    """Whether a reminder is due on `day` (local, in `tz`), including earlier that day.
 
-    `remind_at` is its next time; a repeat (`recurrence`) also counts on any
-    day it falls on since it was made (`created_at`), so a daily 08:00 one
-    that already went off today is still on today's list.
+    `remind_at` is its next time; a repeat (`recurrence`, in `rule_tz`: its
+    creator's timezone, `tz` if not given) also counts on any day it falls
+    on since it was made (`created_at`), so a daily 08:00 one that already
+    went off today is still on today's list.
     """
     if remind_at.astimezone(tz).date() == day:
         return True
     if not recurrence:
         return False
     start = max(datetime.combine(day, datetime.min.time(), tzinfo=tz), created_at)
-    following = recurrences.parse(recurrence).next_after(start - timedelta(seconds=1), tz)
+    following = recurrences.parse(recurrence).next_after(start - timedelta(seconds=1), rule_tz or tz)
     return following.astimezone(tz).date() == day

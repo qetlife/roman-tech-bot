@@ -14,12 +14,13 @@ from db.models.user     import User
 class ReminderRepository:
     def create(
         self, user: User, chat_id: int, text: str, remind_at: datetime, recurrence: Optional[str] = None,
-        request: Optional[str] = None, source: Optional[MessageSource] = None,
+        request: Optional[str] = None, source: Optional[MessageSource] = None, target: Optional[User] = None,
     ) -> Reminder:
+        """A reminder by `user`, for `target` (a contact, delivered to `chat_id`) or themselves."""
         with SessionLocal(expire_on_commit=False) as session:
             reminder = Reminder(
                 creator_user_id=user.id,
-                target_user_id=user.id,
+                target_user_id=(target or user).id,
                 chat_id=chat_id,
                 text=text,
                 remind_at=remind_at,
@@ -32,12 +33,16 @@ class ReminderRepository:
             session.commit()
             return reminder
 
-    def get_for_user(self, reminder_id: int, telegram_id: int) -> Optional[Reminder]:
-        """The reminder, if `telegram_id` is the user it is meant for."""
+    def get(self, reminder_id: int) -> Optional[Reminder]:
+        with SessionLocal(expire_on_commit=False) as session:
+            return session.get(Reminder, reminder_id)
+
+    def get_created(self, reminder_id: int, telegram_id: int) -> Optional[Reminder]:
+        """The reminder, if `telegram_id` made it (for themselves or for someone else)."""
         with SessionLocal(expire_on_commit=False) as session:
             stmt = (
                 select(Reminder)
-                .join(User, User.id == Reminder.target_user_id)
+                .join(User, User.id == Reminder.creator_user_id)
                 .where(Reminder.id == reminder_id, User.telegram_id == telegram_id)
             )
             return session.scalar(stmt)
@@ -56,12 +61,12 @@ class ReminderRepository:
             )
             return session.scalar(stmt)
 
-    def latest_for_user(self, telegram_id: int) -> Optional[Reminder]:
-        """The reminder created most recently for `telegram_id`."""
+    def latest_created(self, telegram_id: int) -> Optional[Reminder]:
+        """The reminder `telegram_id` made most recently."""
         with SessionLocal(expire_on_commit=False) as session:
             stmt = (
                 select(Reminder)
-                .join(User, User.id == Reminder.target_user_id)
+                .join(User, User.id == Reminder.creator_user_id)
                 .where(User.telegram_id == telegram_id)
                 .order_by(Reminder.id.desc())
                 .limit(1)
@@ -69,6 +74,7 @@ class ReminderRepository:
             return session.scalar(stmt)
 
     def list_active(self, user_id: uuid.UUID) -> list:
+        """The reminders waiting for this user: their own, and those others sent them."""
         with SessionLocal(expire_on_commit=False) as session:
             stmt = (
                 select(Reminder)
@@ -76,6 +82,20 @@ class ReminderRepository:
                 .order_by(Reminder.remind_at)
             )
             return list(session.scalars(stmt))
+
+    def list_created(self, user_id: uuid.UUID) -> list:
+        """The active reminders this user made: for themselves and for others."""
+        with SessionLocal(expire_on_commit=False) as session:
+            stmt = (
+                select(Reminder)
+                .where(Reminder.creator_user_id == user_id, Reminder.status.in_(ACTIVE_STATUSES))
+                .order_by(Reminder.remind_at)
+            )
+            return list(session.scalars(stmt))
+
+    def list_sent(self, user_id: uuid.UUID) -> list:
+        """The active reminders this user made for others."""
+        return [r for r in self.list_created(user_id) if r.target_user_id != user_id]
 
     def get_due(self, now: datetime) -> list:
         with SessionLocal(expire_on_commit=False) as session:

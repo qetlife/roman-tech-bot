@@ -27,6 +27,9 @@ PENDING_PART = "pending_part"
 # while it still asks means it shouldn't have (handlers/text.py, the only
 # reader, which checks `awaiting` too).
 ASKED_REQUEST = "asked_request"
+# The contact (id) the reminder being made is for ("remind anna …"), while the
+# bot asks its time, its text or the timezone; unset for one's own.
+PENDING_CONTACT_ID = "pending_contact_id"
 # Where ↩️ Back on ⏰ Reminder settings returns to (a Callback).
 REMINDER_SETTINGS_BACK = "reminder_settings_back"
 # What "that's wrong" refers to: the id of the reminder made from the user's

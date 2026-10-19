@@ -67,6 +67,8 @@ def main():
     app.add_handler(CallbackQueryHandler(settings.on_repeat_button,   pattern=prefixed(CallbackPrefix.REPEAT_OPTION)))
     app.add_handler(CallbackQueryHandler(settings.on_quiet_settings,  pattern=exact(Callback.QUIET_SETTINGS)))
     app.add_handler(CallbackQueryHandler(settings.on_quiet_button,    pattern=prefixed(CallbackPrefix.QUIET_OPTION)))
+    app.add_handler(CallbackQueryHandler(settings.on_updates_settings, pattern=exact(Callback.UPDATES_SETTINGS)))
+    app.add_handler(CallbackQueryHandler(settings.on_updates_button,  pattern=prefixed(CallbackPrefix.UPDATES_OPTION)))
 
     # Reminders
     app.add_handler(CallbackQueryHandler(reminders.on_new,              pattern=exact(Callback.NEW_REMINDER)))

@@ -139,6 +139,13 @@ class ContactRepository:
         with SessionLocal(expire_on_commit=False) as session:
             return session.get(Contact, contact_id)
 
+    def find(self, owner_id: uuid.UUID, contact_user_id: uuid.UUID) -> Optional[Contact]:
+        """The owner's contact row for this user (any status), or None."""
+        with SessionLocal(expire_on_commit=False) as session:
+            return session.scalar(select(Contact).where(
+                Contact.owner_user_id == owner_id, Contact.contact_user_id == contact_user_id,
+            ))
+
     def people_of(self, owner_id: uuid.UUID) -> list:
         """[(contact, their user)] the owner can (or asked to) remind, by name."""
         with SessionLocal(expire_on_commit=False) as session:

@@ -4,8 +4,8 @@ from    telegram                    import InlineKeyboardButton, InlineKeyboardM
 from    telegram.ext                import ContextTypes
 
 from    core.settings               import (
-    QUIET_HOURS, QUIET_PRESETS, REPEAT_MINUTES, REPEAT_PRESETS, SNOOZE_OPTIONS, SNOOZE_PRESETS,
-    format_minutes, format_quiet_hours, parse_quiet_hours, parse_snooze_options,
+    QUIET_HOURS, QUIET_PRESETS, REPEAT_MINUTES, REPEAT_PRESETS, SENDER_UPDATES, SNOOZE_OPTIONS, SNOOZE_PRESETS,
+    format_minutes, format_on_off, format_quiet_hours, parse_quiet_hours, parse_snooze_options,
 )
 from    core.timezones              import COMMON_TIMEZONES, resolve_timezone, user_now
 from    db.repositories.settings    import SettingsRepository
@@ -64,8 +64,8 @@ async def apply_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, tz_
     pending = context.user_data.pop(PENDING_REQUEST, None)
     if pending is not None:
         # Imported here: handlers.reminders imports this module (ask_timezone).
-        from handlers.reminders import create_reminder
-        await create_reminder(update, context, pending)
+        from handlers.reminders import answer_reminder
+        await answer_reminder(update, context, pending)
 
 
 async def on_timezone_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -112,16 +112,18 @@ def build_reminder_settings_menu(back: str):
         [InlineKeyboardButton(SNOOZE_OPTIONS.label, callback_data=Callback.SNOOZE_SETTINGS)],
         [InlineKeyboardButton(REPEAT_MINUTES.label, callback_data=Callback.REPEAT_SETTINGS)],
         [InlineKeyboardButton(QUIET_HOURS.label, callback_data=Callback.QUIET_SETTINGS)],
+        [InlineKeyboardButton(SENDER_UPDATES.label, callback_data=Callback.UPDATES_SETTINGS)],
         [InlineKeyboardButton("↩️ Back", callback_data=back)],
     ])
 
 
-def reminder_settings_text(snooze, repeat, quiet) -> str:
+def reminder_settings_text(snooze, repeat, quiet, updates) -> str:
     return (
         "⏰ Reminder settings:\n\n"
         f"{SNOOZE_OPTIONS.label}: {format_snooze_options(snooze)}\n"
         f"{REPEAT_MINUTES.label}: every {format_minutes(repeat)}\n"
-        f"{QUIET_HOURS.label}: {format_quiet_hours(quiet)}"
+        f"{QUIET_HOURS.label}: {format_quiet_hours(quiet)}\n"
+        f"{SENDER_UPDATES.label}: {format_on_off(updates)}"
     )
 
 
@@ -136,6 +138,7 @@ async def on_reminder_settings(update: Update, context: ContextTypes.DEFAULT_TYP
     user = users.get_or_create(update.effective_user.id)
     text = reminder_settings_text(
         settings.get(user.id, SNOOZE_OPTIONS), settings.get(user.id, REPEAT_MINUTES), settings.get(user.id, QUIET_HOURS),
+        settings.get(user.id, SENDER_UPDATES),
     )
     await render_menu(update, context, text, build_reminder_settings_menu(back))
 
@@ -340,3 +343,41 @@ async def on_quiet_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text
             InlineKeyboardButton("↩️ Reminder settings", callback_data=Callback.REMINDER_SETTINGS_RETURN),
         ]]),
     )
+
+
+# --- updates from people ----------------------------------------------------
+
+def build_updates_menu(current: bool):
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(("✅ " if current else "") + "🔔 On",
+                                 callback_data=option_callback(CallbackPrefix.UPDATES_OPTION, OptionAction.ON)),
+            InlineKeyboardButton(("✅ " if not current else "") + "🔕 Off",
+                                 callback_data=option_callback(CallbackPrefix.UPDATES_OPTION, OptionAction.OFF)),
+        ],
+        [InlineKeyboardButton("↩️ Back", callback_data=Callback.REMINDER_SETTINGS_RETURN)],
+    ])
+
+
+def updates_menu_text(current: bool) -> str:
+    return (
+        f"{SENDER_UPDATES.label}\n\n"
+        f"Current: {format_on_off(current)}\n\n"
+        "When someone in 👥 People taps ✅ on a reminder you sent them, or misses it, "
+        "I tell you. If they cancel one, you're always told."
+    )
+
+
+async def on_updates_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, toast: str = None):
+    """⏰ Reminder settings → 📣 Updates from people."""
+    await update.callback_query.answer(toast)
+    user = users.get_or_create(update.effective_user.id)
+    current = settings.get(user.id, SENDER_UPDATES)
+    await render_menu(update, context, updates_menu_text(current), build_updates_menu(current))
+
+
+async def on_updates_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    action, _ = split_option(update.callback_query.data, CallbackPrefix.UPDATES_OPTION)
+    user = users.get_or_create(update.effective_user.id)
+    settings.set(user.id, SENDER_UPDATES, action == OptionAction.ON)
+    await on_updates_settings(update, context, toast="Saved")

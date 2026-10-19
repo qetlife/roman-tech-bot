@@ -18,7 +18,7 @@ from    db.models.reminder          import utcnow
 from    db.repositories.reminder    import ReminderRepository
 from    db.repositories.settings    import SettingsRepository
 from    db.repositories.user        import UserRepository
-from    enums                       import ReplyCommand
+from    enums                       import ReminderStatus, ReplyCommand
 from    handlers                    import reminders as rh
 
 
@@ -53,6 +53,7 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
             return True
         await rh.retire_fired_message(context, reminder, done)
         await reply(done)
+        await rh.tell_creator(context.bot, reminder, ReminderStatus.DONE)
 
     elif command.command == ReplyCommand.SNOOZE:
         minutes = (command.snooze.total_seconds() // 60 if command.snooze
@@ -86,7 +87,8 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
         await reply(f"⏰ {reminder.text}\n{note}")
 
     elif command.command == ReplyCommand.CANCEL:
-        reminders.cancel(reminder.id)
+        if reminders.cancel(reminder.id) is not None:
+            await rh.tell_creator(context.bot, reminder, ReminderStatus.CANCELLED)
         await rh.retire_fired_message(context, reminder, "↩️ Cancelled.")
         await reply(f"↩️ Cancelled: {reminder.text}")
 

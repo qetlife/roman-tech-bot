@@ -185,4 +185,24 @@ QUIET_HOURS = Setting(
 QUIET_PRESETS = [["00:00", "07:00"], ["23:00", "07:00"], ["22:00", "08:00"]]
 
 
-SETTINGS = {s.key: s for s in [SNOOZE_OPTIONS, REPEAT_MINUTES, QUIET_HOURS]}
+# --- updates on reminders for others ------------------------------------------
+
+def validate_on_off(value) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError("Must be on or off.")
+    return value
+
+
+SENDER_UPDATES = Setting(
+    key="reminders.sender_updates",
+    default=True,
+    validate=validate_on_off,
+    label="📣 Updates from people",
+)
+
+
+def format_on_off(value: bool) -> str:
+    return "On" if value else "Off"
+
+
+SETTINGS = {s.key: s for s in [SNOOZE_OPTIONS, REPEAT_MINUTES, QUIET_HOURS, SENDER_UPDATES]}
