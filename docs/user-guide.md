@@ -14,12 +14,14 @@ Everything you can do with the bot, and how. For how the code works, see
   - [Listing, editing and cancelling](#listing-editing-and-cancelling)
   - [When the bot gets it wrong](#when-the-bot-gets-it-wrong)
 - [👥 People](#-people)
+  - [Reminding someone](#reminding-someone)
 - [Settings](#settings)
   - [🆔 My ID](#-my-id)
   - [🌍 Timezone](#-timezone)
   - [💤 Snooze options](#-snooze-options)
   - [🔁 Repeat interval](#-repeat-interval)
   - [🌙 Quiet hours](#-quiet-hours)
+  - [📣 Updates from people](#-updates-from-people)
 - [Good to know](#good-to-know)
 
 ## Getting started
@@ -59,7 +61,8 @@ Menu
     └── ⏰ Reminders           ⏰ Reminder settings:
         ├── 💤 Snooze options
         ├── 🔁 Repeat interval
-        └── 🌙 Quiet hours
+        ├── 🌙 Quiet hours
+        └── 📣 Updates from people
 ```
 
 `↩️ Back` always returns to the screen you came from; ⏰ Reminder settings
@@ -107,6 +110,7 @@ are fine; small typos too, see [Typos](#typos)):
 
 | To…               | Start the message with                                                                    |
 | ----------------- | ----------------------------------------------------------------------------------------- |
+| create a reminder for someone in [👥 People](#reminding-someone) | “remind anna …”, “remind @anna …” |
 | create a reminder | “remind me”, “remind”, “set a reminder”, “set reminder”, “create a reminder”, “add a reminder”, “new reminder”, “don't let me forget”, “don't forget” |
 | list reminders    | “my reminders”, “show my reminders”, “show reminders”, “list reminders”, “list my reminders”, “reminders” |
 | list one day      | “what do I have tomorrow?”, “what's on friday?”, “my reminders on dec 24”, “anything on monday?” (repeats included, also ones that already went off today) |
@@ -275,7 +279,9 @@ handled like a normal message, so “remind me …” still works.
 ### Listing, editing and cancelling
 
 - **List**: “my reminders” or `⏰ Reminders → 📋 My reminders` shows your
-  upcoming reminders with their time and repeat.
+  upcoming reminders with their time and repeat, including those people
+  sent you (“📨 from Roman”), and then, under **For others**, the ones you
+  set for people in [👥 People](#reminding-someone).
 - **Cancel**: tap `❌` next to a reminder in the list, or `↩️ Undo` right
   after creating it. Cancelling a recurring reminder stops all future
   occurrences.
@@ -364,6 +370,60 @@ Either way, reminders they had set for you that haven't gone off are
 cancelled. Each direction is separate: if Anna can remind you, that doesn't
 let you remind her.
 
+### Reminding someone
+
+Once someone is in your 👥 People, start a reminder with their name (or
+their @username) instead of “me”:
+
+- “remind anna tomorrow at 9 to bring the keys”
+- “remind mom every Sunday at 18 to call me”
+- “remind @anna, buy milk at 5”
+
+Everything that works for your own reminders works here: repeats, voice
+messages, and the bot asking for a missing time or text (“⏰ When should I
+remind Anna: “bring the keys”?”). If the name isn't one of yours, the bot
+asks “Who's “bob”?” instead of guessing, and makes nothing. If they haven't
+answered your request yet, it says so.
+
+```
+⏰ Got it for Anna: bring the keys
+🗓 Tomorrow, 09:00 (in 9 h)
+[↩️ Undo] [✏️ Edit] [👎 Wrong]
+```
+
+**The time is yours**: “tomorrow at 9” and “every day at 9” are 9 o'clock
+in *your* timezone, since you said it. Anna sees it in hers (11:00 if she's
+two hours ahead), and a repeat shows whose clock it follows: “🔁 every day
+at 09:00 (Roman's time)”.
+
+**Anna gets it in her chat**, with her own snooze options, repeat interval
+and quiet hours:
+
+```
+⏰ bring the keys
+📨 from Roman (@roman)
+[✅ OK] [💤 10 min] [💤 1 h]
+```
+
+**Who can do what:**
+
+| | You (sender) | Anna |
+| --- | --- | --- |
+| ✅ OK, 💤 snooze, replies (“done”, “move it to 10”) | | ✓ |
+| ↩️ Undo, ✏️ Edit, 👎 Wrong | ✓ | |
+| ❌ Cancel from the list | ✓ | ✓ (you're told) |
+
+**What you're told:**
+
+- “✅ Anna did it: bring the keys” when she taps ✅ OK (each time, for a
+  repeat).
+- “❌ Anna missed it: bring the keys” when it's marked missed.
+- “🗑 Anna cancelled your reminder: bring the keys” if she cancels it.
+
+Turn off the first two in [📣 Updates from people](#-updates-from-people);
+you're always told about a cancellation. When either of you leaves the
+other's 👥 People, reminders that haven't gone off are cancelled.
+
 ## Settings
 
 Open `⚙️ Settings` from the menu. Reminder settings are also under
@@ -386,6 +446,9 @@ the selected option. `♻️ Default` restores the default.
   “every day at 9” is then 09:00 in the new timezone. One-off reminders and
   “every N minutes/hours/days” keep their moment in time, so their local
   time shifts.
+- Reminders you [set for someone](#reminding-someone) are in your timezone
+  too, and follow it when you change it. Those others set for you follow
+  theirs, so changing yours only changes how their time is shown to you.
 
 ### 💤 Snooze options
 
@@ -426,10 +489,22 @@ interruptions:
 | Presets | 00:00–07:00, 23:00–07:00, 22:00–08:00, 🔔 Off |
 | Custom  | Send e.g. “23:00-07:00”, “22 to 8”, “11 pm to 7” or “off” (or say “eleven pm to seven”). Start and end must differ; windows across midnight are fine |
 
+### 📣 Updates from people
+
+`⚙️ Settings → ⏰ Reminders → 📣 Updates from people`. Whether you're told
+when someone you [sent a reminder](#reminding-someone) taps ✅ OK or misses
+it. Cancellations are always told.
+
+| | |
+| --- | --- |
+| Default | 🔔 On |
+| Options | 🔔 On, 🔕 Off |
+
 ## Good to know
 
 - Typed and voice messages work in **private chats** only.
-- Only the person a reminder is for can press its buttons.
+- Only the person a reminder is for can answer it (✅ OK, 💤); only whoever
+  made it can undo, edit or flag it.
 - If the bot doesn't understand a message, it suggests an example and
   `/menu`, and saves the message so the bot can learn it (see
   [When the bot gets it wrong](#when-the-bot-gets-it-wrong)).

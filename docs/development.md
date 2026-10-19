@@ -108,6 +108,19 @@ obvious from the code.
   remind contact”; the other direction is another row. Either side can end
   it, which **deletes** the row (consent withdrawn, nothing kept) and
   cancels the owner's waiting reminders for them.
+- **A reminder for someone else is in the sender's time.** “remind anna
+  tomorrow at 9” is parsed in the creator's timezone (they said it), and a
+  repeat keeps the creator's clock: `next_after` gets the creator's
+  timezone everywhere (delivery, ✅ OK, the agenda, `keep_clock_times`,
+  which moves what a user *made*). The target sees the time converted, plus
+  “(Roman's time)” on the repeat. Everything about receiving it (snooze
+  buttons, repeat interval, quiet hours) is the target's.
+- **“remind <word>” is never a guess.** After the bare trigger “remind”,
+  a contact's name (or @username) makes it theirs; a word that looks like
+  a name but isn't a contact (“bob to …”, “bob tomorrow at 9 to …”) gets
+  “Who's “bob”?” and nothing is made, rather than a reminder for yourself
+  called “bob to …”. A message that is already a reminder as written
+  (“remind call mom tomorrow”) stays one.
 
 - **A small, predictable parser instead of guessing.** It understands a
   fixed set of English expressions and asks the user to rephrase otherwise,
@@ -220,6 +233,30 @@ asked about is kept in `user_data["asked_request"]`; “that's wrong” while
 counts it as understood, except for those flagged entries. ✏️ Edit doesn't
 ask: it says what's wrong.
 
+**For someone else** (`handlers/reminders.py`, “remind anna …”): the bare
+trigger “remind” is its own intent (`remind_someone`, also
+`IntentName.REMINDER_CREATE`). `core/contacts.split_name` finds the
+longest of the user's contact names (and their @usernames) at the start;
+`core/contacts.unknown_name` spots a name that isn't a contact. The
+contact's id is kept in `user_data["pending_contact_id"]` while the bot asks
+for a time, a text or the timezone, so the answer is for the same person;
+`save_reminder` checks again that they're still an accepted contact. The
+reminder has `creator_user_id` = the sender, `target_user_id` and `chat_id`
+= the contact's.
+
+| | Who |
+| --- | --- |
+| ✅ OK, 💤, replies (`TARGET_ACTIONS`) | target |
+| ↩️ Undo, ✏️ Edit, 👎 Wrong (`CREATOR_ACTIONS`) | creator |
+| ❌ in the list (`ReminderAction.DELETE`) | either |
+
+`tell_creator` sends the creator “✅ did it”, “❌ missed it” (both only
+with `reminders.sender_updates` on) or “🗑 cancelled” (when the target
+cancels: button, list, or a “cancel” reply). The 📋 list is
+`list_active` (for the user, from anyone) followed by `list_sent` under
+“For others”; the agenda shows only the former. “That's wrong” refers to
+the last reminder the user *made* (`latest_created`).
+
 **Recurrence** (`core/recurrence.py`): four types, stored as a string
 in `reminders.recurrence` (`NULL` = one-off):
 
@@ -257,6 +294,11 @@ hours). Both are UTC.
    “every N minutes/hours” occurrences to the first one after.
 4. Otherwise send it with ✅ OK and snooze buttons, delete the previous copy,
    and set the next repeat (`now + repeat interval`).
+
+Snooze buttons, the repeat interval, quiet hours and the chat are the
+target's; repeats follow the creator's timezone (`rule_tz`). A reminder
+from someone else says “📨 from <them>”, and when one is missed, its
+creator is told (`tell_creator`).
 
 **Quiet hours** (`core/quiet.py`): `is_quiet`, `quiet_end` and
 `skip_quiet`. Only sub-day `Interval`s are skipped; other reminders have an
@@ -335,6 +377,7 @@ default, as JSON, so adding a setting needs no migration.
 | `reminders.snooze_options`  | `[10, 60]`         | sorted minutes, 1–3 values, 1–1440 |
 | `reminders.repeat_minutes`  | `5`                | minutes, 1–60       |
 | `reminders.quiet_hours`     | `["00:00", "07:00"]` | `[start, end]` local, `[]` = off |
+| `reminders.sender_updates`  | `true`             | whether the creator of a reminder for someone else hears ✅ done / ❌ missed |
 
 The timezone is a column on `users`, not a setting.
 

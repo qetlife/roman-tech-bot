@@ -1,4 +1,9 @@
-"""Background loop that sends due reminders and repeats them until OK."""
+"""Background loop that sends due reminders and repeats them until OK.
+
+A reminder goes to its target's chat with the target's settings (snooze
+buttons, repeat interval, quiet hours); its repeat follows the clock of
+whoever made it (handlers/reminders.py, reminders for others).
+"""
 
 import logging
 
@@ -16,7 +21,7 @@ from    db.repositories.reminder    import ReminderRepository
 from    db.repositories.settings    import SettingsRepository
 from    db.repositories.user        import UserRepository
 from    enums                       import ReminderStatus
-from    handlers.reminders          import build_fire_keyboard
+from    handlers.reminders          import build_fire_keyboard, from_line, tell_creator
 
 
 logger = logging.getLogger(__name__)
@@ -49,7 +54,9 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE):
     snooze_options = settings.get_for_users(user_ids, SNOOZE_OPTIONS)
     repeat_minutes = settings.get_for_users(user_ids, REPEAT_MINUTES)
     quiet_hours = settings.get_for_users(user_ids, QUIET_HOURS)
-    timezones = users.get_timezones(user_ids)
+    timezones = users.get_timezones(user_ids | {r.creator_user_id for r in due})
+    # Who made the reminders for others, for "📨 from …"
+    creators = users.get_many({r.creator_user_id for r in due if r.creator_user_id != r.target_user_id})
 
     for reminder in due:
         try:
@@ -59,6 +66,8 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE):
                 timedelta(minutes=repeat_minutes[reminder.target_user_id]),
                 ZoneInfo(timezones.get(reminder.target_user_id) or "UTC"),
                 quiet_window(quiet_hours[reminder.target_user_id]),
+                rule_tz=ZoneInfo(timezones.get(reminder.creator_user_id) or "UTC"),
+                creator=creators.get(reminder.creator_user_id),
             )
         except Exception:
             # One broken reminder must not stop the others; it is retried next poll.
@@ -87,22 +96,30 @@ def _catch_up(recurrence, reminder, now, tz):
     return latest, upcoming
 
 
-async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz, quiet=None):
+async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz, quiet=None, rule_tz=None, creator=None):
+    """Send (or move on) one due reminder.
+
+    `tz` and `quiet` are its target's, `rule_tz` the timezone its repeat is
+    in (its creator's; `tz` if not given), `creator` who made it if that
+    was someone else.
+    """
     firing = reminder.status == ReminderStatus.FIRING
     gave_up = firing and now - reminder.remind_at >= GIVE_UP_AFTER
 
     recurrence = recurrences.parse(reminder.recurrence) if reminder.recurrence else None
     if recurrence is not None:
-        latest, upcoming = _catch_up(recurrence, reminder, now, tz)
+        latest, upcoming = _catch_up(recurrence, reminder, now, rule_tz or tz)
         if latest is not None or gave_up:
             # This occurrence is over: move on. A due one is sent on the next poll.
             if firing:
                 await _mark_message_missed(bot, reminder, "the next one is due" if latest else "no response for 24 h")
+                await tell_creator(bot, reminder, ReminderStatus.MISSED)
             reminders.advance(reminder.id, latest or upcoming)
             return
 
     elif gave_up:
-        reminders.mark_missed(reminder.id)
+        if reminders.mark_missed(reminder.id) is not None:
+            await tell_creator(bot, reminder, ReminderStatus.MISSED)
         await _mark_message_missed(bot, reminder, "no response for 24 h")
         return
 
@@ -117,6 +134,8 @@ async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz, quiet=N
             return
 
     text = f"⏰ {reminder.text}"
+    if creator is not None:
+        text += f"\n{from_line(creator)}"
     if reminder.fire_count > 0:
         text += "\n\n🔁 Still waiting for your OK."
 

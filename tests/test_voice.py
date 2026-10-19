@@ -127,7 +127,7 @@ def test_voice_reminder_remembers_it_came_by_voice(speech_server, voice_update):
 
     update, context = voice_update
     _on_voice(update, context)
-    reminder = ReminderRepository().latest_for_user(update.effective_user.id)
+    reminder = ReminderRepository().latest_created(update.effective_user.id)
     assert (reminder.request, reminder.source) == ("tomorrow at nine to call mom", "voice")
 
 

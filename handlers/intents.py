@@ -6,7 +6,9 @@ rest of the message. Add new phrases or intents here.
 
 from core.intents       import Intent
 from enums              import IntentName
-from handlers.reminders import agenda, cancel_reminder, create_reminder, flag_last_reminder, list_reminders
+from handlers.reminders import (
+    agenda, cancel_reminder, create_reminder, flag_last_reminder, list_reminders, remind_someone,
+)
 from handlers.settings  import set_timezone
 
 
@@ -14,11 +16,17 @@ INTENTS = [
     Intent(
         name=IntentName.REMINDER_CREATE,
         phrases=[
-            "remind me", "remind", "set a reminder", "set reminder", "create a reminder",
+            "remind me", "set a reminder", "set reminder", "create a reminder",
             "add a reminder", "new reminder",
             "don't let me forget", "dont let me forget", "do not let me forget", "don't forget", "dont forget",
         ],
         action=create_reminder,
+    ),
+    Intent(
+        # "remind anna …" (a contact in 👥 People), or "remind to …" for yourself
+        name=IntentName.REMINDER_CREATE,
+        phrases=["remind"],
+        action=remind_someone,
     ),
     Intent(
         name=IntentName.REMINDER_LIST,

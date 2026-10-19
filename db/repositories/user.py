@@ -13,6 +13,11 @@ class UserRepository:
         with SessionLocal() as session:
             return session.get(User, user_id)
 
+    def get_many(self, user_ids) -> dict:
+        """{user_id: User} for many users at once."""
+        with SessionLocal() as session:
+            return {u.id: u for u in session.scalars(select(User).where(User.id.in_(set(user_ids))))}
+
     def get_timezones(self, user_ids) -> dict:
         """{user_id: timezone or None} for many users at once."""
         with SessionLocal() as session:

@@ -153,6 +153,7 @@ class Callback(StrEnum):
     SNOOZE_SETTINGS = "settings:snooze"
     REPEAT_SETTINGS = "settings:repeat"
     QUIET_SETTINGS = "settings:quiet"
+    UPDATES_SETTINGS = "settings:updates"               # 📣 Updates from people
 
     # ⏰ Reminders
     NEW_REMINDER = "rem:new"
@@ -169,6 +170,7 @@ class CallbackPrefix(StrEnum):
     SNOOZE_OPTION = "snzopt:"   # snzopt:<OptionAction>[:<minutes,minutes>]
     REPEAT_OPTION = "rptopt:"   # rptopt:set:<minutes>
     QUIET_OPTION = "qhopt:"     # qhopt:<OptionAction>[:<HH:MM-HH:MM>]
+    UPDATES_OPTION = "updopt:"  # updopt:<OptionAction.ON|OFF>
     FAILED_FIXED = "failfix:"   # failfix:<failed message id>, on the /failed list
     FAILED_IGNORED = "failign:" # failign:<failed message id>, on the /failed list
     PEOPLE = "ppl:"             # ppl:<PeopleAction>:<contact id>
@@ -205,3 +207,4 @@ class OptionAction(StrEnum):
     CUSTOM = "custom"
     DEFAULT = "default"
     OFF = "off"
+    ON = "on"

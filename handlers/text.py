@@ -11,7 +11,7 @@ from    handlers.replies            import handle_reply
 from    handlers                    import people
 from    handlers                    import settings as sh
 from    handlers.intents            import INTENTS
-from    handlers.ui                 import ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, PENDING_PART
+from    handlers.ui                 import ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, PENDING_CONTACT_ID, PENDING_PART
 
 
 # During a question, these intents count only if the message has the word:
@@ -53,6 +53,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
         context.user_data.pop(AWAITING, None)
         asked = context.user_data.pop(ASKED_REQUEST, None)
         context.user_data.pop(PENDING_PART, None)
+        context.user_data.pop(PENDING_CONTACT_ID, None)
         if match.intent.name == IntentName.FLAG_FAILED and asked is not None \
                 and awaiting in (Awaiting.REMINDER_TEXT, Awaiting.REMINDER_TIME):
             # "that's wrong" while the bot asks for a time or a text: asking was the mistake.
@@ -62,7 +63,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
         return
 
     if awaiting == Awaiting.REMINDER:
-        await rh.create_reminder(update, context, text)
+        await rh.answer_reminder(update, context, text)
     elif awaiting == Awaiting.REMINDER_TEXT:
         await rh.answer_what(update, context, text)
     elif awaiting == Awaiting.REMINDER_TIME:
