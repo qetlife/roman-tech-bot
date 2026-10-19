@@ -429,8 +429,9 @@ def test_a_contact_who_blocked_the_bot(pair, monkeypatch):
     first, second = _for(anna)
 
     from jobs import delivery
-    monkeypatch.setattr(delivery.reminders, "get_due", lambda _: [first])
-    monkeypatch.setattr(delivery, "utcnow", lambda: first.remind_at + timedelta(seconds=5))
+    # Both due in the same poll: one warning, and the second stays cancelled.
+    monkeypatch.setattr(delivery.reminders, "get_due", lambda _: [first, second])
+    monkeypatch.setattr(delivery, "utcnow", lambda: second.remind_at + timedelta(seconds=5))
     context = MagicMock()
     told = []
 

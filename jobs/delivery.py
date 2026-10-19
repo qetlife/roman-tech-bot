@@ -22,7 +22,6 @@ from    db.repositories.reminder    import ReminderRepository
 from    db.repositories.settings    import SettingsRepository
 from    db.repositories.user        import UserRepository
 from    enums                       import ReminderStatus
-from    handlers.people             import display
 from    handlers.reminders          import build_fire_keyboard, from_line, tell_creator
 
 
@@ -96,11 +95,12 @@ async def _unreachable(bot, reminder, creator):
     Like 🚫 Stop: their other reminders from the creator are cancelled too.
     Blocking the bot is the one way to say no without the bot.
     """
-    target = users.get_by_id(reminder.target_user_id)
     contact = contacts.find(creator.id, reminder.target_user_id)
-    name = contact.name if contact is not None else display(target)
     removed = contacts.remove(contact.id, creator.id) if contact is not None else None
-    others = len(removed.cancelled) if removed is not None else 0
+    if removed is None:
+        # Already gone (removed, stopped, or by another reminder): nothing to say.
+        return
+    name, others = contact.name, len(removed.cancelled)
     text = (f"⚠️ I couldn't deliver “{reminder.text}” to {name}: they've blocked the bot or left Telegram. "
             f"I removed them from 👥 People")
     if others:
@@ -171,8 +171,8 @@ async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz, quiet=N
     except Forbidden:
         # The user blocked the bot or deleted the chat; retrying won't help.
         logger.warning("Reminder %s undeliverable (blocked); marking failed", reminder.id)
-        reminders.mark_failed(reminder.id)
-        if creator is not None:
+        # None if it was cancelled meanwhile, e.g. by _unreachable for another one in this poll.
+        if reminders.mark_failed(reminder.id) is not None and creator is not None:
             await _unreachable(bot, reminder, creator)
         return
 
