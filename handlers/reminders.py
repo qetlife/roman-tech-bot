@@ -19,7 +19,7 @@ from    telegram.ext                    import ContextTypes
 from    core                            import recurrence as recurrences
 from    core.commands                   import matches, occurs_on, parse_day, search_words
 from    core.contacts                   import split_name, unknown_name
-from    core.parser                     import MissingText, MissingTime, ParseError, parse_reminder
+from    core.parser                     import MissingText, MissingTime, ParseError, parse_reminder, time_answer
 from    core.quiet                      import skip_quiet
 from    core.settings                   import (
     QUIET_HOURS, SENDER_UPDATES, SNOOZE_MAX_MINUTES, SNOOZE_MIN_MINUTES, format_minutes, quiet_window,
@@ -359,7 +359,7 @@ async def answer_when(update: Update, context: ContextTypes.DEFAULT_TYPE, when: 
     """The answer to ask_when: the time for the text given before. Asks again if it isn't one."""
     user = users.get_or_create(update.effective_user.id)
     text = context.user_data.get(PENDING_PART, "")
-    request = f"{when} to {text}"
+    request = f"{time_answer(when)} to {text}"
     try:
         parsed = parse_reminder(request, user_now(user.timezone))
     except ParseError as e:
