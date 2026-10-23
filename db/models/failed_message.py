@@ -35,9 +35,11 @@ class FailedMessage(Base):
     reason: Mapped[FailureReason] = mapped_column(_enum(FailureReason), nullable=False)
     # An IntentName value; None if no intent matched
     intent: Mapped[Optional[str]] = mapped_column(String(64))
-    # Not understood: {"error": ...}; wrong result: {"text", "remind_at", "recurrence"}
+    # Not understood: {"error": ...}; wrong result: {"text", "remind_at", "recurrence"},
+    # or for an event {"title", "starts_at", "recurrence", "all_day"}
     bot_understood: Mapped[Optional[dict]] = mapped_column(JSON)
     reminder_id: Mapped[Optional[int]] = mapped_column(BigIntId, ForeignKey("reminders.id", ondelete="SET NULL"))
+    event_id: Mapped[Optional[int]] = mapped_column(BigIntId, ForeignKey("events.id", ondelete="SET NULL"))
     status: Mapped[FailureStatus] = mapped_column(_enum(FailureStatus), nullable=False, default=FailureStatus.OPEN)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
     # When it stopped being open (fixed or ignored)
@@ -50,4 +52,5 @@ class FailedMessage(Base):
     __table_args__ = (
         Index("ix_failed_messages_status_created_at", "status", "created_at"),
         Index("ix_failed_messages_reminder_id", "reminder_id"),
+        Index("ix_failed_messages_event_id", "event_id"),
     )

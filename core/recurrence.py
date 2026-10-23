@@ -5,6 +5,9 @@ Stored in `core.recurrence` as one of:
     "month:15@09:00"                Monthly: this day of the month at a local time
     "month:2tue@09:00"              MonthlyWeekday: the 2nd Tuesday of the month ("-1fri": the last Friday)
     "every:120m@2026-10-11T07:00Z"  Interval: every N minutes from a start (UTC)
+    "event:-30m;Europe/Lisbon;20261029T2100Z;thu@21:00"
+                                    Offset: 30 min before every occurrence of a repeating
+                                    event (its repeat and timezone), except those skipped
 
 Weekly and monthly times are local to the user, so a daily 09:00 reminder
 stays at 09:00 across DST changes and if the user changes their timezone.
@@ -17,6 +20,7 @@ from calendar       import Day
 from dataclasses    import dataclass
 from datetime       import date, datetime, time, timedelta, timezone, tzinfo
 from typing         import Union
+from zoneinfo       import ZoneInfo
 
 
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -26,6 +30,8 @@ WEEKENDS = frozenset({Day.SATURDAY, Day.SUNDAY})
 WEEKDAYS = EVERY_DAY - WEEKENDS
 
 ANCHOR_FORMAT = "%Y-%m-%dT%H:%MZ"
+# A skipped occurrence of an event, in UTC (events.skipped, Offset)
+STAMP_FORMAT = "%Y%m%dT%H%MZ"
 
 
 def ordinal(n: int) -> str:
@@ -174,11 +180,64 @@ class Interval:
         return text
 
 
-Recurrence = Union[Weekly, Monthly, MonthlyWeekday, Interval]
+def format_stamp(when: datetime) -> str:
+    return when.astimezone(timezone.utc).strftime(STAMP_FORMAT)
+
+
+def parse_stamp(value: str) -> datetime:
+    return datetime.strptime(value, STAMP_FORMAT).replace(tzinfo=timezone.utc)
+
+
+def format_offset(minutes: int) -> str:
+    """"30 min before", "1 h after", "at the start"."""
+    if minutes == 0:
+        return "at the start"
+    return f"{format_interval(timedelta(minutes=abs(minutes)))} {'before' if minutes < 0 else 'after'}"
+
+
+@dataclass(frozen=True)
+class Offset:
+    """A reminder some minutes before (negative) or after every occurrence of a repeating event.
+
+    `base` is the event's repeat, in the event's own timezone (`tz_name`,
+    not whoever asks); occurrences in `skipped` (aware) don't happen.
+    """
+
+    base: "Recurrence"
+    minutes: int
+    tz_name: str
+    skipped: frozenset = frozenset()
+
+    def serialize(self) -> str:
+        skips = ",".join(sorted(format_stamp(s) for s in self.skipped))
+        return f"event:{self.minutes}m;{self.tz_name};{skips};{self.base.serialize()}"
+
+    def occurrence_after(self, after: datetime) -> datetime:
+        """The event's first occurrence strictly after `after` that isn't skipped."""
+        tz = ZoneInfo(self.tz_name)
+        occurrence = self.base.next_after(after, tz)
+        while occurrence in self.skipped:
+            occurrence = self.base.next_after(occurrence, tz)
+        return occurrence
+
+    def next_after(self, after: datetime, tz: tzinfo) -> datetime:
+        delta = timedelta(minutes=self.minutes)
+        return (self.occurrence_after(after - delta) + delta).astimezone(tz)
+
+    def describe(self, tz: tzinfo) -> str:
+        """"30 min before, every Thu at 21:00" (the event's clock)."""
+        return f"{format_offset(self.minutes)}, {self.base.describe(ZoneInfo(self.tz_name))}"
+
+
+Recurrence = Union[Weekly, Monthly, MonthlyWeekday, Interval, Offset]
 
 
 def parse(value: str) -> Recurrence:
     """Read a stored recurrence (see the module docstring)."""
+    if value.startswith("event:"):
+        minutes, tz_name, skips, base = value.removeprefix("event:").split(";", 3)
+        skipped = frozenset(parse_stamp(s) for s in skips.split(",") if s)
+        return Offset(parse(base), int(minutes.removesuffix("m")), tz_name, skipped)
     rule, _, at = value.partition("@")
     if rule.startswith("every:"):
         minutes = int(rule.removeprefix("every:").removesuffix("m"))

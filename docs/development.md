@@ -12,6 +12,7 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see
 - [Settings](#settings)
 - [Failed messages](#failed-messages)
 - [People](#people)
+- [Events](#events)
 - [Enums](#enums)
 - [Database](#database)
 - [Tests](#tests)
@@ -27,6 +28,7 @@ enums.py            every enum
 
 handlers/           everything that talks to Telegram (messages, buttons)
     commands.py     /start, /menu
+    events.py       📅 Events: create, list, move, cancel; reminders relative to an event; "event or reminder?"
     failed.py       saving failed messages; /failed list (admin only)
     people.py       👥 People: invite links, requests by @username, rename, remove
     menus.py        main, ⏰ Reminders and ⚙️ Settings menu screens
@@ -50,6 +52,7 @@ core/               the logic: no Telegram, no database sessions
     replies.py      reading replies to a reminder message (“snooze 20 min” → ReplyCommand)
     contacts.py     contact names: valid ones, unique ones (“Anna 2”), the default
     commands.py     plain-language commands: which reminder “cancel the dentist reminder” means, which day “what do I have tomorrow?” is
+    events.py       events: parsing (all-day too), occurrences, "30 min before padel", which event a message names
 
 jobs/
     delivery.py     sends due reminders every 20 seconds
@@ -61,8 +64,8 @@ services/           clients for other services (no Telegram)
 db/
     session.py      engine, sessions, init_db
     migrations.py   runs Alembic on startup
-    models/         user, reminder, user_setting, failed_message, contact (+ invite), types (UTCDateTime)
-    repositories/   user, reminder, settings, failed_message, contact: the only code that opens sessions
+    models/         user, reminder, user_setting, failed_message, contact (+ invite), event, types (UTCDateTime)
+    repositories/   user, reminder, settings, failed_message, contact, event: the only code that opens sessions
 
 alembic/            schema migrations
 autofix/            the daily auto-fix job: sandbox image, prompt, runner script
@@ -75,9 +78,11 @@ tests/              pytest, throwaway SQLite database
 `services/`;
 `core/` imports neither Telegram nor the database (it's plain Python, tested
 without mocks); `db/` uses only `enums` and the `Setting` type from `core/`.
-The one exception is `handlers/settings.py`, which imports
-`handlers.reminders.create_reminder` inside a function to resume a reminder
-after the user picks a timezone (a module-level import would be circular).
+`handlers/events.py` uses `handlers/reminders.py`, not the other way
+round. The exceptions import inside a function (a module-level import would
+be circular): `handlers/settings.py` resumes a reminder or an event after the
+user picks a timezone, and `handlers/reminders.py` hands “30 min before
+padel …” and “that's wrong” after an event to `handlers/events.py`.
 
 `python-telegram-bot` delivers updates to the handlers registered in
 `bot.py`:
@@ -156,6 +161,25 @@ obvious from the code.
   lasting record of a fix is a parser test.
 - **Callback data never changes**: buttons already in users' chats still send
   the old values.
+- **A reminder relative to an event follows it** instead of being a copy of
+  its time: `reminders.event_id` + `event_offset` (minutes from the start),
+  and “every time” is an `Offset` repeat that holds the event's repeat,
+  timezone and skipped days, so delivery, ✅ OK, the agenda and quiet hours
+  treat it like any repeat. Whenever the event changes, `follow` recomputes
+  its reminders; editing a reminder unlinks it.
+- **Events keep their own timezone** (`events.timezone`, the creator's when
+  made): “padel at 21:00” stays 21:00 there if the user moves, and Google
+  Calendar (#22) stores events the same way. `keep_clock_times` leaves
+  `Offset` reminders alone for that reason.
+- **A day without a time is an all-day event** (it starts at the day's
+  midnight), unlike a reminder, where it means 09:00: “dentist on friday”
+  is about the day. `ParsedReminder.timed` tells the two apart.
+- **Ask, don't guess, between an event and a reminder**: a time and a text
+  without a trigger phrase (“padel on thursday at 21:00”) gets
+  `📅 Event / ⏰ Reminder` buttons rather than the help text. With an event
+  of that name, “cancel padel” is the event (its reminders go with it).
+- **“move” has no typo fixing** (`Intent.typos`): “movie tonight at 8” is
+  one letter from it.
 
 ## Messages and buttons
 
@@ -170,9 +194,10 @@ edits it in place, or replaces it if it can't be edited.
 | `CallbackPrefix` | buttons that carry a value             | `tz:Europe/Kyiv`        |
 | `ReminderAction` | buttons on a reminder (`rem:<action>:<id>`) | `rem:snz:5:10`     |
 | `PeopleAction`   | 👥 People buttons (`ppl:<action>:<contact id>`), answers to an invite (`inv:<yes\|no>:<token>`) | `ppl:ren:3` |
+| `EventAction`    | buttons on an event (`evt:<action>:<event id>[:<value>]`) | `evt:rem:4:-30` |
 | `OptionAction`   | buttons on a setting screen            | `qhopt:set:23:00-07:00` |
 
-Build data with `reminder_callback()` / `option_callback()`, read it with
+Build data with `reminder_callback()` / `event_callback()` / `option_callback()`, read it with
 `split_option()`, and register handlers with `exact(...)` / `prefixed(...)`
 (all in `handlers/ui.py`).
 **Never change an existing value**: buttons on messages already in users'
@@ -190,17 +215,23 @@ chats still carry it. `tests/test_callbacks.py` pins them.
    as written, it's tried again with typos of the phrases' words fixed
    (“remid me”, see [Typos](#typos)); the rest keeps the original words.
    During a question, the command intents in `NEEDS_KEYWORD`
-   (`handlers/text.py`: cancel, list, one day, timezone) count only if the message
-   has their word (“reminder”, “timezone”), so “delete old photos” or
-   “what's on the agenda” can be the answer to “what should I remind you
-   about?”.
+   (`handlers/text.py`: cancel, list, one day, timezone, new event, list
+   events) count only if the message has one of their words (“reminder”,
+   “timezone”, “event”, “calendar”), so “delete old photos” or “what's on
+   the agenda” can be the answer to “what should I remind you about?”;
+   “move” counts only if one of the user's event titles follows
+   (`events.names_event`), so “move the car” is an answer too.
 2. Otherwise, if the bot asked a question, `context.user_data["awaiting"]`
    holds an `Awaiting` value (`enums.py`; keys in `handlers/ui.py`) and the message is the
    answer. For `Awaiting.EDIT`, the reminder id is in
    `user_data["edit_reminder_id"]`.
 3. Otherwise, a message that is only a time (“tomorrow at 12”) starts a
    reminder, which asks for its text (`is_bare_time`, below).
-4. Otherwise the bot replies with a help text (and saves the message as
+4. Otherwise `handlers/events.handle_untriggered`: “padel is at 20:00 now”
+   (an event's title, then “is …”) moves that event, and a message with a
+   time and a text asks `📅 Event / ⏰ Reminder` (`Callback.PICK_EVENT` /
+   `PICK_REMINDER`; the text waits in `user_data["pending_pick"]`).
+5. Otherwise the bot replies with a help text (and saves the message as
    failed, see [Failed messages](#failed-messages)).
 
 `user_data` lives in memory, so a restart forgets pending questions.
@@ -257,7 +288,7 @@ cancels: button, list, or a “cancel” reply). The 📋 list is
 “For others”; the agenda shows only the former. “That's wrong” refers to
 the last reminder the user *made* (`latest_created`).
 
-**Recurrence** (`core/recurrence.py`): four types, stored as a string
+**Recurrence** (`core/recurrence.py`): five types, stored as a string
 in `reminders.recurrence` (`NULL` = one-off):
 
 | Type       | Stored as                       | Meaning |
@@ -266,6 +297,7 @@ in `reminders.recurrence` (`NULL` = one-off):
 | `Monthly`  | `month:15@09:00`                | this day of the month (last day in shorter months) at a local time |
 | `MonthlyWeekday` | `month:2tue@09:00`, `month:-1fri@09:00` | the 2nd Tuesday / last Friday of the month at a local time; months without a 5th weekday are skipped |
 | `Interval` | `every:120m@2026-10-11T07:00Z`  | every N minutes from a start (UTC); whole days keep the local time |
+| `Offset`   | `event:-30m;Europe/Lisbon;20261029T2000Z;thu@21:00` | minutes from every occurrence of a repeating event (its repeat, in its timezone, minus skipped ones); see [Events](#events) |
 
 Each has `serialize()`, `next_after(after, tz)` (first occurrence strictly
 after `after`) and `describe(tz)`; `recurrence.parse()` reads a stored value.
@@ -412,8 +444,11 @@ created or edited, set to `None` when a message isn't understood (already
 saved). After a restart it falls back to the newest reminder.
 
 The table isn't tied to reminders: `intent` (an `IntentName`) says what the
-bot thought was asked and `bot_understood` is a JSON snapshot, so other
-features (events) add their own optional link column next to `reminder_id`.
+bot thought was asked and `bot_understood` is a JSON snapshot; events have
+their own optional link, `event_id`, next to `reminder_id`. The startup
+re-check replays event messages (`EVENT_CREATE`, `EVENT_EDIT`,
+`EVENT_WHEN`) through `parse_event`; `EVENT_MOVE` needs the user's events,
+so those are closed by hand.
 
 `/failed` is only answered for `ADMIN_TELEGRAM_ID` (silently ignored for
 everyone else); it lists the newest open entries. `✅ <n>`
@@ -503,6 +538,69 @@ why the other person always opts in.
   (`TypeHandler`, group -1) and stores `first_name` / `username` when they
   change, for known users; `/start` also stores them for new ones.
 
+## Events
+
+Events (`handlers/events.py`, logic in `core/events.py`, table `events`,
+`db/repositories/event.py`) are the user's own; #22 will sync them with
+Google Calendar, so the table already has `external_source`,
+`external_calendar_id`, `external_id` and `etag` (unused for now),
+`ends_at`, `all_day`, and its own `timezone`.
+
+- **Parsing**: `parse_event` is `parse_reminder` with the text as the
+  title. Without a time of day (`ParsedReminder.timed` is false: “friday”,
+  “every friday”), it's an all-day event from that day's midnight. “today”
+  is all day even after 09:00 (the parser would call that passed).
+  `MissingText` / `MissingTime` ask for the title or the time
+  (`Awaiting.EVENT_TITLE` / `EVENT_TIME`, the half in `pending_part`), like
+  reminders; `Awaiting.EVENT` is ➕ New or a resend.
+- **Repeats** use the reminder formats (`core/recurrence.py`) in the event's
+  timezone. `events.skipped` holds occurrences that don't happen
+  (`20261029T2000Z,…`, UTC, like an RRULE's EXDATE); past ones are dropped
+  when it's written. `next_occurrence` / `occurs_on` skip them; an all-day
+  event counts as upcoming all of its day.
+- **Which event**: `match_title` finds the longest title at the start of the
+  words (“the”, “my” in front, “event” after are ignored), among the
+  upcoming ones (`titles_of`, the soonest per title).
+- **Moving**: `parser.parse_move` reads “to 20:00” (same day), “to friday”
+  (same time), “to 8” (the closer of 08:00 / 20:00); for a repeat, a time
+  or a weekday changes it, or a whole new repeat replaces it. It reads the
+  phrase in the event's timezone. Skipped days are dropped when the repeat
+  changes.
+
+**Reminders relative to an event**: `split_relative` reads “<duration>
+before|after <event> [to <text>]” or “<text> <duration> before|after
+<event>” (and “the day before”) in `create_reminder`, before the usual
+parser; a message that names no event but is a reminder as written (“to take
+pills 30 min after breakfast every day”) stays an ordinary reminder. The
+reminder gets `event_id` and `event_offset`. For a repeating event the bot
+asks “just the next one, or every time?” (`EventAction.ONCE` / `EVERY`, the
+details in `user_data["pending_event_reminder"]`): the next one is a
+one-off at that occurrence, every time is an `Offset` repeat
+(`event:-30m;Europe/Lisbon;<skipped>;thu@21:00`), which is why
+`reminders.recurrence` is `Text`.
+
+`follow(old, event)` runs after every change (edit, move, skip): “every
+time” ones get the new `Offset` (only the string changes, `relink`, if their
+occurrence still happens); one for a single occurrence moves to the new
+occurrence nearest the old one, or is cancelled if that one is skipped; one
+for a one-off moves with its start. A firing one loses its buttons.
+Cancelling an event (`EventRepository.cancel`) cancels its reminders in the
+same transaction. Delivery adds “📅 padel: Today, 21:00 (in 30 min)”
+(`occurrence_line`).
+
+**Buttons** (`evt:<EventAction>:<id>[:<value>]`, only for the event's
+owner): ⏰ `rem:<minutes>`, `once` / `every`, ↩️ `undo`, ✏️ `edit`
+(`Awaiting.EVENT_EDIT`, `user_data["edit_event_id"]`), 👎 `wrong`
+(`WRONG_RESULT` with `event_id` and `{"title", "starts_at", "recurrence",
+"all_day"}`), `open` (its screen), ⏭ `skip:<occurrence>` (the occurrence in
+the data, so a stale button can't skip another day) and 🗑 `del`.
+
+“that's wrong” right after an event (`user_data["last_event_id"]`, cleared
+by a new reminder or a message not understood) flags the event
+(`flag_last`). The agenda (“what do I have tomorrow?”) is
+`handlers/events.agenda`: that day's events (`day_text`), then the
+reminders (`show_day`).
+
 ## Enums
 
 Use an enum instead of loose strings for any fixed set of values. **All
@@ -521,7 +619,9 @@ ones there too.
 | `ContactStatus`                         | `contacts.status`: pending (asked by @username), accepted, or declined (a note not to ask again) |
 | `RequestResult`                         | what asking by @username did (`ContactRepository.request`) |
 | `InviteResult`                          | what opening an invite did (`ContactRepository.use_invite`) |
-| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction`, `PeopleAction` | callback data of every button |
+| `EventStatus`                           | `events.status`: active or cancelled |
+| `ExternalSource`                        | `events.external_source`: where it's synced (#22) |
+| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction`, `PeopleAction`, `EventAction` | callback data of every button |
 
 Weekdays use the standard library's `calendar.Day` (in the parser and
 `Weekly`).
@@ -538,12 +638,13 @@ changes go through Alembic; see [Database migrations](setup.md#database-migratio
 | Table           | Holds |
 | --------------- | ----- |
 | `users`         | `telegram_id`, `timezone`, `first_name` and `username` (from Telegram, refreshed on every update by `remember_profile` in `handlers/ui.py`) |
-| `reminders`     | creator/target user, chat, text, `remind_at`, `next_fire_at`, `status`, `fire_count`, `last_message_id`, `recurrence`, `request` and `source` (the message it was made from) |
+| `reminders`     | creator/target user, chat, text, `remind_at`, `next_fire_at`, `status`, `fire_count`, `last_message_id`, `recurrence` (`Text`), `request` and `source` (the message it was made from), `event_id` and `event_offset` (minutes from the event's start) if it follows an event |
 | `user_settings` | `(user_id, key)` → JSON value, only non-defaults |
 | `contacts`      | `owner_user_id` may remind `contact_user_id`; `name` (what the owner calls them, unique per owner, case-insensitive, checked in code), `status`, `created_at`, `accepted_at`; unique `(owner, contact)` |
 | `contact_requests` | log of requests by @username: `owner_user_id`, `contact_user_id`, `created_at` (for the daily limits) |
 | `invites`       | `token` (the link), `owner_user_id`, `created_at`, `expires_at`, `used_at`, `used_by_user_id` |
-| `failed_messages` | user, `text`, `source`, `reason`, `intent`, `bot_understood` (JSON), optional `reminder_id`, `status`, `created_at`, `fixed_at`, `note`, `fix_pr` |
+| `failed_messages` | user, `text`, `source`, `reason`, `intent`, `bot_understood` (JSON), optional `reminder_id` or `event_id`, `status`, `created_at`, `fixed_at`, `note`, `fix_pr` |
+| `events`        | user, `title`, `starts_at` (the first occurrence), `ends_at`, `all_day`, `timezone`, `recurrence`, `skipped`, `status`, `request`, `source`, `created_at`, `updated_at`, and for #22 `external_source`, `external_calendar_id`, `external_id`, `etag` |
 
 ## Tests
 
@@ -556,11 +657,11 @@ pytest
 pyflakes catches undefined names and unused imports, which tests can miss.
 
 Tests use a throwaway SQLite database (`tests/conftest.py`) with all
-migrations applied. CI runs pyflakes and the tests on every pull request
+migrations applied; the `chat` fixture (a user with a timezone) is there too. CI runs pyflakes and the tests on every pull request
 and before every deploy. Parser, recurrence, quiet hours and settings tests are pure;
 delivery tests use a fake bot (`tests/test_recurrence.FakeBot`);
-`tests/test_handlers.py` and `tests/test_voice.py` drive the handlers with
-mocked Telegram objects; `tests/test_numbers.py` covers spoken phrases.
+`tests/test_handlers.py`, `tests/test_events.py` and `tests/test_voice.py`
+drive the handlers with mocked Telegram objects; `tests/test_numbers.py` covers spoken phrases.
 
 ## How to…
 
@@ -576,6 +677,7 @@ Telegram, configured through `config.py`), with its own exceptions for
 
 **Add a trigger phrase or intent**: add it to `INTENTS` in
 `handlers/intents.py`. An action takes `(update, context, rest_of_message)`.
+Set `typos=False` for a phrase that's one letter from common words.
 
 **Add a button**: add its callback data to the enums in `enums.py`, use it in
 the keyboard, register the handler in `bot.py` with `exact()` / `prefixed()`,

@@ -11,7 +11,7 @@ from    telegram.ext                import (
 from    config                      import BOT_TOKEN
 from    db.session                  import init_db
 from    enums                       import Callback, CallbackPrefix, ReminderAction
-from    handlers                    import failed, people, reminders, settings
+from    handlers                    import events, failed, people, reminders, settings
 from    handlers.commands           import menu_cmd, start
 from    handlers.menus              import on_main_menu, on_my_id, on_reminders, on_settings
 from    handlers.text               import on_text
@@ -74,6 +74,12 @@ def main():
     app.add_handler(CallbackQueryHandler(reminders.on_new,              pattern=exact(Callback.NEW_REMINDER)))
     app.add_handler(CallbackQueryHandler(reminders.list_reminders,      pattern=exact(Callback.LIST_REMINDERS)))
     app.add_handler(CallbackQueryHandler(reminders.on_reminder_button,  pattern=REMINDER_BUTTON))
+
+    # 📅 Events
+    app.add_handler(CallbackQueryHandler(events.on_events_menu,         pattern=exact(Callback.EVENTS_MENU)))
+    app.add_handler(CallbackQueryHandler(events.on_new,                 pattern=exact(Callback.NEW_EVENT)))
+    app.add_handler(CallbackQueryHandler(events.on_event_button,        pattern=prefixed(CallbackPrefix.EVENT)))
+    app.add_handler(CallbackQueryHandler(events.on_pick,                pattern=exact(Callback.PICK_EVENT, Callback.PICK_REMINDER)))
 
     # 👥 People
     app.add_handler(CallbackQueryHandler(people.on_people_menu,         pattern=exact(Callback.PEOPLE_MENU)))

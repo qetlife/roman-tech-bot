@@ -42,6 +42,21 @@ class ReplyCommand(StrEnum):
     CANCEL = "cancel"       # "cancel", "delete it"
 
 
+# --- events -----------------------------------------------------------------
+
+class EventStatus(StrEnum):
+    """Stored in events.status."""
+
+    ACTIVE = "active"
+    CANCELLED = "cancelled"
+
+
+class ExternalSource(StrEnum):
+    """Where an event is synced with (events.external_source); None for the bot's own. For #22."""
+
+    GOOGLE = "google"
+
+
 # --- contacts ---------------------------------------------------------------
 
 class ContactStatus(StrEnum):
@@ -110,7 +125,12 @@ class IntentName(StrEnum):
     REMINDER_CANCEL = "reminder.cancel" # "cancel the dentist reminder"
     TIMEZONE_SET = "settings.timezone"  # "set my timezone to Lisbon"
     FLAG_FAILED = "failed.flag"         # "that's wrong", "save the last one as failed"
-
+    EVENT_CREATE = "event.create"       # "event padel on thursday at 21:00", "put … in my calendar"
+    EVENT_EDIT = "event.edit"           # the answer to ✏️ Edit on an event, not a trigger phrase
+    EVENT_WHEN = "event.when"           # the answer to "when is it?", not a trigger phrase
+    EVENT_LIST = "event.list"           # "my events", "what's on my calendar"
+    EVENT_MOVE = "event.move"           # "move padel to 20:00", "padel is at 20:00 now"
+    EVENT_CANCEL = "event.cancel"       # "cancel event padel" (plain "cancel padel" too)
 
 
 class Awaiting(StrEnum):
@@ -125,6 +145,10 @@ class Awaiting(StrEnum):
     QUIET_HOURS = "quiet_hours"         # custom quiet hours
     CONTACT_USERNAME = "contact_username"   # 👥 ➕ Invite: the @username of someone already using the bot
     CONTACT_NAME = "contact_name"       # 👥 ✏️ Rename: a contact's new name
+    EVENT = "event"                     # 📅 ➕ New: time and title of a new event
+    EVENT_TITLE = "event_title"         # what the event is, for a time already given
+    EVENT_TIME = "event_time"           # when the event is, for a title already given
+    EVENT_EDIT = "event_edit"           # ✏️ Edit on an event: new time and title
 
 
 # --- buttons ----------------------------------------------------------------
@@ -141,6 +165,7 @@ class Callback(StrEnum):
     REMINDERS_MENU = "menu:reminders"
     SETTINGS_MENU = "menu:settings"
     PEOPLE_MENU = "menu:people"
+    EVENTS_MENU = "menu:events"         # 📅 Events: the list
 
     # 👥 People
     NEW_INVITE = "people:invite"
@@ -161,6 +186,11 @@ class Callback(StrEnum):
     REMINDER_SETTINGS_FROM_MENU = "rem:settings"        # from the ⏰ Reminders menu
     REMINDER_SETTINGS_RETURN = "rset:show"              # back from a reminder setting
 
+    # 📅 Events
+    NEW_EVENT = "event:new"
+    PICK_EVENT = "pick:event"           # "padel on thursday at 21:00" without a keyword: an event…
+    PICK_REMINDER = "pick:reminder"     # … or a reminder
+
 
 class CallbackPrefix(StrEnum):
     """Buttons whose callback data carries a value after the prefix."""
@@ -175,6 +205,7 @@ class CallbackPrefix(StrEnum):
     FAILED_IGNORED = "failign:" # failign:<failed message id>, on the /failed list
     PEOPLE = "ppl:"             # ppl:<PeopleAction>:<contact id>
     INVITE = "inv:"             # inv:<PeopleAction.ALLOW|DECLINE>:<invite token>
+    EVENT = "evt:"              # evt:<EventAction>:<event id>[:<value>]
 
 
 class ReminderAction(StrEnum):
@@ -186,6 +217,20 @@ class ReminderAction(StrEnum):
     EDIT = "edit"
     DELETE = "del"
     WRONG = "wrong"     # 👎 Wrong: save as a failed message and delete the reminder
+
+
+class EventAction(StrEnum):
+    """Buttons on an event (evt:<action>:<event id>[:<value>])."""
+
+    OPEN = "open"       # its screen in 📅 Events
+    REMIND = "rem"      # evt:rem:<id>:<minutes, negative = before>: add a reminder
+    ONCE = "once"       # a reminder on a repeating event: just the next one…
+    EVERY = "every"     # … or every time
+    UNDO = "undo"
+    EDIT = "edit"
+    WRONG = "wrong"     # 👎 Wrong: save as a failed message and cancel the event
+    SKIP = "skip"       # evt:skip:<id>:<occurrence, YYYYMMDDTHHMMZ>: one occurrence of a repeating event doesn't happen
+    CANCEL = "del"      # cancel the event (every occurrence) and its reminders
 
 
 class PeopleAction(StrEnum):

@@ -11,6 +11,7 @@ import logging
 from    datetime                        import datetime
 from    typing                          import Optional
 
+from    core.events                     import parse_event
 from    core.intents                    import match_intent
 from    core.parser                     import MissingText, MissingTime, ParseError, parse_reminder
 from    core.timezones                  import to_local
@@ -32,31 +33,42 @@ FIXED_NOTE = "understood after an update"
 def understood(text: str, intent: Optional[str], now: datetime) -> bool:
     """Whether the bot would now handle `text`, sent at `now` (in the user's timezone).
 
-    `intent` is where it failed: a reminder's time and text (create, or the
-    answer to ✏️ Edit), the answer to "when?", or None for a message that
-    matched no trigger phrase.
+    `intent` is where it failed: a reminder's or an event's time and text
+    (create, or the answer to ✏️ Edit), the answer to "when?", or None for a
+    message that matched no trigger phrase.
     Asking for the missing half counts: a new reminder with a time but no
     text, or a text but no time (handlers/reminders.ask_what / ask_when).
     """
-    if intent == IntentName.REMINDER_WHEN:
+    if intent in (IntentName.REMINDER_WHEN, IntentName.EVENT_WHEN):
         # The answer to "when?": understood once it is a time.
         try:
-            parse_reminder(f"{text} to remind", now)
+            if intent == IntentName.REMINDER_WHEN:
+                parse_reminder(f"{text} to remind", now)
+            else:
+                parse_event(f"{text}: event", now)    # handlers/events.answer_time
         except ParseError:
             return False
         return True
+    if intent == IntentName.EVENT_MOVE:
+        # Depends on the user's events: closed by hand.
+        return False
 
-    asks = (MissingText, MissingTime) if intent != IntentName.REMINDER_EDIT else ()
-    if intent not in (IntentName.REMINDER_CREATE, IntentName.REMINDER_EDIT):
+    asks = (MissingText, MissingTime) if intent not in (IntentName.REMINDER_EDIT, IntentName.EVENT_EDIT) else ()
+    parse = parse_event if intent in (IntentName.EVENT_CREATE, IntentName.EVENT_EDIT) else parse_reminder
+    if intent not in (IntentName.REMINDER_CREATE, IntentName.REMINDER_EDIT,
+                      IntentName.EVENT_CREATE, IntentName.EVENT_EDIT):
         match = match_intent(text, INTENTS)
         if match is None:
-            asks = (MissingText,)   # a time on its own (handlers/text.py)
+            # A time on its own asks what for; a time and a text, event or reminder (handlers/text.py)
+            asks = (MissingText,)
+        elif match.intent.name == IntentName.EVENT_CREATE:
+            text, parse = match.rest, parse_event
         elif match.intent.name != IntentName.REMINDER_CREATE:
             return True
         else:
             text = match.rest
     try:
-        parse_reminder(text, now)
+        parse(text, now)
     except asks as e:
         return bool(getattr(e, "text", True))
     except ParseError:

@@ -7,7 +7,9 @@ from    telegram                    import Update
 from    telegram.ext                import ContextTypes
 from    telegram.error              import BadRequest
 
-from    enums                       import Callback, CallbackPrefix, MessageSource, OptionAction, ReminderAction
+from    enums                       import (
+    Callback, CallbackPrefix, EventAction, MessageSource, OptionAction, ReminderAction,
+)
 
 
 # --- user_data keys ---------------------------------------------------------
@@ -35,6 +37,19 @@ REMINDER_SETTINGS_BACK = "reminder_settings_back"
 # What "that's wrong" refers to: the id of the reminder made from the user's
 # last message, or None if that message wasn't understood (already saved).
 LAST_REMINDER_ID = "last_reminder_id"
+# The id of the event made (or edited) from the user's last message: then
+# "that's wrong" means it. Unset once a reminder is made or a message isn't understood.
+LAST_EVENT_ID = "last_event_id"
+# For Awaiting.EVENT_EDIT: the id of the event being edited.
+EDIT_EVENT_ID = "edit_event_id"
+# An event request waiting for the user to pick a timezone first.
+PENDING_EVENT_REQUEST = "pending_event_request"
+# A reminder relative to a repeating event, waiting for “just the next one, or
+# every time?”: {"event_id", "minutes", "text", "request", "source", "contact_id"}.
+PENDING_EVENT_REMINDER = "pending_event_reminder"
+# A message without a trigger phrase that could be an event or a reminder
+# (“padel on thursday at 21:00”), waiting for 📅 Event / ⏰ Reminder.
+PENDING_PICK = "pending_pick"
 
 
 async def remember_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -56,11 +71,15 @@ def message_source(update: Update) -> MessageSource:
 
 
 # --- callback data ----------------------------------------------------------
-# The values are the Callback, CallbackPrefix, ReminderAction and OptionAction
-# enums in enums.py.
+# The values are the Callback, CallbackPrefix, ReminderAction, EventAction and
+# OptionAction enums in enums.py.
 
 def reminder_callback(action: ReminderAction, reminder_id: int, *args) -> str:
     return ":".join([f"{CallbackPrefix.REMINDER}{action}", str(reminder_id), *map(str, args)])
+
+
+def event_callback(action: EventAction, event_id: int, *args) -> str:
+    return ":".join([f"{CallbackPrefix.EVENT}{action}", str(event_id), *map(str, args)])
 
 
 def option_callback(prefix: CallbackPrefix, action: OptionAction, value: str = None) -> str:

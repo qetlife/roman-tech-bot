@@ -6,26 +6,40 @@ from    telegram.ext                import ContextTypes
 from    core.intents                import match_intent
 from    enums                       import Awaiting, IntentName
 from    handlers.failed             import record_not_understood
+from    handlers                    import events as ev
 from    handlers                    import reminders as rh
 from    handlers.replies            import handle_reply
 from    handlers                    import people
 from    handlers                    import settings as sh
 from    handlers.intents            import INTENTS
-from    handlers.ui                 import ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, PENDING_CONTACT_ID, PENDING_PART
+from    handlers.ui                 import (
+    ASKED_REQUEST, AWAITING, EDIT_EVENT_ID, EDIT_REMINDER_ID, PENDING_CONTACT_ID, PENDING_PART,
+)
 
 
-# During a question, these intents count only if the message has the word:
-# "cancel the dentist reminder" does, "delete old photos" (an answer) doesn't.
+# During a question, these intents count only if the message has one of the
+# words: "cancel the dentist reminder" does, "delete old photos" (an answer)
+# doesn't. "move" counts only if an event's name follows (events.names_event).
 NEEDS_KEYWORD = {
-    IntentName.REMINDER_CANCEL: "reminder",
-    IntentName.REMINDER_LIST: "reminder",
-    IntentName.REMINDER_AGENDA: "reminder",
-    IntentName.TIMEZONE_SET: "timezone",
+    IntentName.REMINDER_CANCEL: ("reminder",),
+    IntentName.REMINDER_LIST: ("reminder",),
+    IntentName.REMINDER_AGENDA: ("reminder",),
+    IntentName.TIMEZONE_SET: ("timezone",),
+    IntentName.EVENT_CREATE: ("event", "calendar"),
+    IntentName.EVENT_LIST: ("event", "calendar"),
+}
+
+# A question about a reminder or an event's missing half: "that's wrong" then means the asking.
+QUESTIONS = {
+    Awaiting.REMINDER_TEXT: IntentName.REMINDER_CREATE,
+    Awaiting.REMINDER_TIME: IntentName.REMINDER_CREATE,
+    Awaiting.EVENT_TITLE: IntentName.EVENT_CREATE,
+    Awaiting.EVENT_TIME: IntentName.EVENT_CREATE,
 }
 
 HELP_TEXT = (
     "I didn't get that. Try “remind me in 2 hours to call mom”, "
-    "“my reminders”, or /menu."
+    "“event padel on thursday at 21:00”, “my reminders”, or /menu."
 )
 
 
@@ -43,9 +57,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
     awaiting = context.user_data.get(AWAITING)
 
     if match is not None and awaiting is not None and match.intent.name in NEEDS_KEYWORD \
-            and NEEDS_KEYWORD[match.intent.name] not in text.lower():
+            and not any(word in text.lower() for word in NEEDS_KEYWORD[match.intent.name]):
         # While the bot asks something, "delete old photos" or "what's on the
         # agenda" is an answer, not a command.
+        match = None
+    if match is not None and awaiting is not None and match.intent.name == IntentName.EVENT_MOVE \
+            and not ev.names_event(update, match.rest):
+        # "move the car" as the answer to "what should I remind you about?"
         match = None
 
     # A trigger phrase always wins, so "remind me ..." works at any point.
@@ -54,10 +72,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
         asked = context.user_data.pop(ASKED_REQUEST, None)
         context.user_data.pop(PENDING_PART, None)
         context.user_data.pop(PENDING_CONTACT_ID, None)
-        if match.intent.name == IntentName.FLAG_FAILED and asked is not None \
-                and awaiting in (Awaiting.REMINDER_TEXT, Awaiting.REMINDER_TIME):
+        if match.intent.name == IntentName.FLAG_FAILED and asked is not None and awaiting in QUESTIONS:
             # "that's wrong" while the bot asks for a time or a text: asking was the mistake.
-            await rh.flag_question(update, context, asked)
+            await rh.flag_question(update, context, asked, QUESTIONS[awaiting])
             return
         await match.intent.action(update, context, match.rest)
         return
@@ -80,9 +97,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
         await sh.on_quiet_text(update, context, text)
     elif awaiting == Awaiting.EDIT:
         await rh.edit_reminder(update, context, context.user_data[EDIT_REMINDER_ID], text)
+    elif awaiting == Awaiting.EVENT:
+        await ev.answer_event(update, context, text)
+    elif awaiting == Awaiting.EVENT_TITLE:
+        await ev.answer_title(update, context, text)
+    elif awaiting == Awaiting.EVENT_TIME:
+        await ev.answer_time(update, context, text)
+    elif awaiting == Awaiting.EVENT_EDIT:
+        await ev.edit_event(update, context, context.user_data[EDIT_EVENT_ID], text)
     elif rh.is_bare_time(update, text):
         # "tomorrow at 12" on its own: a reminder without its text yet.
         await rh.create_reminder(update, context, text)
+    elif await ev.handle_untriggered(update, context, text):
+        # "padel is at 20:00 now", or "padel on thursday at 21:00": event or reminder?
+        pass
     else:
         record_not_understood(update, context, text)
         await update.effective_message.reply_text(HELP_TEXT)

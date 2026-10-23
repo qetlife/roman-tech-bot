@@ -14,11 +14,12 @@ class FailedMessageRepository:
     def create(
         self, user_id: uuid.UUID, text: str, source: MessageSource, reason: FailureReason,
         intent: Optional[str] = None, bot_understood: Optional[dict] = None, reminder_id: Optional[int] = None,
+        event_id: Optional[int] = None,
     ) -> FailedMessage:
         with SessionLocal(expire_on_commit=False) as session:
             failed = FailedMessage(
                 user_id=user_id, text=text, source=source, reason=reason, intent=intent,
-                bot_understood=bot_understood, reminder_id=reminder_id,
+                bot_understood=bot_understood, reminder_id=reminder_id, event_id=event_id,
             )
             session.add(failed)
             session.commit()
@@ -29,6 +30,14 @@ class FailedMessageRepository:
         with SessionLocal(expire_on_commit=False) as session:
             stmt = select(FailedMessage).where(
                 FailedMessage.reminder_id == reminder_id, FailedMessage.status == FailureStatus.OPEN,
+            )
+            return session.scalars(stmt).first()
+
+    def open_for_event(self, event_id: int) -> Optional[FailedMessage]:
+        """The open entry already saved for this event, if any."""
+        with SessionLocal(expire_on_commit=False) as session:
+            stmt = select(FailedMessage).where(
+                FailedMessage.event_id == event_id, FailedMessage.status == FailureStatus.OPEN,
             )
             return session.scalars(stmt).first()
 

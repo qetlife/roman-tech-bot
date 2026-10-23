@@ -39,7 +39,8 @@ from    handlers.failed                 import record, record_not_understood
 from    handlers.people                 import display
 from    handlers.settings               import ask_timezone
 from    handlers.ui                     import (
-    ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, LAST_REMINDER_ID, PENDING_CONTACT_ID, PENDING_PART, PENDING_REQUEST,
+    ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, LAST_EVENT_ID, LAST_REMINDER_ID, PENDING_CONTACT_ID, PENDING_PART,
+    PENDING_REQUEST,
     message_source, reminder_callback, render_menu,
 )
 
@@ -251,7 +252,8 @@ def keep_clock_times(user_id, old_tz: str, new_tz: str):
         if reminder.status != ReminderStatus.PENDING or reminder.recurrence is None:
             continue
         recurrence = recurrences.parse(reminder.recurrence)
-        if isinstance(recurrence, recurrences.Interval):
+        # Before every padel: the event's own clock, not the user's.
+        if isinstance(recurrence, (recurrences.Interval, recurrences.Offset)):
             continue
         # Snoozed: remind_at isn't one of its occurrences any more.
         if recurrence.next_after(reminder.remind_at - timedelta(seconds=1), ZoneInfo(old_tz)) != reminder.remind_at:
@@ -275,6 +277,11 @@ async def create_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, re
     if not user.timezone:
         context.user_data[PENDING_REQUEST] = request
         await ask_timezone(update, context, "First, one-time setup. ")
+        return
+
+    # "30 min before padel to pack the racket". Imported here: handlers.events imports this module.
+    from handlers.events import remind_relative
+    if await remind_relative(update, context, user, request, contact_id):
         return
 
     try:
@@ -390,6 +397,7 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         request, message_source(update), target=target,
     )
     context.user_data[LAST_REMINDER_ID] = reminder.id
+    context.user_data.pop(LAST_EVENT_ID, None)
     await update.effective_message.reply_text(
         f"⏰ Got it{for_whom}: {reminder.text}\n{schedule_text(reminder, user.timezone)}",
         reply_markup=build_created_keyboard(reminder.id),
@@ -420,6 +428,7 @@ async def edit_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
         await update.effective_message.reply_text("That reminder has already finished.")
         return
     context.user_data[LAST_REMINDER_ID] = updated.id
+    context.user_data.pop(LAST_EVENT_ID, None)
     await retire_fired_message(context, reminder, "✏️ Edited, see the updated reminder below.")
     for_whom = f" for {contact_name(user.id, target)}" if target.id != user.id else ""
     await update.effective_message.reply_text(
@@ -489,31 +498,21 @@ async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE, req
         await update.effective_message.reply_text(text, reply_markup=keyboard)
 
 
-async def agenda(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = ""):
-    """Intent action for "what do I have tomorrow?"; without a day, today."""
-    user = users.get_or_create(update.effective_user.id)
-    now = user_now(user.timezone or "UTC")
-    day = parse_day(request, now) if request.strip().strip("?!. ") else now.date()
-    if day is None:
-        await update.effective_message.reply_text(
-            "I can show one day, e.g. “what do I have tomorrow?” or “what's on friday?”."
-        )
-        return
-    await show_day(update, user, day)
+async def show_day(update: Update, user, day, events_text: str = ""):
+    """The user's reminders due on `day` (also those sent to them), repeats included, as a reply.
 
-
-async def show_day(update: Update, user, day):
-    """The user's reminders due on `day` (also those sent to them), repeats included, as a reply."""
+    `events_text` (that day's events, handlers/events.day_text) comes first.
+    """
     tz = ZoneInfo(user.timezone or "UTC")
     items = reminders.list_active(user.id)
     rule_tzs = users.get_timezones({r.creator_user_id for r in items})
     items = [r for r in items if occurs_on(r.remind_at, r.recurrence, day, tz, r.created_at,
                                             ZoneInfo(rule_tzs.get(r.creator_user_id) or "UTC"))]
     title = f"{day:%a %d %b}"
-    await update.effective_message.reply_text(
-        reminders_list_text(user, items, f"Your reminders on {title}", f"Nothing on {title}. 🎉"),
-        reply_markup=build_reminders_list_keyboard(items),
-    )
+    text = reminders_list_text(user, items, f"Your reminders on {title}", f"Nothing on {title}. 🎉")
+    if events_text:
+        text = f"{events_text}\n\n{text if items else 'No reminders.'}"
+    await update.effective_message.reply_text(text, reply_markup=build_reminders_list_keyboard(items))
 
 
 async def cancel_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = ""):
@@ -683,17 +682,22 @@ async def flag_wrong(update: Update, context: ContextTypes.DEFAULT_TYPE, reminde
     )
 
 
-async def flag_question(update: Update, context: ContextTypes.DEFAULT_TYPE, asked: str):
+async def flag_question(update: Update, context: ContextTypes.DEFAULT_TYPE, asked: str,
+                        intent: IntentName = IntentName.REMINDER_CREATE):
     """"that's wrong" while the bot asks for a missing time or text: save the message it asked about.
 
-    Called by handlers/text.py, which knows the question is still open.
+    Called by handlers/text.py, which knows the question is still open. Events ask too (`intent`).
     """
-    record_not_understood(update, context, asked, IntentName.REMINDER_CREATE, ASKED_ERROR)
+    record_not_understood(update, context, asked, intent, ASKED_ERROR)
     await update.effective_message.reply_text("👎 Saved as failed, so I can learn it. Send it again if you still need it.")
 
 
 async def flag_last_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = ""):
-    """Intent action for "that's wrong" / "save the last one as failed"."""
+    """Intent action for "that's wrong" / "save the last one as failed": the last reminder or event made."""
+    # Imported here: handlers.events imports this module.
+    from handlers.events import flag_last
+    if await flag_last(update, context):
+        return
     reply = update.effective_message.reply_text
     if LAST_REMINDER_ID in context.user_data and context.user_data[LAST_REMINDER_ID] is None:
         await reply("👎 That one is already saved as failed.")

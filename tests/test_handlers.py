@@ -37,39 +37,6 @@ def _replies(update):
     return [c.args[0] for c in update.effective_message.reply_text.call_args_list]
 
 
-@pytest.fixture
-def chat(db, monkeypatch):
-    """A new user with a timezone, and a function to send them messages/buttons.
-
-    Menu screens aren't sent; `chat.screen()` is the last one rendered: (text, keyboard).
-    """
-    from db.repositories.user import UserRepository
-    from handlers import commands, menus, reminders, settings
-    from handlers.text import on_text
-
-    render = AsyncMock()
-    for module in (commands, menus, reminders, settings):
-        monkeypatch.setattr(module, "render_menu", render)
-
-    telegram_id = random.randint(10**9, 10**12)
-    UserRepository().get_or_create(telegram_id)
-    UserRepository().set_timezone(telegram_id, "Europe/Lisbon")
-    context = MagicMock(user_data={}, chat_data={}, args=[])
-    context.bot.edit_message_text = AsyncMock()
-    context.bot.send_message = AsyncMock()
-    context.bot.username = "testbot"
-
-    def send(text=None, data=None, handler=None, reply_to=None):
-        update = _update(telegram_id, data=data, text=text, reply_to=reply_to)
-        asyncio.run((handler or on_text)(update, context))
-        return update
-
-    send.telegram_id = telegram_id
-    send.context = context
-    send.screen = lambda: render.call_args.args[2:4]
-    return send
-
-
 def _buttons(keyboard):
     """[[(text, callback data), ...], ...] of an inline keyboard."""
     return [[(b.text, b.callback_data) for b in row] for row in keyboard.inline_keyboard]
@@ -458,7 +425,8 @@ def test_start_registers_and_shows_the_menu(chat):
     text, keyboard = chat.screen()
     assert text.startswith("Hi!")
     assert _buttons(keyboard) == [
-        [("⏰ Reminders", "menu:reminders")], [("👥 People", "menu:people")], [("⚙️ Settings", "menu:settings")],
+        [("⏰ Reminders", "menu:reminders")], [("📅 Events", "menu:events")], [("👥 People", "menu:people")],
+        [("⚙️ Settings", "menu:settings")],
     ]
 
 
@@ -842,7 +810,8 @@ def test_reply_snooze(chat, text, minutes):
 
 def test_reply_move(chat):
     reminder = _firing(chat)
-    update = chat("move it to friday at 10", reply_to=555)
+    # "next friday": on a Friday morning, "friday at 10" is today
+    update = chat("move it to next friday at 10", reply_to=555)
     assert _replies(update)[0].startswith("⏰ call mom\n🗓 Moved to Fri ")
     text, when = _local_when(chat)
     assert (text, when.weekday(), when.hour) == ("call mom", 4, 10)
@@ -860,7 +829,7 @@ def test_reply_move_ignores_time_words_in_the_text(chat):
     reminder = ReminderRepository().create(user, chat.telegram_id, "pay rent at 5 every sunday",
                                            utcnow() + timedelta(hours=1), None, "…", MessageSource.TYPED)
     _fire(reminder.id, 555)
-    update = chat("move it to friday at 10", reply_to=555)
+    update = chat("move it to next friday at 10", reply_to=555)
     assert _replies(update)[0].startswith("⏰ pay rent at 5 every sunday\n🗓 Moved to Fri ")
     text, when = _local_when(chat)
     assert (text, when.weekday(), when.hour) == ("pay rent at 5 every sunday", 4, 10)

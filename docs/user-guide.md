@@ -13,6 +13,10 @@ Everything you can do with the bot, and how. For how the code works, see
   - [When a reminder is due](#when-a-reminder-is-due)
   - [Listing, editing and cancelling](#listing-editing-and-cancelling)
   - [When the bot gets it wrong](#when-the-bot-gets-it-wrong)
+- [📅 Events](#-events)
+  - [Adding an event](#adding-an-event)
+  - [Reminders before an event](#reminders-before-an-event)
+  - [Moving, editing and cancelling events](#moving-editing-and-cancelling-events)
 - [👥 People](#-people)
   - [Reminding someone](#reminding-someone)
 - [Settings](#settings)
@@ -51,6 +55,9 @@ Menu
 │   ├── ➕ New                 create a reminder
 │   ├── 📋 My reminders        list and cancel upcoming reminders
 │   └── ⚙️ Settings            → ⏰ Reminder settings (below)
+├── 📅 Events                  your upcoming events
+│   ├── 📅 <title>             ⏰ add a reminder · ✏️ Edit · ⏭ Skip · 🗑 Cancel event
+│   └── ➕ New                 add an event
 ├── 👥 People                  who you can remind, and who can remind you
 │   ├── 👤 <name>              ✏️ Rename · 🗑 Remove
 │   ├── 📨 <name>              🚫 Stop their reminders
@@ -113,10 +120,10 @@ are fine; small typos too, see [Typos](#typos)):
 | create a reminder for someone in [👥 People](#reminding-someone) | “remind anna …”, “remind @anna …” |
 | create a reminder | “remind me”, “remind”, “set a reminder”, “set reminder”, “create a reminder”, “add a reminder”, “new reminder”, “don't let me forget”, “don't forget” |
 | list reminders    | “my reminders”, “show my reminders”, “show reminders”, “list reminders”, “list my reminders”, “reminders” |
-| list one day      | “what do I have tomorrow?”, “what's on friday?”, “my reminders on dec 24”, “anything on monday?” (repeats included, also ones that already went off today) |
-| cancel a reminder | “cancel the dentist reminder”, “delete my reminder to call mom”, “remove …”: finds the one whose text has those words and asks you to confirm with ❌; if several or none match, it shows them to pick with ❌ |
+| list one day      | “what do I have tomorrow?”, “what's on friday?”, “my reminders on dec 24”, “anything on monday?” (repeats included, also ones that already went off today); all but “my reminders on …” also show that day's [events](#-events) |
+| cancel a reminder | “cancel the dentist reminder”, “delete my reminder to call mom”, “remove …”: finds the one whose text has those words and asks you to confirm with ❌; if several or none match, it shows them to pick with ❌. If one of your [events](#-events) has that name (“cancel padel”), it's the event, unless you say “reminder” |
 | set your timezone | “set my timezone to Lisbon”, “my timezone is UTC+3”, “change my timezone” (asks) |
-| flag the last reminder as wrong | “that's wrong”, “that is wrong”, “that was wrong”, “that's not right”, “you got that wrong”, “wrong reminder”, “save the last one as failed”, “mark the last one as failed”, “save it as failed”, “mark as failed” |
+| flag the last reminder (or event) as wrong | “that's wrong”, “that is wrong”, “that was wrong”, “that's not right”, “you got that wrong”, “wrong reminder”, “save the last one as failed”, “mark the last one as failed”, “save it as failed”, “mark as failed” |
 
 Tapping ❌ on one of these lists (one day, or “which one?”) cancels that
 reminder and shows your full list of what's left.
@@ -302,8 +309,8 @@ be improved:
   confirmation, or say “that's wrong” / “save the last one as failed”. The
   bot saves your message together with what it made of it and **deletes the
   reminder**; send it again if you still need it. “The last one” is the last
-  reminder the bot created or edited from your messages; if your last
-  message wasn't understood at all, it's already saved.
+  reminder (or [event](#-events)) the bot created or edited from your
+  messages; if your last message wasn't understood at all, it's already saved.
 
 ```
 ⏰ Got it: at 21.20 to call mom
@@ -330,6 +337,129 @@ didn't understand again, and marks the ones it now understands fixed. A
 message with a fix on the way shows “🔧 Fix waiting in pull request #n”;
 one the bot needs a new feature for shows “⏳ Waiting for: …”; tap ✅
 on it once that feature is added.
+
+## 📅 Events
+
+Events are things that happen at a time: padel on Thursday, the dentist on
+Friday, dinner at mom's on Christmas Eve. Reminders can hang off them (“30
+min before padel”) and move with them.
+
+### Adding an event
+
+Start the message with a trigger phrase, or press `📅 Events → ➕ New` and
+send the time and title. Voice messages work too.
+
+| To…              | Say                                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------- |
+| add an event     | “event …”, “new event …”, “add event …”, “add an event …”, “create an event …”, “make an event …”, “put … in my calendar”, “add … to my calendar”, “add to my calendar …” |
+| list your events | “my events”, “events”, “show my events”, “list events”, “upcoming events”, “my calendar”, “what's on my calendar” (“my events on friday” shows one day) |
+| move one         | “move padel to 20:00”, “reschedule padel to friday”, or just “padel is at 20:00 now” |
+| cancel one       | “cancel padel”, “cancel event padel”, “delete the event padel”; “cancel padel on thursday” skips one day of a repeating one |
+| remind before one | “remind me 30 min before padel to pack the racket” (see [below](#reminders-before-an-event)) |
+
+The time works like a reminder's ([Time expressions](#time-expressions)),
+before or after the title, and events can repeat the same way:
+
+- “event **padel on thursday at 21:00**”
+- “event **every thursday at 21:00**: padel”
+- “put **dinner at mom's on dec 24 at 19:00** in my calendar”
+- “event **dentist on friday**”: a day without a time is an **all-day**
+  event (also “today”, even late in the day)
+
+```
+📅 Added: padel
+🗓 Thu 29 Oct, 21:00 (in 6 d)
+🔁 every Thu at 21:00
+
+A reminder before it?
+[⏰ 15 min before] [⏰ 30 min before] [⏰ 1 h before]
+[↩️ Undo] [✏️ Edit] [👎 Wrong]
+```
+
+An all-day event offers `⏰ the day before, 09:00` and `⏰ on the day,
+09:00` instead. If the time or the title is missing, the bot asks for it
+(`📅 When is “padel”?`), like for reminders.
+
+**Without a keyword**: a message with a time and a text but no trigger
+phrase, like “padel on thursday at 21:00”, could be either, so the bot asks:
+
+```
+“padel”, Thu 29 Oct, 21:00 (in 6 d)
+Is this an event or a reminder?
+[📅 Event] [⏰ Reminder]
+```
+
+An event keeps the clock of the timezone you had when you made it: if you
+move to another timezone, “padel at 21:00” is still 21:00 where it was
+(shown in your new time). The bot only knows the events you add here; syncing
+with Google Calendar is planned.
+
+### Reminders before an event
+
+Tap one of the ⏰ buttons on the event, or say when, relative to it:
+
+- “remind me 30 min before padel to pack the racket”
+- “remind me to stretch 10 minutes after padel”
+- “remind me the day before the trip to pack”
+- “remind anna 1 hour before padel to bring the balls” (someone in
+  [👥 People](#reminding-someone))
+
+Without a text (“remind me 30 min before padel”), the reminder is the
+event's title. The event is found by its title (“the”, “my” in front are
+fine); if you have no event called that, the bot says so. For a
+**repeating** event, it asks:
+
+```
+⏰ pack the racket, 30 min before padel: just the next one, or every time?
+[1️⃣ Just the next one] [🔁 Every time]
+```
+
+```
+⏰ Got it: pack the racket
+📅 30 min before padel
+🗓 Thu 29 Oct, 20:30 (in 6 d)
+🔁 30 min before, every Thu at 21:00
+```
+
+When it goes off, it says which event it's for:
+
+```
+⏰ pack the racket
+📅 padel: Today, 21:00 (in 30 min)
+[✅ OK] [💤 10 min] [💤 1 h]
+```
+
+These reminders **follow the event**: if padel moves to 20:00, the reminder
+moves to 19:30; if padel is cancelled, so are its reminders; if one Thursday
+is skipped, so is its reminder that day. Editing such a reminder (✏️ Edit, or
+“move it to 10” as a reply) makes it an ordinary one that no longer follows
+the event.
+
+### Moving, editing and cancelling events
+
+`📅 Events` lists your upcoming events; tap one to see its reminders and:
+
+- **⏰** add a reminder before it,
+- **✏️ Edit**: send its new time and title (“padel on friday at 20:00”),
+- **⏭ Skip <day>** (repeating events): that one occurrence doesn't happen,
+- **🗑 Cancel event**: every occurrence, and its reminders.
+
+**Moving by message**: “move padel to 20:00” keeps the day, “move padel to
+friday” keeps the time, “to friday at 20:00” changes both; “move padel to
+8” is whichever of 08:00 and 20:00 is closer to its time now. For a
+repeating event, a time changes every occurrence's time, a weekday moves a
+weekly one to that day, and a repeat (“move padel to every monday at 19:00”)
+replaces it; anything else, ✏️ Edit it. A time alone on an all-day event
+gives it that time.
+
+**Cancelling by message**: “cancel padel” asks to confirm; for a repeating
+event you can pick `⏭ Just Thu 29 Oct` or `🗑 Every time`. “cancel padel on
+thursday” asks to skip just that day. If a reminder you set before it is
+waiting for your OK right now, its message loses its buttons.
+
+`👎 Wrong` on the confirmation (or “that's wrong” right after) cancels the
+event and saves your message as failed, like for
+[reminders](#when-the-bot-gets-it-wrong).
 
 ## 👥 People
 
