@@ -523,3 +523,51 @@ def test_first_event_asks_for_the_timezone(db):
 def test_failed_recheck_knows_events(text, intent, fixed):
     from jobs.failed import understood
     assert understood(text, intent, NOW) == fixed
+
+
+@pytest.mark.parametrize("button", ["evt:rem:{id}:-30", "evt:open:{id}", "evt:edit:{id}"])
+def test_buttons_of_a_cancelled_event(chat, button):
+    chat("event padel on dec 24 at 21:00")
+    [padel] = _events(chat.telegram_id)
+    _press(chat, f"evt:del:{padel.id}")
+    update = _press(chat, button.format(id=padel.id))
+    assert update.callback_query.answer.call_args.args[0] == "This event has been cancelled."
+    assert _reminders(padel.id) == [] and _replies(update) == []
+
+
+def test_once_or_every_after_cancelling(chat):
+    chat("event every thursday at 21:00: padel")
+    [padel] = _events(chat.telegram_id)
+    chat("remind me 30 min before padel to pack the racket")
+    _press(chat, f"evt:del:{padel.id}")
+    update = _press(chat, f"evt:every:{padel.id}")
+    assert update.callback_query.answer.call_args.args[0] == "This event has been cancelled."
+    assert _reminders(padel.id) == []
+
+
+def test_reminder_for_an_event_cancelled_meanwhile(chat):
+    from handlers import events as handlers_events
+    from db.repositories.event import EventRepository
+
+    chat("event padel on dec 24 at 21:00")
+    [padel] = _events(chat.telegram_id)
+    EventRepository().cancel(padel.id)
+    update = _update(chat.telegram_id, text="")
+    user = handlers_events.users.get_by_telegram_id(chat.telegram_id)
+    asyncio.run(handlers_events.save_reminder(update, chat.context, user, padel, -30, "padel", None, "typed"))
+    assert _replies(update) == ["“padel” has been cancelled."]
+    assert _reminders(padel.id) == []
+
+
+@pytest.mark.parametrize("message, reply", [
+    ("remind me in 99999999 days to call mom", "That's too far in the future."),
+    ("what do I have in 99999999 days?", "I can show one day"),
+    ("event padel in 99999999 days", "That's too far in the future."),
+])
+def test_too_far_in_the_future_doesnt_crash(chat, message, reply):
+    assert _replies(chat(message))[0].startswith(reply)
+
+
+def test_move_too_far_doesnt_crash(chat):
+    chat("event padel on dec 24 at 21:00")
+    assert _replies(chat("move padel to in 99999999 days"))[0].startswith("I couldn't understand the new time.")

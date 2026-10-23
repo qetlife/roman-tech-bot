@@ -14,7 +14,7 @@ from typing         import Optional
 from zoneinfo       import ZoneInfo
 
 from core           import recurrence as recurrences
-from core.parser    import MissingText, MissingTime, ParseError, parse_duration, parse_reminder
+from core.parser    import MissingText, MissingTime, ParseError, TooFar, parse_duration, parse_reminder
 
 
 @dataclass
@@ -150,7 +150,7 @@ FILLER = {"the", "my", "a", "an", "event", "events", "calendar", "this", "that",
 RELATIVE_WORDS = {"before": -1, "after": 1}
 
 
-# More minutes than any duration that fits in a timedelta
+# More minutes than any duration the parser reads (MAX_DURATION)
 TOO_FAR = 10**12
 
 
@@ -178,7 +178,7 @@ def split_relative(request: str) -> Optional[Relative]:
         for j in range(0, i):
             try:
                 delta = parse_duration(" ".join(words[j:i]))
-            except OverflowError:
+            except TooFar:
                 # "99999999999 days": too far for any event (the handler says so)
                 return Relative(sign * TOO_FAR, words[i + 1:], words[:j] or None)
             if delta is not None:

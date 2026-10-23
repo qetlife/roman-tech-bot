@@ -247,7 +247,10 @@ docstring and [user guide](user-guide.md#time-expressions)) and raises
 `ParseError` with a user-facing message otherwise. `now` is timezone-aware
 in the user's timezone. Two subclasses say which half is missing:
 `MissingText` (a time, no text) and `MissingTime` (no time it understands;
-`.text` is the request cleaned up as reminder text).
+`.text` is the request cleaned up as reminder text). A third, `TooFar`, is a
+duration over `MAX_DURATION` (100 years; more would overflow dates, in
+delivery too for “every 99999999 days”); `parse_duration` raises it as
+well, so `parse_day`, replies and `parse_move` catch it.
 
 **Asking for the missing half** (`handlers/reminders.py`): `create_reminder`
 turns `MissingText` into `ask_what` and `MissingTime` into `ask_when`,

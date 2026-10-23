@@ -30,7 +30,7 @@ from    db.repositories.failed_message  import FailedMessageRepository
 from    db.repositories.reminder        import ReminderRepository
 from    db.repositories.user            import UserRepository
 from    enums                           import (
-    Awaiting, Callback, CallbackPrefix, EventAction, FailureReason, IntentName, MessageSource,
+    Awaiting, Callback, CallbackPrefix, EventAction, EventStatus, FailureReason, IntentName, MessageSource,
 )
 from    handlers                        import reminders as rh
 from    handlers.failed                 import record, record_not_understood
@@ -535,6 +535,11 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         target, for_whom = users.get_by_id(contact.contact_user_id), f" for {contact.name}"
     context.user_data.pop(AWAITING, None)
     context.user_data.pop(PENDING_CONTACT_ID, None)
+    current = events.get(event.id)
+    if current is None or current.status != EventStatus.ACTIVE:
+        # Cancelled meanwhile: nothing would cancel this reminder any more.
+        await update.effective_message.reply_text(f"“{event.title}” has been cancelled.")
+        return
     now = utcnow()
     when, rule = reminder_time(event, minutes, now, every)
     if when <= now:
@@ -795,6 +800,12 @@ async def on_event_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     event = events.get(event_id)
     if event is None or event.user_id != user.id:
         await query.answer("This event isn't yours.", show_alert=True)
+        return
+    if event.status != EventStatus.ACTIVE and action not in (EventAction.UNDO, EventAction.WRONG, EventAction.CANCEL):
+        # Buttons on an old message: ⏰ would make a reminder nothing ever cancels.
+        context.user_data.pop(PENDING_EVENT_REMINDER, None)
+        await query.answer("This event has been cancelled.", show_alert=True)
+        await query.edit_message_reply_markup(reply_markup=None)
         return
 
     if action == EventAction.OPEN:

@@ -156,8 +156,8 @@ If half is missing, the bot asks for it and puts the two together:
 A message starting with a trigger phrase still wins while it asks. Saying
 “that's wrong” then saves the message it asked about as failed: asking was
 the mistake. If it can't understand the time in some other way (a repeat
-under 15 minutes, a time that has passed), it says so and asks you to send
-it again.
+under 15 minutes, a time that has passed, more than 100 years away), it says
+so and asks you to send it again.
 
 ### Time expressions
 

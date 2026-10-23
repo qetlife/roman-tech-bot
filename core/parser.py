@@ -33,6 +33,7 @@ e.g. "every day at 9", "at 8:30 on weekdays", "every friday 18:00",
 """
 
 import calendar
+import math
 import re
 
 from calendar        import Day
@@ -51,6 +52,13 @@ from core.recurrence import (
 
 class ParseError(ValueError):
     """The request could not be understood; the message is shown to the user."""
+
+
+class TooFar(ParseError):
+    """A duration longer than MAX_DURATION ("in 99999999 days"), or too big to compute."""
+
+    def __init__(self, message: str = "That's too far in the future."):
+        super().__init__(message)
 
 
 class MissingText(ParseError):
@@ -127,6 +135,9 @@ DAY_PARTS = {
 # Shortest "every N minutes" reminder.
 MIN_INTERVAL = timedelta(minutes=15)
 
+# Longest duration ("in 100 years"): more would overflow dates (year 9999).
+MAX_DURATION = timedelta(days=100 * 365)
+
 # Words of time expressions whose typos are fixed on a second try
 # ("tomorow", "wensday", "evry"), each with its meaning (core/typos.py).
 TIME_VOCABULARY = Vocabulary({
@@ -181,16 +192,27 @@ def _number(token: str) -> Optional[float]:
     if token in NUMBER_WORDS:
         return float(NUMBER_WORDS[token])
     try:
-        return float(token)
+        value = float(token)
     except ValueError:
         return None
+    # "nan", "inf", "1e400" aren't numbers anyone says
+    return value if math.isfinite(value) else None
 
 
 def _read_duration(tokens: list, i: int):
     """Read "2 hours and 30 minutes" / "1h30m" / "half an hour" starting at i.
 
     Returns (next index, timedelta) or (i, None) if nothing was read.
+    Raises TooFar for more than MAX_DURATION.
     """
+    try:
+        return _read_duration_unchecked(tokens, i)
+    except OverflowError:
+        # "99999999999d": too big for a timedelta
+        raise TooFar()
+
+
+def _read_duration_unchecked(tokens: list, i: int):
     total = timedelta()
     start = i
     while i < len(tokens):
@@ -223,6 +245,8 @@ def _read_duration(tokens: list, i: int):
 
     if i == start or total <= timedelta():
         return start, None
+    if total > MAX_DURATION:
+        raise TooFar()
     return i, total
 
 
@@ -918,10 +942,13 @@ def parse_move(phrase: str, old: datetime, now: datetime, recurrence: Optional[R
     tokens = _tokenize(phrase)
     if not tokens:
         return None
-    w = _parse_when_tokens(tokens, now)
-    if w is None and tokens[0] not in CONNECTORS:
-        # "move padel to 8": a number alone is a time here
-        w = _parse_when_tokens(["at"] + tokens, now)
+    try:
+        w = _parse_when_tokens(tokens, now)
+        if w is None and tokens[0] not in CONNECTORS:
+            # "move padel to 8": a number alone is a time here
+            w = _parse_when_tokens(["at"] + tokens, now)
+    except TooFar:
+        return None
 
     if recurrence is not None:
         try:
