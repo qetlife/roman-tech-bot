@@ -61,8 +61,8 @@ EXAMPLES = (
 QUICK_REMINDERS = (-15, -30, -60)
 # On an all-day event (which starts at midnight): 09:00 the day before, 09:00 on the day
 QUICK_ALL_DAY = ((-15 * 60, "the day before, 09:00"), (9 * 60, "on the day, 09:00"))
-# Callback data comes from the client: a reminder at most a week from the event.
-MAX_OFFSET = 7 * 24 * 60
+# A reminder at most 5 years from its event (minutes), typed or from a button's callback data
+MAX_OFFSET = 5 * 365 * 24 * 60
 
 
 # --- showing ----------------------------------------------------------------
@@ -479,6 +479,10 @@ async def remind_relative(update: Update, context: ContextTypes.DEFAULT_TYPE, us
     relative = split_relative(request)
     if relative is None:
         return False
+    if abs(relative.minutes) > MAX_OFFSET:
+        context.user_data.pop(AWAITING, None)
+        await update.effective_message.reply_text("That's too far from the event: at most 5 years before or after it.")
+        return True
     titles = titles_of(user)
     found = match_title(relative.event, titles)
     reply = update.effective_message.reply_text
@@ -846,7 +850,9 @@ async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE, user, event, 
     """⏭ Skip: one occurrence of a repeating event doesn't happen; its reminders for it are skipped too."""
     query = update.callback_query
     now = utcnow()
-    if not event.recurrence or occurrence <= now or nearest_occurrence(event, occurrence) != occurrence:
+    # An all-day one is still on until its day ends.
+    ends = occurrence + timedelta(days=1) if event.all_day else occurrence
+    if not event.recurrence or ends <= now or nearest_occurrence(event, occurrence) != occurrence:
         await query.answer("That one has already passed.", show_alert=True)
         return
     updated = events.update(event.id, skipped=with_skipped(event, occurrence, now))

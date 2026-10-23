@@ -34,6 +34,9 @@ def _all_day(parsed, now: datetime) -> ParsedEvent:
         recurrence = recurrences.Interval(recurrence.every, start)
     elif recurrence is not None:
         recurrence = replace(recurrence, clock=time(0, 0))
+        # "every friday" said on a Friday: today is one of them (the parser's 09:00 may have passed)
+        today = datetime.combine(now.date(), time(0, 0), tzinfo=tz)
+        start = recurrence.next_after(today - timedelta(seconds=1), tz)
     return ParsedEvent(parsed.text, start, recurrence, all_day=True)
 
 
@@ -143,6 +146,10 @@ FILLER = {"the", "my", "a", "an", "event", "events", "calendar", "this", "that",
 RELATIVE_WORDS = {"before": -1, "after": 1}
 
 
+# More minutes than any duration that fits in a timedelta
+TOO_FAR = 10**12
+
+
 @dataclass
 class Relative:
     minutes: int    # negative: before
@@ -165,7 +172,11 @@ def split_relative(request: str) -> Optional[Relative]:
             return Relative(sign * 24 * 60, words[i + 1:], words[:i - 2] or None)
         # The longest duration right before it: "1 hour 30 min", "half an hour"
         for j in range(0, i):
-            delta = parse_duration(" ".join(words[j:i]))
+            try:
+                delta = parse_duration(" ".join(words[j:i]))
+            except OverflowError:
+                # "99999999999 days": too far for any event (the handler says so)
+                return Relative(sign * TOO_FAR, words[i + 1:], words[:j] or None)
             if delta is not None:
                 return Relative(sign * int(delta.total_seconds() // 60), words[i + 1:], words[:j] or None)
     return None

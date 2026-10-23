@@ -54,6 +54,8 @@ def test_a_day_without_a_time_is_all_day(request_, day):
 def test_a_repeating_all_day_event_starts_at_midnight():
     parsed = parse_event("every friday: gym day", NOW)
     assert parsed.all_day and parsed.recurrence.serialize() == "fri@00:00"
+    # Said on a Wednesday after 09:00: today is one of them
+    assert parse_event("every wednesday: gym day", NOW).starts_at == at(21, 0)
 
 
 def test_a_time_that_passed_today_is_still_refused():
@@ -250,6 +252,31 @@ def test_reminder_relative_to_an_event_by_text(chat):
 def test_reminder_relative_to_an_unknown_event(chat):
     update = chat("remind me 30 min before tennis to pack the racket")
     assert _replies(update)[0].startswith("I don't have an event called “tennis”.")
+
+
+@pytest.mark.parametrize("request_", [
+    "remind me 2000 days before padel", "remind me 99999999 days before padel", "remind me 9999999999 days after padel",
+])
+def test_too_far_from_the_event(chat, request_):
+    chat("event padel on dec 24 at 21:00")
+    [padel] = _events(chat.telegram_id)
+    assert _replies(chat(request_))[0].startswith("That's too far from the event")
+    assert _reminders(padel.id) == []
+
+
+def test_skip_today_of_an_all_day_repeat(chat):
+    from db.models.reminder import utcnow
+    from handlers.events import users as event_users
+
+    tz = ZoneInfo(event_users.get_by_telegram_id(chat.telegram_id).timezone)
+    weekday = utcnow().astimezone(tz).strftime("%A").lower()
+    chat(f"event every {weekday}: gym day")
+    [gym] = _events(chat.telegram_id)
+    today = next_occurrence(gym, utcnow())
+    assert today.astimezone(tz).date() == utcnow().astimezone(tz).date()
+    update = _press(chat, f"evt:skip:{gym.id}:{recurrences.format_stamp(today)}")
+    assert update.callback_query.answer.call_args.args[0].startswith("No gym day on ")
+    assert next_occurrence(_events(chat.telegram_id)[0], utcnow()) == today + timedelta(days=7)
 
 
 def test_before_and_after_without_an_event_is_an_ordinary_reminder(chat):

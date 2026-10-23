@@ -406,7 +406,8 @@ Tap one of the ⏰ buttons on the event, or say when, relative to it:
 
 Without a text (“remind me 30 min before padel”), the reminder is the
 event's title. The event is found by its title (“the”, “my” in front are
-fine); if you have no event called that, the bot says so. For a
+fine); if you have no event called that, the bot says so. It can be at most
+5 years before or after the event. For a
 **repeating** event, it asks:
 
 ```
