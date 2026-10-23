@@ -19,11 +19,12 @@ from    telegram.ext                    import ContextTypes
 from    core                            import recurrence as recurrences
 from    core.commands                   import parse_day
 from    core.events                     import (
-    clean_text, match_title, nearest_occurrence, next_occurrence, occurs_on, parse_event, reminder_time, schedule,
-    skipped, split_move, split_move_statement, split_relative, unknown_title, with_skipped,
+    clean_text, duration, match_title, nearest_occurrence, next_occurrence, occurrence_on, occurs_on, parse_event,
+    reminder_time, rrule, rule_of, skipped, split_move, split_move_statement, split_relative, unknown_title,
+    with_skipped,
 )
 from    core.parser                     import MissingText, MissingTime, ParseError, parse_move, parse_reminder
-from    core.timezones                  import format_when, to_local, user_now
+from    core.timezones                  import format_delta, format_when, to_local, user_now
 from    db.models.reminder              import utcnow
 from    db.repositories.event           import EventRepository
 from    db.repositories.failed_message  import FailedMessageRepository
@@ -76,19 +77,34 @@ def _day(local: datetime, now_local: datetime) -> str:
 
 
 def at_text(event, when: datetime, tz_name: str, now: datetime) -> str:
-    """"Thu 23 Oct, 21:00 (in 2 d)"; all day: "Thu 23 Oct (all day)" (its own date)."""
+    """When the occurrence starting `when` is on.
+
+    "Thu 23 Oct, 21:00 (in 2 d)", with an end "Thu 23 Oct, 21:00–22:30 (in 2 d)"
+    or "Fri 24 Oct, 18:00 – Sun 26 Oct, 12:00"; all day "Thu 23 Oct (all day)"
+    or "Fri 24 – Sun 26 Oct (all day)", in its own dates.
+    """
+    end = when + duration(event) if event.ends_at is not None or event.all_day else None
     if event.all_day:
-        local = to_local(when, event.timezone)
-        return f"{_day(local, to_local(now, event.timezone))} (all day)"
-    if when > now:
-        return format_when(when, tz_name, now)
-    local = to_local(when, tz_name)
-    return f"{_day(local, to_local(now, tz_name))}, {local:%H:%M}"
+        local, today = to_local(when, event.timezone), to_local(now, event.timezone)
+        last = to_local(end - timedelta(seconds=1), event.timezone)
+        if last.date() == local.date():
+            return f"{_day(local, today)} (all day)"
+        first = _day(local, today) if local.date() <= today.date() + timedelta(days=1) or local.month != last.month \
+            else local.strftime("%a %d")
+        return f"{first} – {_day(last, today)} (all day)"
+    local, today = to_local(when, tz_name), to_local(now, tz_name)
+    soon = f" (in {format_delta(when - now)})" if when > now else ""
+    if end is None or end == when:
+        return f"{_day(local, today)}, {local:%H:%M}{soon}"
+    last = to_local(end, tz_name)
+    if last.date() == local.date():
+        return f"{_day(local, today)}, {local:%H:%M}–{last:%H:%M}{soon}"
+    return f"{_day(local, today)}, {local:%H:%M} – {_day(last, today)}, {last:%H:%M}{soon}"
 
 
 def repeat_text(event, tz_name: str) -> str:
     """"every Thu at 21:00", in the event's clock ("(Europe/Lisbon)" if that isn't the user's)."""
-    text = recurrences.parse(event.recurrence).describe(ZoneInfo(event.timezone))
+    text = rule_of(event).describe(ZoneInfo(event.timezone))
     if event.all_day:
         text = text.removesuffix(" at 00:00")
     if event.timezone != tz_name and not event.all_day:
@@ -258,7 +274,7 @@ async def answer_time(update: Update, context: ContextTypes.DEFAULT_TYPE, when: 
 
 async def save_event(update: Update, context: ContextTypes.DEFAULT_TYPE, user, parsed, request: str):
     context.user_data.pop(AWAITING, None)
-    recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
+    recurrence = recurrences.to_rrule(parsed.recurrence) if parsed.recurrence else None
     event = events.create(
         user.id, parsed.title, parsed.starts_at, user.timezone, recurrence, parsed.all_day,
         request, message_source(update),
@@ -268,6 +284,7 @@ async def save_event(update: Update, context: ContextTypes.DEFAULT_TYPE, user, p
         f"📅 Added: {event.title}\n{when_text(event, user.timezone)}\n\nA reminder before it?",
         reply_markup=build_created_keyboard(event),
     )
+    await to_google(context, event)
 
 
 async def on_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -297,6 +314,11 @@ async def follow(context: ContextTypes.DEFAULT_TYPE, old, event) -> int:
             if rule.next_after(reminder.remind_at - timedelta(seconds=1), ZoneInfo(event.timezone)) == reminder.remind_at:
                 # Its occurrence still happens: only the repeat (skipped days) changes.
                 when = reminder.remind_at
+            elif when is None:
+                # The repeat has ended (it got an "until")
+                if reminders.cancel(reminder.id) is not None:
+                    await rh.retire_fired_message(context, reminder, f"↩️ Cancelled: no more {event.title}.")
+                continue
         elif event.recurrence:
             before = reminder.remind_at - delta
             occurrence = nearest_occurrence(event, before) if old.recurrence else next_occurrence(event, now)
@@ -346,8 +368,8 @@ async def edit_event(update: Update, context: ContextTypes.DEFAULT_TYPE, event_i
         return
     context.user_data.pop(AWAITING, None)
     updated = events.update(
-        event.id, title=parsed.title, starts_at=parsed.starts_at, all_day=parsed.all_day, skipped=None,
-        recurrence=parsed.recurrence.serialize() if parsed.recurrence else None,
+        event.id, title=parsed.title, starts_at=parsed.starts_at, ends_at=None, all_day=parsed.all_day, skipped=None,
+        moved=None, recurrence=recurrences.to_rrule(parsed.recurrence) if parsed.recurrence else None,
         request=request, source=message_source(update),
     )
     if updated is None:
@@ -359,6 +381,7 @@ async def edit_event(update: Update, context: ContextTypes.DEFAULT_TYPE, event_i
         f"✏️ Updated: {updated.title}\n{when_text(updated, user.timezone)}{_moved_note(moved)}",
         reply_markup=build_created_keyboard(updated),
     )
+    await to_google(context, updated)
 
 
 MOVE_HELP = "Try “move {title} to 20:00”, “to friday” or “to friday at 20:00”."
@@ -383,7 +406,7 @@ async def move(update: Update, context: ContextTypes.DEFAULT_TYPE, user, event, 
     """Move `event` to the time in `phrase`, in the event's clock; what isn't said stays."""
     now = user_now(event.timezone)
     current = next_occurrence(event, utcnow()) or event.starts_at
-    rule = recurrences.parse(event.recurrence) if event.recurrence else None
+    rule = rrule(event)
     moved = parse_move(phrase, current, now, rule) if phrase else None
     reply = update.effective_message.reply_text
     if moved is None:
@@ -397,14 +420,14 @@ async def move(update: Update, context: ContextTypes.DEFAULT_TYPE, user, event, 
     when = moved.when
     if all_day:
         when = datetime.combine(when.date(), datetime.min.time(), tzinfo=when.tzinfo)
-    if moved.recurrence is None and (when.date() < now.date() if all_day else when <= now):
+    if moved.rule is None and (when.date() < now.date() if all_day else when <= now):
         await reply("That time has already passed.")
         return
-    recurrence = moved.recurrence.serialize() if moved.recurrence else None
+    # It lasts as long as before; the skipped and moved days were of the old times.
+    length = event.ends_at - event.starts_at if event.ends_at is not None else None
     updated = events.update(
-        event.id, starts_at=when, recurrence=recurrence, all_day=all_day,
-        # The skipped days were of the old times.
-        skipped=event.skipped if recurrence == event.recurrence else None,
+        event.id, starts_at=when, ends_at=when + length if length is not None else None, recurrence=moved.rule,
+        all_day=all_day, skipped=None, moved=None,
     )
     if updated is None:
         await reply("That event has been cancelled.")
@@ -412,6 +435,7 @@ async def move(update: Update, context: ContextTypes.DEFAULT_TYPE, user, event, 
     count = await follow(context, event, updated)
     await reply(f"📅 Moved: {updated.title}\n{when_text(updated, user.timezone)}{_moved_note(count)}",
                 reply_markup=build_created_keyboard(updated))
+    await to_google(context, updated)
 
 
 def names_event(update: Update, request: str) -> bool:
@@ -542,6 +566,9 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, user
         return
     now = utcnow()
     when, rule = reminder_time(event, minutes, now, every)
+    if when is None:
+        await update.effective_message.reply_text(f"{event.title} doesn't happen again.")
+        return
     if when <= now:
         await update.effective_message.reply_text(
             f"That's already passed: {event.title} is {at_text(event, event.starts_at, user.timezone, now)}."
@@ -601,21 +628,15 @@ async def list_events(update: Update, context: ContextTypes.DEFAULT_TYPE, reques
         text = events_text(user, items, f"Your events on {day:%a %d %b}", f"No events on {day:%a %d %b}.")
     else:
         text = events_text(user, items)
+    # Imported here: handlers.calendar imports this module.
+    from handlers.calendar import warning
+    text = warning(user) + text
     keyboard = build_list_keyboard(items)
     if update.callback_query is not None:
         await update.callback_query.answer(toast)
         await render_menu(update, context, text, keyboard)
     else:
         await update.effective_message.reply_text(text, reply_markup=keyboard)
-
-
-def occurrence_on(event, day, tz) -> datetime:
-    """When the event starts on `day` (local, in `tz`), which it occurs on."""
-    rule = schedule(event)
-    if rule is None:
-        return event.starts_at
-    start = datetime.combine(day, datetime.min.time(), tzinfo=tz)
-    return rule.occurrence_after(max(start, event.starts_at) - timedelta(seconds=1))
 
 
 def day_text(user, day) -> str:
@@ -654,6 +675,8 @@ def event_screen(user, event):
     tz_name = user.timezone or "UTC"
     now = utcnow()
     lines = [f"📅 {event.title}", when_text(event, tz_name, now)]
+    if event.external_id is not None:
+        lines.append("🔗 In Google Calendar")
     attached = reminders.list_for_event(event.id)
     if attached:
         lines += ["", "Reminders:"]
@@ -750,6 +773,24 @@ async def retire_all(context: ContextTypes.DEFAULT_TYPE, cancelled):
         await rh.retire_fired_message(context, reminder, "↩️ Cancelled.")
 
 
+async def to_google(context: ContextTypes.DEFAULT_TYPE, event):
+    """Send the change to Google Calendar, if the event's owner linked it (handlers/calendar.py)."""
+    # Imported here: handlers.calendar imports this module.
+    from handlers.calendar import push
+    await push(context.bot, event)
+
+
+async def cancel_with_reminders(context: ContextTypes.DEFAULT_TYPE, event, push_to_google: bool = True):
+    """Cancel an event and its waiting reminders (taking the buttons off one going off). None if it already was."""
+    cancelled = events.cancel(event.id)
+    if cancelled is None:
+        return None
+    await retire_all(context, cancelled)
+    if push_to_google:
+        await to_google(context, cancelled.event)
+    return cancelled
+
+
 # --- 👎 Wrong -----------------------------------------------------------------
 
 async def flag_wrong(update: Update, context: ContextTypes.DEFAULT_TYPE, event) -> str:
@@ -763,10 +804,9 @@ async def flag_wrong(update: Update, context: ContextTypes.DEFAULT_TYPE, event) 
     # "that's wrong" again now means this one, which is already saved.
     context.user_data.pop(LAST_EVENT_ID, None)
     context.user_data[LAST_REMINDER_ID] = None
-    cancelled = events.cancel(event.id)
+    cancelled = await cancel_with_reminders(context, event)
     if cancelled is None:
         return f"👎 Saved as failed, so I can learn it. “{event.title}” had already been cancelled."
-    await retire_all(context, cancelled)
     return (
         f"👎 Cancelled: {event.title}{_reminders_note(len(cancelled.reminders))}\n"
         "Saved as failed, so I can learn it. Send it again if you still need it."
@@ -789,6 +829,9 @@ async def flag_last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 async def on_events_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """📅 Events in the main menu, and ↩️ Back to it."""
+    # Imported here: handlers.calendar imports this module.
+    from handlers.calendar import maybe_sync
+    await maybe_sync(context.bot, update.effective_user.id)
     await list_events(update, context)
 
 
@@ -814,12 +857,11 @@ async def on_event_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await render_menu(update, context, text, keyboard)
 
     elif action == EventAction.UNDO:
-        cancelled = events.cancel(event.id)
+        cancelled = await cancel_with_reminders(context, event)
         if cancelled is None:
             await query.answer("This event has already been cancelled.")
             return
         await query.answer("Cancelled")
-        await retire_all(context, cancelled)
         await query.edit_message_text(f"↩️ Cancelled: {event.title}{_reminders_note(len(cancelled.reminders))}")
 
     elif action == EventAction.EDIT:
@@ -831,9 +873,7 @@ async def on_event_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(await flag_wrong(update, context, event))
 
     elif action == EventAction.CANCEL:
-        cancelled = events.cancel(event.id)
-        if cancelled is not None:
-            await retire_all(context, cancelled)
+        await cancel_with_reminders(context, event)
         await list_events(update, context, toast="Cancelled")
 
     elif action == EventAction.SKIP:
@@ -861,8 +901,8 @@ async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE, user, event, 
     """⏭ Skip: one occurrence of a repeating event doesn't happen; its reminders for it are skipped too."""
     query = update.callback_query
     now = utcnow()
-    # An all-day one is still on until its day ends.
-    ends = occurrence + timedelta(days=1) if event.all_day else occurrence
+    # Still on until it ends (an all-day one, its day)
+    ends = occurrence + duration(event)
     if not event.recurrence or ends <= now or nearest_occurrence(event, occurrence) != occurrence:
         await query.answer("That one has already passed.", show_alert=True)
         return
@@ -871,6 +911,7 @@ async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE, user, event, 
         await query.answer("This event has been cancelled.", show_alert=True)
         return
     await follow(context, event, updated)
+    await to_google(context, updated)
     await query.answer(f"No {event.title} on {to_local(occurrence, event.timezone):%a %d %b}")
     text, keyboard = event_screen(user, updated)
     await render_menu(update, context, text, keyboard)

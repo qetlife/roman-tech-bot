@@ -13,9 +13,20 @@ services:
       SPEECH_TOKEN: ${SPEECH_TOKEN:-}
       # Telegram user ID of the admin, who can see /failed (optional)
       ADMIN_TELEGRAM_ID: ${ADMIN_TELEGRAM_ID:-}
+      # Google Calendar sync (optional; all four, see docs/setup.md)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      CALENDAR_KEY: ${CALENDAR_KEY:-}
+    # The web server for Google (OAuth callback, push notifications) listens on 8080
+    # inside; only on the Pi itself, for Nginx (docs/setup.md, Google Calendar)
+    ports:
+      - "127.0.0.1:${WEB_HOST_PORT:-8095}:8080"
     networks:
-      # Shared with the `postgres` container
-      - shared-network
+      # Shared with the `postgres` container; Nginx in a container reaches the bot as roman-tech-bot:8080
+      shared-network:
+        aliases:
+          - roman-tech-bot
 
 networks:
   shared-network:

@@ -61,6 +61,7 @@ def build_settings_menu():
         [InlineKeyboardButton("🆔 My ID", callback_data=Callback.MY_ID)],
         [InlineKeyboardButton("🌍 Timezone", callback_data=Callback.TIMEZONE_SETTINGS)],
         [InlineKeyboardButton("⏰ Reminders", callback_data=Callback.REMINDER_SETTINGS)],
+        [InlineKeyboardButton("📅 Calendar", callback_data=Callback.CALENDAR_SETTINGS)],
         [InlineKeyboardButton("↩️ Back", callback_data=Callback.SETTINGS_BACK)],
     ]
     return InlineKeyboardMarkup(keyboard)

@@ -57,6 +57,13 @@ class ExternalSource(StrEnum):
     GOOGLE = "google"
 
 
+class GoogleStatus(StrEnum):
+    """Stored in google_accounts.status."""
+
+    LINKED = "linked"
+    EXPIRED = "expired"     # Google refused the login (expired after 7 days in testing, or revoked): link again
+
+
 # --- contacts ---------------------------------------------------------------
 
 class ContactStatus(StrEnum):
@@ -179,6 +186,7 @@ class Callback(StrEnum):
     REPEAT_SETTINGS = "settings:repeat"
     QUIET_SETTINGS = "settings:quiet"
     UPDATES_SETTINGS = "settings:updates"               # 📣 Updates from people
+    CALENDAR_SETTINGS = "settings:calendar"             # 📅 Google Calendar
 
     # ⏰ Reminders
     NEW_REMINDER = "rem:new"
@@ -206,6 +214,7 @@ class CallbackPrefix(StrEnum):
     PEOPLE = "ppl:"             # ppl:<PeopleAction>:<contact id>
     INVITE = "inv:"             # inv:<PeopleAction.ALLOW|DECLINE>:<invite token>
     EVENT = "evt:"              # evt:<EventAction>:<event id>[:<value>]
+    CALENDAR = "gcal:"          # gcal:<CalendarAction>[:<google_calendars id, or "all">]
 
 
 class ReminderAction(StrEnum):
@@ -231,6 +240,17 @@ class EventAction(StrEnum):
     WRONG = "wrong"     # 👎 Wrong: save as a failed message and cancel the event
     SKIP = "skip"       # evt:skip:<id>:<occurrence, YYYYMMDDTHHMMZ>: one occurrence of a repeating event doesn't happen
     CANCEL = "del"      # cancel the event (every occurrence) and its reminders
+
+
+class CalendarAction(StrEnum):
+    """Buttons on ⚙️ Settings → 📅 Calendar (gcal:<action>[:<value>])."""
+
+    TOGGLE = "tgl"      # gcal:tgl:<id>: sync this calendar or stop
+    DEFAULT = "def"     # new events go to the next synced calendar
+    SYNC = "sync"       # 🔄 Sync now
+    UNLINK = "unl"      # 🔓 Unlink: asks what to do with the imported events
+    KEEP = "keep"       # gcal:keep:<id|all>: stop syncing, keep its events in the bot
+    REMOVE = "rm"       # gcal:rm:<id|all>: stop syncing, remove its events from the bot
 
 
 class PeopleAction(StrEnum):

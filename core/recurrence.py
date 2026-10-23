@@ -8,6 +8,14 @@ Stored in `core.recurrence` as one of:
     "event:-30m;Europe/Lisbon;20261029T2100Z;thu@21:00"
                                     Offset: 30 min before every occurrence of a repeating
                                     event (its repeat and timezone), except those skipped
+    "rrule:Europe/Lisbon;20261022T210000;<exdates>;<rdates>;FREQ=WEEKLY;BYDAY=TH"
+                                    RRuleSet: an event's repeat as an RFC 5545 RRULE (what
+                                    Google Calendar uses), from its first occurrence (local),
+                                    minus EXDATEs, plus RDATEs (stamps, comma-separated)
+
+Events store their repeat as an RRULE (`to_rrule` converts the others); an
+Offset's base is then an RRuleSet. An RRuleSet can end (UNTIL, COUNT), so
+its next_after, and an Offset's, can be None.
 
 Weekly and monthly times are local to the user, so a daily 09:00 reminder
 stays at 09:00 across DST changes and if the user changes their timezone.
@@ -15,12 +23,16 @@ Intervals of whole days keep the local time of their start the same way.
 """
 
 import calendar
+import re
 
 from calendar       import Day
 from dataclasses    import dataclass
 from datetime       import date, datetime, time, timedelta, timezone, tzinfo
-from typing         import Union
+from functools      import lru_cache
+from typing         import Optional, Union
 from zoneinfo       import ZoneInfo
+
+from dateutil.rrule import rrulestr, rruleset
 
 
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -212,28 +224,192 @@ class Offset:
         skips = ",".join(sorted(format_stamp(s) for s in self.skipped))
         return f"event:{self.minutes}m;{self.tz_name};{skips};{self.base.serialize()}"
 
-    def occurrence_after(self, after: datetime) -> datetime:
-        """The event's first occurrence strictly after `after` that isn't skipped."""
+    def occurrence_after(self, after: datetime) -> Optional[datetime]:
+        """The event's first occurrence strictly after `after` that isn't skipped; None once it has ended."""
         tz = ZoneInfo(self.tz_name)
         occurrence = self.base.next_after(after, tz)
-        while occurrence in self.skipped:
+        while occurrence is not None and occurrence in self.skipped:
             occurrence = self.base.next_after(occurrence, tz)
         return occurrence
 
-    def next_after(self, after: datetime, tz: tzinfo) -> datetime:
+    def next_after(self, after: datetime, tz: tzinfo) -> Optional[datetime]:
         delta = timedelta(minutes=self.minutes)
-        return (self.occurrence_after(after - delta) + delta).astimezone(tz)
+        occurrence = self.occurrence_after(after - delta)
+        return (occurrence + delta).astimezone(tz) if occurrence is not None else None
 
     def describe(self, tz: tzinfo) -> str:
         """"30 min before, every Thu at 21:00" (the event's clock)."""
         return f"{format_offset(self.minutes)}, {self.base.describe(ZoneInfo(self.tz_name))}"
 
 
-Recurrence = Union[Weekly, Monthly, MonthlyWeekday, Interval, Offset]
+# --- RFC 5545 -----------------------------------------------------------------
+
+RRULE_DAYS = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+LOCAL_FORMAT = "%Y%m%dT%H%M%S"
+
+
+def is_rrule(value: str) -> bool:
+    """Whether a stored repeat is an RRULE ("FREQ=WEEKLY;BYDAY=TH"), not one of the formats above."""
+    return value.upper().startswith(("FREQ=", "RRULE:"))
+
+
+def to_rrule(recurrence) -> str:
+    """The RRULE of one of the bot's own repeats, for an event that starts at its first occurrence.
+
+    The time of day comes from the event's start (DTSTART). "the 31st"
+    (the last day in shorter months) is the last of the 28th–31st that the
+    month has.
+    """
+    if isinstance(recurrence, Weekly):
+        if recurrence.days == EVERY_DAY:
+            return "FREQ=DAILY"
+        return "FREQ=WEEKLY;BYDAY=" + ",".join(RRULE_DAYS[d] for d in sorted(recurrence.days))
+    if isinstance(recurrence, Monthly):
+        if recurrence.day <= 28:
+            return f"FREQ=MONTHLY;BYMONTHDAY={recurrence.day}"
+        days = ",".join(str(d) for d in range(28, recurrence.day + 1))
+        return f"FREQ=MONTHLY;BYMONTHDAY={days};BYSETPOS=-1"
+    if isinstance(recurrence, MonthlyWeekday):
+        return f"FREQ=MONTHLY;BYDAY={recurrence.nth}{RRULE_DAYS[recurrence.weekday]}"
+    if isinstance(recurrence, Interval):
+        minutes = int(recurrence.every.total_seconds() // 60)
+        for unit, freq in ((7 * 24 * 60, "WEEKLY"), (24 * 60, "DAILY"), (60, "HOURLY"), (1, "MINUTELY")):
+            if minutes % unit == 0:
+                n = minutes // unit
+                return f"FREQ={freq}" + (f";INTERVAL={n}" if n != 1 else "")
+    if isinstance(recurrence, RRuleSet):
+        return recurrence.rule
+    raise ValueError(f"No RRULE for {recurrence!r}")
+
+
+def rule_parts(rule: str) -> dict:
+    """"FREQ=WEEKLY;BYDAY=TH" → {"FREQ": "WEEKLY", "BYDAY": "TH"}."""
+    rule = rule.removeprefix("RRULE:")
+    return {k.upper(): v for k, _, v in (part.partition("=") for part in rule.split(";") if part)}
+
+
+def format_rule(parts: dict) -> str:
+    """rule_parts back to an RRULE, FREQ first."""
+    ordered = sorted(parts.items(), key=lambda kv: kv[0] != "FREQ")
+    return ";".join(f"{k}={v}" for k, v in ordered)
+
+
+def _utc_until(rule: str, start: datetime) -> str:
+    """UNTIL in UTC, as dateutil needs with a timezone-aware DTSTART.
+
+    Google sends a date ("UNTIL=20261224") for all-day events and sometimes
+    a local time: both mean the end of that day / that time in `start`'s zone.
+    """
+    def fix(m):
+        value = m.group(1)
+        if value.endswith("Z"):
+            return m.group(0)
+        if "T" in value:
+            local = datetime.strptime(value, LOCAL_FORMAT).replace(tzinfo=start.tzinfo)
+        else:
+            local = datetime.combine(datetime.strptime(value, "%Y%m%d").date(), time(23, 59, 59), tzinfo=start.tzinfo)
+        return f"UNTIL={local.astimezone(timezone.utc):%Y%m%dT%H%M%SZ}"
+    return re.sub(r"UNTIL=([0-9TZ]+)", fix, rule, flags=re.IGNORECASE)
+
+
+@lru_cache(maxsize=512)
+def _expand(rule: str, start: datetime, exdates: frozenset, rdates: frozenset) -> rruleset:
+    occurrences = rruleset()
+    occurrences.rrule(rrulestr(_utc_until(rule.removeprefix("RRULE:"), start), dtstart=start))
+    for when in exdates:
+        occurrences.exdate(when.astimezone(start.tzinfo))
+    for when in rdates:
+        occurrences.rdate(when.astimezone(start.tzinfo))
+    return occurrences
+
+
+def _describe_days(days: list) -> str:
+    named = frozenset(Day(RRULE_DAYS.index(d)) for d in days)
+    return Weekly(named, time(0, 0)).describe(timezone.utc).removesuffix(" at 00:00")
+
+
+def describe_rule(rule: str, start: datetime) -> str:
+    """"every Thu at 21:00", "every 2 weeks on Mon, Thu at 08:30", "monthly on the 2nd Tue at 19:00, until 24 Dec"."""
+    parts = rule_parts(rule)
+    freq, n = parts.get("FREQ", "").upper(), int(parts.get("INTERVAL", "1"))
+    byday = [d for d in parts.get("BYDAY", "").upper().split(",") if d]
+    plain_days = [d for d in byday if d in RRULE_DAYS]
+    if freq == "DAILY":
+        text = "every day" if n == 1 else f"every {n} days"
+    elif freq == "WEEKLY":
+        days = plain_days or [RRULE_DAYS[start.weekday()]]
+        text = _describe_days(days) if n == 1 else f"every {n} weeks on {_describe_days(days).removeprefix('every ')}"
+    elif freq == "MONTHLY":
+        every = "monthly" if n == 1 else f"every {n} months"
+        monthdays = [int(d) for d in parts.get("BYMONTHDAY", "").split(",") if d]
+        if byday and not plain_days:
+            m = re.fullmatch(r"([+-]?\d+)([A-Z]{2})", byday[0])
+            nth = int(m.group(1))
+            day = DAY_NAMES[RRULE_DAYS.index(m.group(2))].capitalize()
+            text = f"{every} on the {'last' if nth == -1 else ordinal(nth)} {day}"
+        elif monthdays:
+            day = max(monthdays) if parts.get("BYSETPOS") == "-1" else monthdays[0]
+            text = f"{every} on the {'last day' if day == -1 else ordinal(day)}"
+        else:
+            text = f"{every} on the {ordinal(start.day)}"
+    elif freq == "YEARLY":
+        text = "every year" if n == 1 else f"every {n} years"
+        text += f" on {start:%d %b}"
+    elif freq in ("HOURLY", "MINUTELY"):
+        text = f"every {format_interval(timedelta(minutes=n * (60 if freq == 'HOURLY' else 1)))}"
+        return text
+    else:
+        text = "repeats"
+    text += f" at {start:%H:%M}"
+    if "UNTIL" in parts:
+        until = _utc_until(f"UNTIL={parts['UNTIL']}", start).removeprefix("UNTIL=")
+        text += f", until {datetime.strptime(until, '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc).astimezone(start.tzinfo):%d %b %Y}"
+    elif "COUNT" in parts:
+        text += f", {parts['COUNT']} times"
+    return text
+
+
+@dataclass(frozen=True)
+class RRuleSet:
+    """An event's repeat as an RFC 5545 RRULE, from its first occurrence `start` (aware, in `tz_name`).
+
+    Occurrences in `exdates` don't happen; those in `rdates` do too (a single
+    occurrence moved in Google Calendar). It can end (UNTIL, COUNT).
+    """
+
+    rule: str
+    start: datetime
+    tz_name: str
+    exdates: frozenset = frozenset()
+    rdates: frozenset = frozenset()
+
+    def _local_start(self) -> datetime:
+        return self.start.astimezone(ZoneInfo(self.tz_name))
+
+    def serialize(self) -> str:
+        stamps = [",".join(sorted(format_stamp(s) for s in dates)) for dates in (self.exdates, self.rdates)]
+        return f"rrule:{self.tz_name};{self._local_start():{LOCAL_FORMAT}};{stamps[0]};{stamps[1]};{self.rule}"
+
+    def next_after(self, after: datetime, tz: tzinfo) -> Optional[datetime]:
+        """The first occurrence strictly after `after` (in `tz`), None once it has ended."""
+        start = self._local_start()
+        occurrence = _expand(self.rule, start, self.exdates, self.rdates).after(after.astimezone(start.tzinfo))
+        return occurrence.astimezone(tz) if occurrence is not None else None
+
+    def describe(self, tz: tzinfo) -> str:
+        return describe_rule(self.rule, self._local_start())
+
+
+Recurrence = Union[Weekly, Monthly, MonthlyWeekday, Interval, Offset, RRuleSet]
 
 
 def parse(value: str) -> Recurrence:
     """Read a stored recurrence (see the module docstring)."""
+    if value.startswith("rrule:"):
+        tz_name, start, exdates, rdates, rule = value.removeprefix("rrule:").split(";", 4)
+        local = datetime.strptime(start, LOCAL_FORMAT).replace(tzinfo=ZoneInfo(tz_name))
+        return RRuleSet(rule, local, tz_name, frozenset(parse_stamp(s) for s in exdates.split(",") if s),
+                        frozenset(parse_stamp(s) for s in rdates.split(",") if s))
     if value.startswith("event:"):
         minutes, tz_name, skips, base = value.removeprefix("event:").split(";", 3)
         skipped = frozenset(parse_stamp(s) for s in skips.split(",") if s)

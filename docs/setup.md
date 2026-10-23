@@ -10,6 +10,7 @@ how the code works, see the [development guide](development.md).
 - [Docker](#docker)
 - [Database migrations](#database-migrations)
 - [Deployment](#deployment)
+- [Google Calendar](#google-calendar)
 - [Migrating from SQLite](#migrating-from-sqlite)
 
 ## Requirements
@@ -32,6 +33,11 @@ SPEECH_URL=http://speech:8000
 # SPEECH_TOKEN=<only if the speech-service has API_TOKEN set>
 # Optional: your Telegram user ID; only this user can use /failed
 ADMIN_TELEGRAM_ID=<your telegram user id>
+# Optional: Google Calendar sync, all four (see Google Calendar below)
+GOOGLE_CLIENT_ID=<…>.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=<…>
+GOOGLE_REDIRECT_URI=https://calendar.romanis.xyz/oauth/callback
+CALENDAR_KEY=<a Fernet key>
 ```
 
 | Variable            | Required | What it does |
@@ -41,6 +47,11 @@ ADMIN_TELEGRAM_ID=<your telegram user id>
 | `SPEECH_URL`        | no       | speech-service URL. Unset: voice messages are off (the bot says they aren't set up) |
 | `SPEECH_TOKEN`      | no       | Only if the speech-service has `API_TOKEN` set |
 | `ADMIN_TELEGRAM_ID` | no       | The only user who can list [failed messages](user-guide.md#when-the-bot-gets-it-wrong) with `/failed`. Unset: `/failed` is off |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | no | The OAuth client of the Google Cloud project ([Google Calendar](#google-calendar)). Unset: no 📅 Calendar sync, no web server |
+| `GOOGLE_REDIRECT_URI` | no     | Where Google sends the user back after linking, e.g. `https://calendar.romanis.xyz/oauth/callback`. Push notifications go to `/google/push` on the same host (HTTPS only) |
+| `CALENDAR_KEY`      | no       | Encrypts the Google logins in the database and signs the link. A Fernet key; changing it unlinks everyone |
+| `WEB_PORT`          | no       | Port of the bot's web server inside the container (default `8080`) |
+| `WEB_HOST_PORT`     | no       | `docker-compose.yml` only: the host port it's published on, `127.0.0.1` only (default `8095`) |
 
 Everything else works without the optional ones.
 
@@ -215,6 +226,129 @@ with a generic one (`leaks()` in `autofix/run.py`). Blocked commits are kept on 
 Pi (`~/autofix-logs/blocked-*.diff`, with what matched; the folder is
 readable by the job's user only, and the last 30 of each kind are kept), and their messages
 wait (“a fix was blocked by the privacy check”) until a person looks.
+
+## Google Calendar
+
+Optional: syncs events both ways with Google Calendar
+([user guide](user-guide.md#-google-calendar),
+[how it works](development.md#google-calendar)). It needs a Google Cloud
+project, four environment variables, and a public HTTPS address for the
+bot's small web server (Google sends users back to it after linking, and
+pushes changes to it). Until all four variables are set, it's off and the
+web server doesn't start.
+
+### 1. Google Cloud
+
+In [console.cloud.google.com](https://console.cloud.google.com), with the
+Google account that will own the project:
+
+1. **New project** (e.g. `roman-tech-bot`), and select it.
+2. **APIs & Services → Library → Google Calendar API → Enable**.
+3. **Google Auth Platform** (formerly *OAuth consent screen*) → **Get
+   started**: app name, support email, audience **External**, contact email.
+4. **Audience → Test users**: add the Google accounts that may link. The app
+   stays in **Testing** until it's published (privacy policy, verification).
+   While in testing, only test users can link, and Google expires a login
+   after 7 days: the bot then warns the user and asks them to link again.
+5. **Data access → Add or remove scopes**: exactly these two:
+   - `https://www.googleapis.com/auth/calendar.events`
+   - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
+6. **Clients → Create client → Web application**, with the authorized
+   redirect URI `https://calendar.romanis.xyz/oauth/callback`. Keep the client
+   ID and secret (never in the repository: it's public).
+
+### 2. The environment
+
+In `/home/apps/roman-tech-bot/.env` on the Pi:
+
+```env
+GOOGLE_CLIENT_ID=<…>.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=<…>
+GOOGLE_REDIRECT_URI=https://calendar.romanis.xyz/oauth/callback
+CALENDAR_KEY=<output of the command below>
+```
+
+```bash
+# 32 random bytes, URL-safe base64: what Fernet.generate_key() makes
+openssl rand -base64 32 | tr '+/' '-_'
+```
+
+Generate `CALENDAR_KEY` once and keep it: the stored Google logins can only
+be read with it (a new key means everyone links again). Then
+`docker compose up -d` (a restart doesn't read `.env`). The log says
+`Web server for Google Calendar on port 8080`.
+
+### 3. `calendar.romanis.xyz` → the bot
+
+The bot's web server listens on port 8080 in its container. Compose
+publishes it on the Pi as `127.0.0.1:8095` (`WEB_HOST_PORT`), and on
+`shared-network` the container answers to `roman-tech-bot:8080`. Only three
+paths are served: `GET /oauth/callback`, `POST /google/push` and
+`GET /health`.
+
+Steps on the Pi (first find out how `romanis.xyz` is served today, and do
+it the same way):
+
+1. **Look at the current setup.**
+   - `docker ps --format '{{.Names}}\t{{.Image}}\t{{.Ports}}'`: is Nginx (or
+     `cloudflared`) a container, and on `shared-network`
+     (`docker network inspect shared-network`)? Or a host service
+     (`systemctl status nginx cloudflared`)?
+   - Find the existing site for `romanis.xyz`: `/etc/nginx/sites-enabled/`,
+     `/etc/nginx/conf.d/`, or the Nginx container's mounted config.
+   - If `cloudflared` runs, its ingress rules are in
+     `/etc/cloudflared/config.yml` (or `~/.cloudflared/config.yml`), or in
+     the Cloudflare dashboard (Zero Trust → Networks → Tunnels → Public
+     hostnames).
+2. **DNS / tunnel** for `calendar.romanis.xyz`:
+   - *Cloudflare Tunnel*: add a public hostname `calendar.romanis.xyz`
+     pointing where the other hostnames point (usually the Nginx service,
+     e.g. `http://localhost:80`, or straight to `http://localhost:8095`
+     without Nginx), and restart `cloudflared` if its config is a local file.
+     The tunnel creates the DNS record itself.
+   - *Plain DNS*: in Cloudflare DNS, add `calendar` like the existing
+     `romanis.xyz` record (same A/AAAA or a CNAME to it), **proxied**
+     (orange cloud), so Cloudflare does HTTPS.
+3. **Nginx**: a server block like the existing ones, e.g.
+   `/etc/nginx/sites-available/calendar.romanis.xyz` (linked into
+   `sites-enabled`), or the container's `conf.d`:
+
+   ```nginx
+   server {
+       listen 80;
+       # listen 443 ssl; plus the same certificate lines as the existing site, if it has them
+       server_name calendar.romanis.xyz;
+
+       location ~ ^/(oauth/callback|google/push|health)$ {
+           # Nginx on the host:
+           proxy_pass http://127.0.0.1:8095;
+           # Nginx in a container on shared-network instead:
+           # proxy_pass http://roman-tech-bot:8080;
+           proxy_set_header Host $host;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto https;
+       }
+
+       location / {
+           return 404;
+       }
+   }
+   ```
+
+   Then `sudo nginx -t && sudo systemctl reload nginx` (or
+   `docker exec <nginx> nginx -t && docker exec <nginx> nginx -s reload`).
+   Google's push notifications need a valid HTTPS certificate, which
+   Cloudflare's proxy or tunnel provides. With Cloudflare's SSL mode **Full
+   (strict)**, Nginx needs a certificate for the new name too (an origin
+   certificate covering `*.romanis.xyz` does).
+4. **Check it.**
+   - On the Pi: `curl -s http://127.0.0.1:8095/health` prints `ok` (once the
+     bot runs with the four variables).
+   - From outside: `curl -s https://calendar.romanis.xyz/health` prints `ok`.
+   - `https://calendar.romanis.xyz/oauth/callback` in a browser shows "This
+     page is for linking Google Calendar from the bot."
+5. In Telegram: ⚙️ Settings → 📅 Calendar → 🔗 Link Google Calendar, as a
+   test user. The bot says "✅ Google Calendar linked."
 
 ## Migrating from SQLite
 
