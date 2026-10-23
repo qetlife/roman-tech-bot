@@ -26,9 +26,9 @@ def at(day, hour, minute=0):
     return datetime(2026, 10, day, hour, minute, tzinfo=TZ)
 
 
-def event(starts_at, recurrence=None, all_day=False, skipped=None, title="padel"):
+def event(starts_at, recurrence=None, all_day=False, skipped=None, title="padel", ends_at=None, moved=None):
     return SimpleNamespace(title=title, starts_at=starts_at, recurrence=recurrence, timezone="Europe/Lisbon",
-                           skipped=skipped, all_day=all_day)
+                           skipped=skipped, all_day=all_day, ends_at=ends_at, moved=moved)
 
 
 # --- parsing events ---------------------------------------------------------
@@ -89,7 +89,8 @@ def test_reminder_time_once_or_every():
     padel = event(at(22, 21), "thu@21:00")
     assert reminder_time(padel, -30, NOW) == (at(22, 20, 30), None)
     when, rule = reminder_time(padel, -30, NOW, every=True)
-    assert when == at(22, 20, 30) and rule.serialize() == "event:-30m;Europe/Lisbon;;thu@21:00"
+    assert when == at(22, 20, 30)
+    assert rule.serialize() == "event:-30m;Europe/Lisbon;;rrule:Europe/Lisbon;20261022T210000;;;FREQ=WEEKLY;BYDAY=TH"
     # Too late for this week's: the next one
     assert reminder_time(padel, -30, at(22, 20, 45).astimezone(timezone.utc))[0] == at(29, 20, 30)
     assert reminder_time(event(at(22, 21)), -60, NOW) == (at(22, 20), None)
@@ -167,17 +168,17 @@ def test_split_move():
 ])
 def test_parse_move(phrase, when, timed):
     moved = parse_move(phrase, at(22, 21), NOW)
-    assert (moved.when, moved.recurrence, moved.timed) == (when, None, timed)
+    assert (moved.when, moved.rule, moved.timed) == (when, None, timed)
 
 
 def test_parse_move_a_repeat():
-    weekly = recurrences.Weekly(frozenset({3}), time(21, 0))
+    weekly = "FREQ=WEEKLY;BYDAY=TH"
     moved = parse_move("20:00", at(22, 21), NOW, weekly)
-    assert moved.recurrence.serialize() == "thu@20:00" and moved.when == at(22, 20)
-    assert parse_move("friday", at(22, 21), NOW, weekly).recurrence.serialize() == "fri@21:00"
-    assert parse_move("every monday at 19:00", at(22, 21), NOW, weekly).recurrence.serialize() == "mon@19:00"
+    assert (moved.rule, moved.when) == (weekly, at(22, 20))
+    assert parse_move("friday", at(22, 21), NOW, weekly).rule == "FREQ=WEEKLY;BYDAY=FR"
+    assert parse_move("every monday at 19:00", at(22, 21), NOW, weekly).rule == "FREQ=WEEKLY;BYDAY=MO"
     # A day of a weekday repeat with several days, or a date: ✏️ Edit instead
-    assert parse_move("friday", at(22, 21), NOW, recurrences.Weekly(frozenset({0, 3}), time(21, 0))) is None
+    assert parse_move("friday", at(22, 21), NOW, "FREQ=WEEKLY;BYDAY=MO,TH") is None
     assert parse_move("dec 24", at(22, 21), NOW, weekly) is None
 
 
@@ -345,9 +346,9 @@ def test_moving_a_repeating_event(chat):
     update = chat("padel is at 20:00 now")
     assert _replies(update)[0].startswith("📅 Moved: padel")
     [moved] = _events(chat.telegram_id)
-    assert moved.recurrence == "thu@20:00"
+    assert moved.recurrence == "FREQ=WEEKLY;BYDAY=TH" and _local(moved.starts_at).time() == time(20, 0)
     [reminder] = _reminders(padel.id)
-    assert reminder.recurrence.endswith(";thu@20:00")
+    assert reminder.recurrence.endswith(";FREQ=WEEKLY;BYDAY=TH")
     assert _local(reminder.remind_at).time() == time(19, 30)
 
 

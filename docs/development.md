@@ -13,6 +13,7 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see
 - [Failed messages](#failed-messages)
 - [People](#people)
 - [Events](#events)
+- [Google Calendar](#google-calendar)
 - [Enums](#enums)
 - [Database](#database)
 - [Tests](#tests)
@@ -29,6 +30,8 @@ enums.py            every enum
 handlers/           everything that talks to Telegram (messages, buttons)
     commands.py     /start, /menu
     events.py       📅 Events: create, list, move, cancel; reminders relative to an event; "event or reminder?"
+    calendar.py     📅 Google Calendar: linking, ⚙️ Settings → 📅 Calendar, syncing both ways
+    web.py          the small web server for Google: OAuth callback, push notifications
     failed.py       saving failed messages; /failed list (admin only)
     people.py       👥 People: invite links, requests by @username, rename, remove
     menus.py        main, ⏰ Reminders and ⚙️ Settings menu screens
@@ -53,19 +56,23 @@ core/               the logic: no Telegram, no database sessions
     contacts.py     contact names: valid ones, unique ones (“Anna 2”), the default
     commands.py     plain-language commands: which reminder “cancel the dentist reminder” means, which day “what do I have tomorrow?” is
     events.py       events: parsing (all-day too), occurrences, "30 min before padel", which event a message names
+    gcal.py         Google Calendar's JSON ↔ the bot's events
+    secrets.py      encrypting Google logins, signing the OAuth state
 
 jobs/
     delivery.py     sends due reminders every 20 seconds
     failed.py       on startup: marks failed messages the bot now understands as fixed
+    calendar.py     daily: renew Google push channels, sync every linked user
 
 services/           clients for other services (no Telegram)
     speech.py       speech-service: audio → text
+    google_calendar.py  Google OAuth and the Calendar API
 
 db/
     session.py      engine, sessions, init_db
     migrations.py   runs Alembic on startup
-    models/         user, reminder, user_setting, failed_message, contact (+ invite), event, types (UTCDateTime)
-    repositories/   user, reminder, settings, failed_message, contact, event: the only code that opens sessions
+    models/         user, reminder, user_setting, failed_message, contact (+ invite), event, google, types (UTCDateTime)
+    repositories/   user, reminder, settings, failed_message, contact, event, google: the only code that opens sessions
 
 alembic/            schema migrations
 autofix/            the daily auto-fix job: sandbox image, prompt, runner script
@@ -81,8 +88,10 @@ without mocks); `db/` uses only `enums` and the `Setting` type from `core/`.
 `handlers/events.py` uses `handlers/reminders.py`, not the other way
 round. The exceptions import inside a function (a module-level import would
 be circular): `handlers/settings.py` resumes a reminder or an event after the
-user picks a timezone, and `handlers/reminders.py` hands “30 min before
-padel …” and “that's wrong” after an event to `handlers/events.py`.
+user picks a timezone, `handlers/reminders.py` hands “30 min before
+padel …” and “that's wrong” after an event to `handlers/events.py`, and
+`handlers/events.py` / `handlers/reminders.py` call `handlers/calendar.py`
+(which uses `handlers/events.py`) to sync.
 
 `python-telegram-bot` delivers updates to the handlers registered in
 `bot.py`:
@@ -180,6 +189,24 @@ obvious from the code.
   of that name, “cancel padel” is the event (its reminders go with it).
 - **“move” has no typo fixing** (`Intent.typos`): “movie tonight at 8” is
   one letter from it.
+- **Events repeat as RFC 5545 RRULEs**, what Google Calendar uses, so any
+  repeat from Google works (“every 2nd and 4th Tuesday”, “until December”)
+  and nothing is lost on the way back. The bot's own repeats convert
+  (`to_rrule`); older events keep their format until they change. Reminders
+  keep the bot's formats.
+- **Google pushes, the bot also asks**: push notifications make changes show
+  up at once, and an incremental sync when the user asks about reminders or
+  events (at most every 5 minutes) and once a day covers a lost push. The
+  sync before a reply waits at most a few seconds.
+- **Last change wins**, by Google's `updated` against the event's
+  `updated_at`; a change the bot couldn't send yet (`pending_push`) is sent
+  on the next sync.
+- **An expired login keeps everything**: the bot warns once and stops
+  syncing; nothing is deleted or moved, and changes made meanwhile are sent
+  after linking again.
+- **Only two scopes** (`calendar.events`, `calendar.calendarlist.readonly`):
+  enough for both directions and push, and not the full `calendar` scope
+  that can delete calendars and change sharing.
 
 ## Messages and buttons
 
@@ -195,6 +222,7 @@ edits it in place, or replaces it if it can't be edited.
 | `ReminderAction` | buttons on a reminder (`rem:<action>:<id>`) | `rem:snz:5:10`     |
 | `PeopleAction`   | 👥 People buttons (`ppl:<action>:<contact id>`), answers to an invite (`inv:<yes\|no>:<token>`) | `ppl:ren:3` |
 | `EventAction`    | buttons on an event (`evt:<action>:<event id>[:<value>]`) | `evt:rem:4:-30` |
+| `CalendarAction` | ⚙️ Settings → 📅 Calendar (`gcal:<action>[:<value>]`) | `gcal:tgl:6` |
 | `OptionAction`   | buttons on a setting screen            | `qhopt:set:23:00-07:00` |
 
 Build data with `reminder_callback()` / `event_callback()` / `option_callback()`, read it with
@@ -291,7 +319,7 @@ cancels: button, list, or a “cancel” reply). The 📋 list is
 “For others”; the agenda shows only the former. “That's wrong” refers to
 the last reminder the user *made* (`latest_created`).
 
-**Recurrence** (`core/recurrence.py`): five types, stored as a string
+**Recurrence** (`core/recurrence.py`): six types, stored as a string
 in `reminders.recurrence` (`NULL` = one-off):
 
 | Type       | Stored as                       | Meaning |
@@ -300,7 +328,8 @@ in `reminders.recurrence` (`NULL` = one-off):
 | `Monthly`  | `month:15@09:00`                | this day of the month (last day in shorter months) at a local time |
 | `MonthlyWeekday` | `month:2tue@09:00`, `month:-1fri@09:00` | the 2nd Tuesday / last Friday of the month at a local time; months without a 5th weekday are skipped |
 | `Interval` | `every:120m@2026-10-11T07:00Z`  | every N minutes from a start (UTC); whole days keep the local time |
-| `Offset`   | `event:-30m;Europe/Lisbon;20261029T2000Z;thu@21:00` | minutes from every occurrence of a repeating event (its repeat, in its timezone, minus skipped ones); see [Events](#events) |
+| `Offset`   | `event:-30m;Europe/Lisbon;;rrule:…` | minutes from every occurrence of a repeating event (its repeat, in its timezone, minus skipped ones); see [Events](#events). Older ones wrap the formats above |
+| `RRuleSet` | `rrule:Europe/Lisbon;20261022T210000;<exdates>;<rdates>;FREQ=WEEKLY;BYDAY=TH` | an event's RRULE from its first occurrence; only inside an `Offset` |
 
 Each has `serialize()`, `next_after(after, tz)` (first occurrence strictly
 after `after`) and `describe(tz)`; `recurrence.parse()` reads a stored value.
@@ -544,10 +573,8 @@ why the other person always opts in.
 ## Events
 
 Events (`handlers/events.py`, logic in `core/events.py`, table `events`,
-`db/repositories/event.py`) are the user's own; #22 will sync them with
-Google Calendar, so the table already has `external_source`,
-`external_calendar_id`, `external_id` and `etag` (unused for now),
-`ends_at`, `all_day`, and its own `timezone`.
+`db/repositories/event.py`) are the user's own, and can sync with
+[Google Calendar](#google-calendar).
 
 - **Parsing**: `parse_event` is `parse_reminder` with the text as the
   title. Without a time of day (`ParsedReminder.timed` is false: “friday”,
@@ -556,19 +583,17 @@ Google Calendar, so the table already has `external_source`,
   `MissingText` / `MissingTime` ask for the title or the time
   (`Awaiting.EVENT_TITLE` / `EVENT_TIME`, the half in `pending_part`), like
   reminders; `Awaiting.EVENT` is ➕ New or a resend.
-- **Repeats** use the reminder formats (`core/recurrence.py`) in the event's
-  timezone. `events.skipped` holds occurrences that don't happen
-  (`20261029T2000Z,…`, UTC, like an RRULE's EXDATE); past ones are dropped
-  when it's written. `next_occurrence` / `occurs_on` skip them; an all-day
-  event counts as upcoming all of its day.
+- **Repeats** are RRULEs (below). `events.skipped` holds occurrences that
+  don't happen (`20261029T2000Z,…`, UTC, EXDATEs); those over are dropped
+  when it's written. `next_occurrence` / `occurs_on` skip them; an
+  occurrence counts as on until it ends (an all-day one, all of its day).
 - **Which event**: `match_title` finds the longest title at the start of the
   words (“the”, “my” in front, “event” after are ignored), among the
   upcoming ones (`titles_of`, the soonest per title).
 - **Moving**: `parser.parse_move` reads “to 20:00” (same day), “to friday”
-  (same time), “to 8” (the closer of 08:00 / 20:00); for a repeat, a time
-  or a weekday changes it, or a whole new repeat replaces it. It reads the
-  phrase in the event's timezone. Skipped days are dropped when the repeat
-  changes.
+  (same time), “to 8” (the closer of 08:00 / 20:00); for a repeat, see
+  below. It reads the phrase in the event's timezone, and keeps the event's
+  length. Skipped and moved days are dropped.
 
 **Reminders relative to an event**: `split_relative` reads “<duration>
 before|after <event> [to <text>]” or “<text> <duration> before|after
@@ -578,9 +603,8 @@ pills 30 min after breakfast every day”) stays an ordinary reminder. The
 reminder gets `event_id` and `event_offset`. For a repeating event the bot
 asks “just the next one, or every time?” (`EventAction.ONCE` / `EVERY`, the
 details in `user_data["pending_event_reminder"]`): the next one is a
-one-off at that occurrence, every time is an `Offset` repeat
-(`event:-30m;Europe/Lisbon;<skipped>;thu@21:00`), which is why
-`reminders.recurrence` is `Text`.
+one-off at that occurrence, every time is an `Offset` repeat around the
+event's `RRuleSet`, which is why `reminders.recurrence` is `Text`.
 
 `follow(old, event)` runs after every change (edit, move, skip): “every
 time” ones get the new `Offset` (only the string changes, `relink`, if their
@@ -604,6 +628,78 @@ by a new reminder or a message not understood) flags the event
 `handlers/events.agenda`: that day's events (`day_text`), then the
 reminders (`show_day`).
 
+**Repeats** (`core/events.rule_of`): `events.recurrence` is an RRULE
+(`FREQ=WEEKLY;BYDAY=TH`) from `starts_at` in the event's `timezone`;
+`skipped` are EXDATEs, `moved` the occurrences moved in Google
+(`<original>><new>`, so the original is skipped and the new time added).
+`RRuleSet` (`core/recurrence.py`, with `python-dateutil`) expands them; it
+can end (UNTIL, COUNT), so `next_after` may be None, which delivery, ✅ OK
+and `follow` handle. An “every time” reminder's `Offset` wraps the event's
+`RRuleSet` (`event:-30m;<tz>;;rrule:<tz>;<start>;<exdates>;<rdates>;<RRULE>`).
+Each occurrence lasts `duration` (to `ends_at`, a day if all day, else 0),
+and counts as on until it ends.
+
+**Moving a repeat** (`parse_move` with the RRULE): a time moves it from the
+current occurrence on (a new DTSTART), a weekday changes a weekly one with
+one day (`BYDAY`), a whole repeat replaces it.
+
+## Google Calendar
+
+`handlers/calendar.py` (with `core/gcal.py`, `services/google_calendar.py`,
+`handlers/web.py`, `jobs/calendar.py`, tables `google_accounts` and
+`google_calendars`). Off unless `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`GOOGLE_REDIRECT_URI` and `CALENDAR_KEY` are set (`config.calendar_configured`);
+then `bot.py` also starts the web server (aiohttp, `WEB_PORT`) in the same
+event loop.
+
+- **Linking**: the 🔗 button opens Google's consent page
+  (`access_type=offline`, `prompt=consent`) with a `state` signed by
+  `core/secrets.sign_state` (the Telegram id and the time, valid 15 min).
+  Google comes back to `/oauth/callback`; `complete_link` checks the state,
+  exchanges the code, stores the refresh token encrypted (Fernet,
+  `CALENDAR_KEY`), saves the calendar list (the primary one synced, new
+  events go there), opens push channels, tells the user, then sends the
+  bot's upcoming events to Google and syncs.
+- **Bot → Google** (`push`, called by `handlers/events.to_google` after
+  every create, edit, move, skip and cancel): insert, patch or delete in the
+  event's calendar (new ones: the account's `default_calendar_id`). It sets
+  `pending_push` first and clears it with the new `etag`; if Google can't be
+  reached it stays set, and `sync_user` sends pending events first. Without
+  an end, Google gets one hour (all day: the day), but the bot doesn't store
+  it. Skipped days go as EXDATEs.
+- **Google → bot** (`sync_calendar`): `events.list` with the calendar's
+  sync token (all events the first time; a 410 starts over), repeating
+  events before their exceptions. `apply` creates, updates or cancels the
+  bot's copy, skipping it when the `etag` is the one the bot already has
+  (its own change coming back) or when the bot's change is newer and still
+  pending. An exception (`recurringEventId`) cancels or moves one occurrence
+  of its parent (`skipped`, `moved`). Every change runs `follow`, so
+  reminders move, and cancelling cancels them. One-offs that ended over a
+  day ago aren't imported the first time.
+- **Gone means gone**: an event imported from Google (`source` is
+  `MessageSource.GOOGLE`) that is cancelled (in Google, in the bot, or with
+  🗑 Remove them) is deleted (`EventRepository.delete`; its reminders stay
+  cancelled, unlinked), once Google knows: `cancel_with_reminders` deletes it
+  unless the push is still pending, and `_send` does when it gets there. The
+  bot's own events stay as cancelled rows.
+- **When**: `/google/push` (`on_push`, checked against the channel's token;
+  Google's first "sync" message is ignored) syncs that calendar;
+  `maybe_sync` at the start of `handle_text`, 📅 Events and 📋 My reminders
+  syncs if the last one is 5 minutes old (`GoogleRepository.claim_poll`),
+  waiting at most 8 s; `jobs/calendar.daily` renews channels expiring within
+  2 days and syncs everyone.
+- **Expired login**: `GoogleAuthError` (refresh refused, 401, or a missing
+  scope) → `expire`: status `expired`, one message with 🔗 Link again, a
+  warning line on 📅 Events (`warning`), no syncing; `push` marks changes
+  pending for later. Linking again resets the status and keeps the sync tokens.
+- **Screens and buttons** (`gcal:<CalendarAction>[:<id|all>]`, the id of a
+  `google_calendars` row): ⬜/✅ `tgl`, 📥 `def` (only calendars the user can
+  write to), 🔄 `sync`, 🔓 `unl`, then 📌 `keep` / 🗑 `rm` for a calendar or
+  `all` (unlink: also revokes the token and deletes the account rows).
+  Keeping detaches the events (`EventRepository.detach`).
+
+Tests fake Google with an `httpx.MockTransport` (`tests/test_calendar.FakeGoogle`).
+
 ## Enums
 
 Use an enum instead of loose strings for any fixed set of values. **All
@@ -617,14 +713,15 @@ ones there too.
 | `ReplyCommand`                          | what a reply to a reminder message asks for (`core/replies.py`) |
 | `Awaiting`                              | what the next typed message answers |
 | `IntentName`                            | free-text intents; stored in `failed_messages.intent` |
-| `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source` |
+| `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source`; `events.source` is `google` for an imported event |
 | `FailureReason`, `FailureStatus`        | `failed_messages.reason` and `.status` (open, fixed, ignored) |
 | `ContactStatus`                         | `contacts.status`: pending (asked by @username), accepted, or declined (a note not to ask again) |
 | `RequestResult`                         | what asking by @username did (`ContactRepository.request`) |
 | `InviteResult`                          | what opening an invite did (`ContactRepository.use_invite`) |
 | `EventStatus`                           | `events.status`: active or cancelled |
+| `GoogleStatus`                          | `google_accounts.status`: linked, or expired (link again) |
 | `ExternalSource`                        | `events.external_source`: where it's synced (#22) |
-| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction`, `PeopleAction`, `EventAction` | callback data of every button |
+| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction`, `PeopleAction`, `EventAction`, `CalendarAction` | callback data of every button |
 
 Weekdays use the standard library's `calendar.Day` (in the parser and
 `Weekly`).
@@ -647,7 +744,9 @@ changes go through Alembic; see [Database migrations](setup.md#database-migratio
 | `contact_requests` | log of requests by @username: `owner_user_id`, `contact_user_id`, `created_at` (for the daily limits) |
 | `invites`       | `token` (the link), `owner_user_id`, `created_at`, `expires_at`, `used_at`, `used_by_user_id` |
 | `failed_messages` | user, `text`, `source`, `reason`, `intent`, `bot_understood` (JSON), optional `reminder_id` or `event_id`, `status`, `created_at`, `fixed_at`, `note`, `fix_pr` |
-| `events`        | user, `title`, `starts_at` (the first occurrence), `ends_at`, `all_day`, `timezone`, `recurrence`, `skipped`, `status`, `request`, `source`, `created_at`, `updated_at`, and for #22 `external_source`, `external_calendar_id`, `external_id`, `etag` |
+| `events`        | user, `title`, `starts_at` (the first occurrence), `ends_at`, `all_day`, `timezone`, `recurrence` (an RRULE), `skipped`, `moved`, `status`, `request`, `source`, `created_at`, `updated_at`, and for Google `external_source`, `external_calendar_id`, `external_id`, `etag`, `external_updated_at`, `pending_push` |
+| `google_accounts` | per user: `refresh_token` (encrypted), `status`, `default_calendar_id`, `linked_at`, `last_poll_at` |
+| `google_calendars` | a user's Google calendars: `calendar_id`, `summary`, `time_zone`, `primary`, `writable`, `selected`, `sync_token`, and the push channel (`channel_id`, `channel_token`, `channel_resource_id`, `channel_expires_at`) |
 
 ## Tests
 
@@ -663,8 +762,8 @@ Tests use a throwaway SQLite database (`tests/conftest.py`) with all
 migrations applied; the `chat` fixture (a user with a timezone) is there too. CI runs pyflakes and the tests on every pull request
 and before every deploy. Parser, recurrence, quiet hours and settings tests are pure;
 delivery tests use a fake bot (`tests/test_recurrence.FakeBot`);
-`tests/test_handlers.py`, `tests/test_events.py` and `tests/test_voice.py`
-drive the handlers with mocked Telegram objects; `tests/test_numbers.py` covers spoken phrases.
+`tests/test_handlers.py`, `tests/test_events.py`, `tests/test_calendar.py`
+and `tests/test_voice.py` drive the handlers with mocked Telegram objects; `tests/test_numbers.py` covers spoken phrases.
 
 ## How to…
 

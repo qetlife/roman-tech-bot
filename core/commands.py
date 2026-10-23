@@ -66,4 +66,4 @@ def occurs_on(remind_at: datetime, recurrence: Optional[str], day: date, tz: tzi
         return False
     start = max(datetime.combine(day, datetime.min.time(), tzinfo=tz), created_at)
     following = recurrences.parse(recurrence).next_after(start - timedelta(seconds=1), rule_tz or tz)
-    return following.astimezone(tz).date() == day
+    return following is not None and following.astimezone(tz).date() == day

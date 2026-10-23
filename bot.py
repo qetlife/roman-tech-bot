@@ -8,15 +8,16 @@ from    telegram.ext                import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, TypeHandler, filters,
 )
 
-from    config                      import BOT_TOKEN
+from    config                      import BOT_TOKEN, calendar_configured
 from    db.session                  import init_db
 from    enums                       import Callback, CallbackPrefix, ReminderAction
-from    handlers                    import events, failed, people, reminders, settings
+from    handlers                    import calendar, events, failed, people, reminders, settings, web
 from    handlers.commands           import menu_cmd, start
 from    handlers.menus              import on_main_menu, on_my_id, on_reminders, on_settings
 from    handlers.text               import on_text
 from    handlers.ui                 import exact, prefixed, remember_profile
 from    handlers.voice              import on_voice
+from    jobs                        import calendar as calendar_jobs
 from    jobs.delivery               import POLL_INTERVAL, deliver_due
 from    jobs.failed                 import resolve_understood
 
@@ -24,6 +25,18 @@ from    jobs.failed                 import resolve_understood
 REMINDER_BUTTON = (
     "^" + re.escape(CallbackPrefix.REMINDER) + "(?:" + "|".join(ReminderAction) + r"):\d+"
 )
+
+
+async def start_web(app):
+    """With Google Calendar set up: the web server for its login and push notifications."""
+    if calendar_configured():
+        app.bot_data["web"] = await web.start(app.bot)
+
+
+async def stop_web(app):
+    runner = app.bot_data.pop("web", None)
+    if runner is not None:
+        await runner.cleanup()
 
 
 def main():
@@ -39,7 +52,7 @@ def main():
     except Exception:
         logging.exception("Re-checking failed messages failed; starting anyway")
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(start_web).post_shutdown(stop_web).build()
 
     # Before everything else: keep each user's Telegram name and @username up to date
     app.add_handler(TypeHandler(Update, remember_profile), group=-1)
@@ -48,6 +61,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_cmd))
     app.add_handler(CommandHandler("failed", failed.on_failed_cmd))         # admin only
+    app.add_handler(CommandHandler("calendar", calendar.on_calendar_cmd))
 
     # Main Menu
     app.add_handler(CallbackQueryHandler(on_main_menu,    pattern=exact(Callback.MAIN_MENU, Callback.SETTINGS_BACK)))
@@ -81,6 +95,10 @@ def main():
     app.add_handler(CallbackQueryHandler(events.on_event_button,        pattern=prefixed(CallbackPrefix.EVENT)))
     app.add_handler(CallbackQueryHandler(events.on_pick,                pattern=exact(Callback.PICK_EVENT, Callback.PICK_REMINDER)))
 
+    # 📅 Google Calendar
+    app.add_handler(CallbackQueryHandler(calendar.on_calendar_settings, pattern=exact(Callback.CALENDAR_SETTINGS)))
+    app.add_handler(CallbackQueryHandler(calendar.on_calendar_button,   pattern=prefixed(CallbackPrefix.CALENDAR)))
+
     # 👥 People
     app.add_handler(CallbackQueryHandler(people.on_people_menu,         pattern=exact(Callback.PEOPLE_MENU)))
     app.add_handler(CallbackQueryHandler(people.on_new_invite,          pattern=exact(Callback.NEW_INVITE)))
@@ -99,6 +117,8 @@ def main():
 
     # Sends due reminders; also catches up on anything due while the bot was down
     app.job_queue.run_repeating(deliver_due, interval=POLL_INTERVAL, first=1)
+    # Google Calendar: daily sync and push channel renewal (nothing if it isn't set up)
+    app.job_queue.run_repeating(calendar_jobs.daily, interval=calendar_jobs.DAILY, first=300)
 
     app.run_polling()
 

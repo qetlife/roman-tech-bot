@@ -4,7 +4,8 @@ import re
 
 import pytest
 
-from enums import Callback, CallbackPrefix, EventAction, OptionAction, PeopleAction, ReminderAction
+from enums import Callback, CalendarAction, CallbackPrefix, EventAction, OptionAction, PeopleAction, ReminderAction
+from handlers.calendar import calendar_callback
 from handlers.people import people_callback
 from handlers.ui import event_callback, exact, option_callback, prefixed, reminder_callback, split_option
 
@@ -25,6 +26,7 @@ def test_fixed_values_are_stable():
         "REPEAT_SETTINGS": "settings:repeat",
         "QUIET_SETTINGS": "settings:quiet",
         "UPDATES_SETTINGS": "settings:updates",
+        "CALENDAR_SETTINGS": "settings:calendar",
         "NEW_REMINDER": "rem:new",
         "LIST_REMINDERS": "rem:list",
         "REMINDER_SETTINGS_FROM_MENU": "rem:settings",
@@ -68,6 +70,12 @@ def test_fixed_values_are_stable():
     (event_callback(EventAction.WRONG, 4),                  "evt:wrong:4"),
     (event_callback(EventAction.SKIP, 4, "20261029T2000Z"), "evt:skip:4:20261029T2000Z"),
     (event_callback(EventAction.CANCEL, 4),                 "evt:del:4"),
+    (calendar_callback(CalendarAction.TOGGLE, 6),           "gcal:tgl:6"),
+    (calendar_callback(CalendarAction.DEFAULT),             "gcal:def"),
+    (calendar_callback(CalendarAction.SYNC),                "gcal:sync"),
+    (calendar_callback(CalendarAction.UNLINK),              "gcal:unl"),
+    (calendar_callback(CalendarAction.KEEP, "all"),         "gcal:keep:all"),
+    (calendar_callback(CalendarAction.REMOVE, 6),           "gcal:rm:6"),
 ])
 def test_built_values_are_stable(built, expected):
     assert built == expected

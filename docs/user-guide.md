@@ -17,6 +17,7 @@ Everything you can do with the bot, and how. For how the code works, see
   - [Adding an event](#adding-an-event)
   - [Reminders before an event](#reminders-before-an-event)
   - [Moving, editing and cancelling events](#moving-editing-and-cancelling-events)
+  - [📅 Google Calendar](#-google-calendar)
 - [👥 People](#-people)
   - [Reminding someone](#reminding-someone)
 - [Settings](#settings)
@@ -43,6 +44,7 @@ Commands:
 | -------- | -------------------------------- |
 | `/start` | Registers you and shows the menu |
 | `/menu`  | Shows the menu                   |
+| `/calendar` | [Google Calendar](#-google-calendar): link it, pick calendars, unlink |
 | `/failed` | Admin only: [failed messages](#when-the-bot-gets-it-wrong) |
 
 ## Menus
@@ -65,11 +67,12 @@ Menu
 └── ⚙️ Settings
     ├── 🆔 My ID               your Telegram ID
     ├── 🌍 Timezone            change your timezone
-    └── ⏰ Reminders           ⏰ Reminder settings:
-        ├── 💤 Snooze options
-        ├── 🔁 Repeat interval
-        ├── 🌙 Quiet hours
-        └── 📣 Updates from people
+    ├── ⏰ Reminders           ⏰ Reminder settings:
+    │   ├── 💤 Snooze options
+    │   ├── 🔁 Repeat interval
+    │   ├── 🌙 Quiet hours
+    │   └── 📣 Updates from people
+    └── 📅 Calendar            link Google Calendar, pick calendars, unlink
 ```
 
 `↩️ Back` always returns to the screen you came from; ⏰ Reminder settings
@@ -391,8 +394,13 @@ Is this an event or a reminder?
 
 An event keeps the clock of the timezone you had when you made it: if you
 move to another timezone, “padel at 21:00” is still 21:00 where it was
-(shown in your new time). The bot only knows the events you add here; syncing
-with Google Calendar is planned.
+(shown in your new time). Events can also sync with
+[Google Calendar](#-google-calendar).
+
+An event with an end shows it: “Thu 29 Oct, 21:00–22:30”, or “Fri 24 – Sun 26
+Oct (all day)” over several days, and it counts as on (in the list and the
+agenda) until it ends. Events from Google Calendar have their end; the bot
+doesn't ask for one.
 
 ### Reminders before an event
 
@@ -461,6 +469,63 @@ waiting for your OK right now, its message loses its buttons.
 `👎 Wrong` on the confirmation (or “that's wrong” right after) cancels the
 event and saves your message as failed, like for
 [reminders](#when-the-bot-gets-it-wrong).
+
+### 📅 Google Calendar
+
+Link Google Calendar and your events sync both ways: events you add, move,
+edit, skip or cancel here change in Google Calendar, and Google's events are
+here too, so “remind me 30 min before padel” works for them, and they show
+in 📅 Events and “what do I have tomorrow?”.
+
+**Linking**: `⚙️ Settings → 📅 Calendar` (or `/calendar`) →
+`🔗 Link Google Calendar`. Google asks you to allow two things: seeing and
+changing your events, and seeing the list of your calendars. Allow both;
+Google then sends you back, and the bot says `✅ Google Calendar linked.` The
+events you already made here go to your main calendar.
+
+```
+📅 Google Calendar: linked
+
+Tap a calendar to sync it or stop:
+[✅ Roman]
+[⬜ Work]
+[⬜ Holidays in Portugal]
+
+New events from the bot go to: Roman
+[🔄 Sync now] [🔓 Unlink]
+```
+
+- **Which calendars**: your main one syncs at first; tap others to add them
+  (read-only ones, like holidays, come in but can't receive new events).
+  With more than one, `📥 Put new events in another one` picks where events
+  you add here go.
+- **Stopping one**, or `🔓 Unlink`: the bot asks whether to keep its events
+  here (no longer synced) or remove them (with their reminders). Unlinking
+  also gives the bot's access back to Google.
+- **How fast**: Google tells the bot about changes right away. The bot also
+  checks when you ask about reminders or events (at most every 5 minutes) and
+  once a day, in case a notice got lost. `🔄 Sync now` checks right away.
+- **Both changed it**: the latest change wins.
+- **A single day changed in Google** (one Thursday moved or cancelled): the
+  bot follows it, and so do the event's reminders.
+- **Repeats** can be anything Google allows (“every 2nd and 4th Tuesday”,
+  “until December”, “10 times”); the bot shows them as “every 2 weeks on
+  Tue at 19:00, until 24 Dec 2026”.
+
+**If the login expires** (while the bot's Google app is in testing, Google
+ends logins after 7 days) or you remove the bot's access in your Google
+account, the bot tells you once, with `🔗 Link again`, and 📅 Events shows a
+warning. Nothing is deleted or moved meanwhile; changes you make here are
+sent once you link again.
+
+**Privacy**: unlike everything else here, linking sends your events (the
+ones in the bot, and their changes) to Google, and the bot reads the
+calendars you pick. It keeps a copy of their events (title, times, repeat;
+not descriptions, places or guests), so reminders can follow them. An event
+from Google that is deleted (there, here, or with `🗑 Remove them`) is
+deleted from the bot too, not kept; events you made here are kept as
+cancelled, like any other. Your Google login is stored encrypted. Only test
+users can link while the app is in testing.
 
 ## 👥 People
 
