@@ -4,10 +4,11 @@ from dataclasses        import dataclass
 from datetime           import datetime
 from typing             import Optional
 
-from sqlalchemy         import select, update
+from sqlalchemy         import delete, select, update
 
 from db.session         import SessionLocal
 from db.models.event    import Event
+from db.models.failed_message import FailedMessage
 from db.models.reminder import Reminder
 from enums              import ACTIVE_STATUSES, EventStatus, MessageSource, ReminderStatus
 
@@ -119,6 +120,17 @@ class EventRepository:
                 setattr(event, key, value)
             session.commit()
             return event
+
+    def delete(self, event_id: int) -> None:
+        """Remove an event for good (one from Google that's gone). Its reminders and failed messages lose the link."""
+        with SessionLocal() as session:
+            # Explicitly: SQLite (the tests) doesn't apply ON DELETE SET NULL by default
+            session.execute(update(Reminder).where(Reminder.event_id == event_id).values(event_id=None)
+                            .execution_options(synchronize_session=False))
+            session.execute(update(FailedMessage).where(FailedMessage.event_id == event_id).values(event_id=None)
+                            .execution_options(synchronize_session=False))
+            session.execute(delete(Event).where(Event.id == event_id))
+            session.commit()
 
     def cancel(self, event_id: int) -> Optional[Cancelled]:
         """Cancel the event and its waiting reminders; None if it was already cancelled."""

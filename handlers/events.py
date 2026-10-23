@@ -781,13 +781,20 @@ async def to_google(context: ContextTypes.DEFAULT_TYPE, event):
 
 
 async def cancel_with_reminders(context: ContextTypes.DEFAULT_TYPE, event, push_to_google: bool = True):
-    """Cancel an event and its waiting reminders (taking the buttons off one going off). None if it already was."""
+    """Cancel an event and its waiting reminders (taking the buttons off one going off). None if it already was.
+
+    One imported from Google Calendar is then deleted (not kept as cancelled),
+    once Google knows (handlers/calendar.py deletes it when a pending one gets there).
+    """
     cancelled = events.cancel(event.id)
     if cancelled is None:
         return None
     await retire_all(context, cancelled)
     if push_to_google:
         await to_google(context, cancelled.event)
+    current = events.get(event.id)
+    if current is not None and current.source == MessageSource.GOOGLE and not current.pending_push:
+        events.delete(event.id)
     return cancelled
 
 

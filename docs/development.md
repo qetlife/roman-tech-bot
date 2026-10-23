@@ -676,6 +676,12 @@ event loop.
   of its parent (`skipped`, `moved`). Every change runs `follow`, so
   reminders move, and cancelling cancels them. One-offs that ended over a
   day ago aren't imported the first time.
+- **Gone means gone**: an event imported from Google (`source` is
+  `MessageSource.GOOGLE`) that is cancelled (in Google, in the bot, or with
+  🗑 Remove them) is deleted (`EventRepository.delete`; its reminders stay
+  cancelled, unlinked), once Google knows: `cancel_with_reminders` deletes it
+  unless the push is still pending, and `_send` does when it gets there. The
+  bot's own events stay as cancelled rows.
 - **When**: `/google/push` (`on_push`, checked against the channel's token;
   Google's first "sync" message is ignored) syncs that calendar;
   `maybe_sync` at the start of `handle_text`, 📅 Events and 📋 My reminders
@@ -707,7 +713,7 @@ ones there too.
 | `ReplyCommand`                          | what a reply to a reminder message asks for (`core/replies.py`) |
 | `Awaiting`                              | what the next typed message answers |
 | `IntentName`                            | free-text intents; stored in `failed_messages.intent` |
-| `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source` |
+| `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source`; `events.source` is `google` for an imported event |
 | `FailureReason`, `FailureStatus`        | `failed_messages.reason` and `.status` (open, fixed, ignored) |
 | `ContactStatus`                         | `contacts.status`: pending (asked by @username), accepted, or declined (a note not to ask again) |
 | `RequestResult`                         | what asking by @username did (`ContactRepository.request`) |

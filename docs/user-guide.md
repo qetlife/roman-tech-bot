@@ -520,8 +520,12 @@ sent once you link again.
 
 **Privacy**: unlike everything else here, linking sends your events (the
 ones in the bot, and their changes) to Google, and the bot reads the
-calendars you pick. Your Google login is stored encrypted. Only test users
-can link while the app is in testing.
+calendars you pick. It keeps a copy of their events (title, times, repeat;
+not descriptions, places or guests), so reminders can follow them. An event
+from Google that is deleted (there, here, or with `🗑 Remove them`) is
+deleted from the bot too, not kept; events you made here are kept as
+cancelled, like any other. Your Google login is stored encrypted. Only test
+users can link while the app is in testing.
 
 ## 👥 People
 

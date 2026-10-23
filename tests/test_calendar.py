@@ -361,10 +361,12 @@ def test_changes_in_google(chat, google):
     sync(chat)
     [padel] = _events(chat)
     assert padel.skipped == "20261105T2000Z"
-    # Deleted in Google: so are the event and its reminder
+    # Deleted in Google: so are the event (not even kept as cancelled) and its reminder
+    from db.repositories.event import EventRepository
     google.add("me@gmail.com", {"id": "g1", "status": "cancelled"})
     sync(chat)
-    assert _events(chat) == [] and ReminderRepository().list_for_event(padel.id) == []
+    assert _events(chat) == [] and EventRepository().get(padel.id) is None
+    assert ReminderRepository().get(reminder.id).status == "cancelled"
 
 
 def test_an_occurrence_moved_in_google(chat, google):
@@ -394,6 +396,31 @@ def test_a_sync_token_too_old(chat, google):
 
 # --- bot → Google -----------------------------------------------------------------
 
+def test_cancelling_a_google_event_in_the_bot_deletes_it(chat, google):
+    from db.repositories.event import EventRepository
+    from handlers.events import on_event_button
+    from services import google_calendar
+
+    _padel(google)
+    google.add("me@gmail.com", {"id": "g2", "summary": "Dinner",
+                                "start": {"dateTime": "2026-12-24T19:00:00+00:00"},
+                                "end": {"dateTime": "2026-12-24T22:00:00+00:00"}})
+    link(chat, google)
+    padel, dinner = sorted(_events(chat), key=lambda e: e.title, reverse=True)
+    chat(data=f"evt:del:{padel.id}", handler=on_event_button)
+    assert google.events[("me@gmail.com", "g1")]["status"] == "cancelled"
+    assert EventRepository().get(padel.id) is None
+    # Google unreachable: kept (cancelled) until Google knows, then deleted
+    working = google_calendar.transport
+    google_calendar.transport = httpx.MockTransport(lambda request: httpx.Response(503))
+    chat(data=f"evt:del:{dinner.id}", handler=on_event_button)
+    assert EventRepository().get(dinner.id).pending_push
+    google_calendar.transport = working
+    sync(chat)
+    assert EventRepository().get(dinner.id) is None
+    assert google.events[("me@gmail.com", "g2")]["status"] == "cancelled"
+
+
 def test_changes_in_the_bot_go_to_google(chat, google):
     from handlers.events import on_event_button
 
@@ -405,6 +432,9 @@ def test_changes_in_the_bot_go_to_google(chat, google):
     assert google.events[("me@gmail.com", padel.external_id)]["start"]["dateTime"] == "2026-12-24T20:00:00+00:00"
     chat(data=f"evt:del:{padel.id}", handler=on_event_button)
     assert google.events[("me@gmail.com", padel.external_id)]["status"] == "cancelled"
+    # Made in the bot: kept as cancelled, like any event of the bot's
+    from db.repositories.event import EventRepository
+    assert EventRepository().get(padel.id).status == "cancelled"
 
 
 def test_google_unreachable_sends_it_later(chat, google):
@@ -530,8 +560,11 @@ def test_unlink(chat, google, answer, left):
     text, keyboard = chat.screen()
     assert text.startswith("Unlink Google Calendar? 1 of its events are in the bot.")
     assert _buttons(keyboard) == [[("📌 Keep them", "gcal:keep:all"), ("🗑 Remove them", "gcal:rm:all")]]
+    [padel] = _events(chat)
     chat(data=f"gcal:{answer}:all", handler=on_calendar_button)
     assert [e.title for e in _events(chat)] == left
+    from db.repositories.event import EventRepository
+    assert (EventRepository().get(padel.id) is None) == (answer == "rm")
     assert all(e.external_id is None for e in _events(chat))
     assert GoogleRepository().account(_user(chat).id) is None
     assert google.asked("POST", "/revoke")

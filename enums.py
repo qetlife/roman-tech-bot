@@ -102,6 +102,7 @@ class MessageSource(StrEnum):
 
     TYPED = "typed"
     VOICE = "voice"     # transcribed by the speech-service
+    GOOGLE = "google"   # events.source: imported from Google Calendar, not made from a message
 
 
 class FailureReason(StrEnum):

@@ -39,7 +39,7 @@ from    db.repositories.event           import EventRepository
 from    db.repositories.google          import GoogleRepository
 from    db.repositories.user            import UserRepository
 from    enums                           import (
-    Callback, CalendarAction, CallbackPrefix, EventStatus, ExternalSource, GoogleStatus,
+    Callback, CalendarAction, CallbackPrefix, EventStatus, ExternalSource, GoogleStatus, MessageSource,
 )
 from    handlers.ui                     import render_menu
 from    services                        import google_calendar as google
@@ -232,7 +232,11 @@ def _google_time(value: Optional[str]) -> Optional[datetime]:
 async def _send(client, event, calendar_id: str) -> None:
     if event.status != EventStatus.ACTIVE:
         await client.delete(calendar_id, event.external_id)
-        events.set_sync(event.id, pending_push=False)
+        if event.source == MessageSource.GOOGLE:
+            # It came from Google and is gone there too: nothing kept
+            events.delete(event.id)
+        else:
+            events.set_sync(event.id, pending_push=False)
         return
     body = to_google(event)
     sent = None
@@ -352,7 +356,8 @@ async def apply(bot, user, calendar, g, first: bool = False) -> None:
             return
         created = events.create(
             user.id, values.pop("title"), values.pop("starts_at"), values.pop("timezone"), values.pop("recurrence"),
-            values.pop("all_day"), external_source=ExternalSource.GOOGLE, external_calendar_id=calendar.calendar_id,
+            values.pop("all_day"), source=MessageSource.GOOGLE,
+            external_source=ExternalSource.GOOGLE, external_calendar_id=calendar.calendar_id,
             external_id=g.id, updated_at=g.updated or utcnow(), moved=_rdates_as_moved(g), **values, **sync,
         )
         logger.info("Imported Google event %s as %s", g.id, created.id)
