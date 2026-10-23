@@ -10,7 +10,7 @@ from dataclasses    import dataclass
 from datetime       import timedelta
 from typing         import Optional
 
-from core.parser    import parse_duration
+from core.parser    import TooFar, parse_duration
 from enums          import ReplyCommand
 
 
@@ -39,7 +39,10 @@ def parse_reply(text: str) -> Optional[Reply]:
     if m := SNOOZE.match(text):
         if m.group("duration") is None:
             return Reply(ReplyCommand.SNOOZE)
-        duration = parse_duration(m.group("duration"))
+        try:
+            duration = parse_duration(m.group("duration"))
+        except TooFar:
+            return None
         return Reply(ReplyCommand.SNOOZE, snooze=duration) if duration else None
     if m := MOVE.match(text):
         when = m.group("when")

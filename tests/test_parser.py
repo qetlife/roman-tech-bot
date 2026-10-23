@@ -189,3 +189,18 @@ def test_misheard_tomorrow_keeps_too_in_text():
     r = parse_reminder("to borrow at nine am buy milk too and eggs", NOW)
     assert r.when == datetime(2026, 10, 11, 9, 0, tzinfo=TZ)
     assert r.text == "buy milk too and eggs"
+
+
+@pytest.mark.parametrize("request_", [
+    "in 99999999 days to x", "in 99999999999d to x", "every 99999999 days to x", "in 40000 days to x",
+])
+def test_too_far_in_the_future(request_):
+    from core.parser import TooFar
+    with pytest.raises(TooFar, match="too far"):
+        parse_reminder(request_, NOW)
+
+
+@pytest.mark.parametrize("request_", ["in nan hours to x", "in inf hours to x", "in 1e400 hours to x"])
+def test_numbers_nobody_says(request_):
+    with pytest.raises(ParseError):
+        parse_reminder(request_, NOW)

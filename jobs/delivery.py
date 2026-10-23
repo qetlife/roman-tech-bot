@@ -18,16 +18,19 @@ from    core.quiet                  import is_quiet, quiet_end, skip_quiet
 from    core.settings               import QUIET_HOURS, REPEAT_MINUTES, SNOOZE_OPTIONS, quiet_window
 from    db.models.reminder          import utcnow
 from    db.repositories.contact     import ContactRepository
+from    db.repositories.event       import EventRepository
 from    db.repositories.reminder    import ReminderRepository
 from    db.repositories.settings    import SettingsRepository
 from    db.repositories.user        import UserRepository
 from    enums                       import ReminderStatus
+from    handlers.events             import occurrence_line
 from    handlers.reminders          import build_fire_keyboard, from_line, tell_creator
 
 
 logger = logging.getLogger(__name__)
 
 contacts = ContactRepository()
+events = EventRepository()
 reminders = ReminderRepository()
 settings = SettingsRepository()
 users = UserRepository()
@@ -59,6 +62,8 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE):
     timezones = users.get_timezones(user_ids | {r.creator_user_id for r in due})
     # Who made the reminders for others, for "📨 from …"
     creators = users.get_many({r.creator_user_id for r in due if r.creator_user_id != r.target_user_id})
+    # The events they follow, for "📅 padel: Today, 21:00 (in 30 min)"
+    followed = events.get_many({r.event_id for r in due if r.event_id is not None})
 
     for reminder in due:
         try:
@@ -70,6 +75,7 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE):
                 quiet_window(quiet_hours[reminder.target_user_id]),
                 rule_tz=ZoneInfo(timezones.get(reminder.creator_user_id) or "UTC"),
                 creator=creators.get(reminder.creator_user_id),
+                event=followed.get(reminder.event_id),
             )
         except Exception:
             # One broken reminder must not stop the others; it is retried next poll.
@@ -121,12 +127,13 @@ def _catch_up(recurrence, reminder, now, tz):
     return latest, upcoming
 
 
-async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz, quiet=None, rule_tz=None, creator=None):
+async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz, quiet=None, rule_tz=None, creator=None,
+                   event=None):
     """Send (or move on) one due reminder.
 
     `tz` and `quiet` are its target's, `rule_tz` the timezone its repeat is
     in (its creator's; `tz` if not given), `creator` who made it if that
-    was someone else.
+    was someone else, `event` the event it follows, if any.
     """
     firing = reminder.status == ReminderStatus.FIRING
     gave_up = firing and now - reminder.remind_at >= GIVE_UP_AFTER
@@ -159,6 +166,8 @@ async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz, quiet=N
             return
 
     text = f"⏰ {reminder.text}"
+    if event is not None:
+        text += f"\n{occurrence_line(event, reminder, str(tz), now)}"
     if creator is not None:
         text += f"\n{from_line(creator)}"
     if reminder.fire_count > 0:

@@ -15,8 +15,12 @@ class ReminderRepository:
     def create(
         self, user: User, chat_id: int, text: str, remind_at: datetime, recurrence: Optional[str] = None,
         request: Optional[str] = None, source: Optional[MessageSource] = None, target: Optional[User] = None,
+        event_id: Optional[int] = None, event_offset: Optional[int] = None,
     ) -> Reminder:
-        """A reminder by `user`, for `target` (a contact, delivered to `chat_id`) or themselves."""
+        """A reminder by `user`, for `target` (a contact, delivered to `chat_id`) or themselves.
+
+        With `event_id`, it is `event_offset` minutes from that event's start, and follows it.
+        """
         with SessionLocal(expire_on_commit=False) as session:
             reminder = Reminder(
                 creator_user_id=user.id,
@@ -28,6 +32,8 @@ class ReminderRepository:
                 recurrence=recurrence,
                 request=request,
                 source=source,
+                event_id=event_id,
+                event_offset=event_offset,
             )
             session.add(reminder)
             session.commit()
@@ -97,6 +103,16 @@ class ReminderRepository:
         """The active reminders this user made for others."""
         return [r for r in self.list_created(user_id) if r.target_user_id != user_id]
 
+    def list_for_event(self, event_id: int) -> list:
+        """The active reminders that follow this event."""
+        with SessionLocal(expire_on_commit=False) as session:
+            stmt = (
+                select(Reminder)
+                .where(Reminder.event_id == event_id, Reminder.status.in_(ACTIVE_STATUSES))
+                .order_by(Reminder.remind_at)
+            )
+            return list(session.scalars(stmt))
+
     def get_due(self, now: datetime) -> list:
         with SessionLocal(expire_on_commit=False) as session:
             stmt = (
@@ -151,11 +167,23 @@ class ReminderRepository:
         self, reminder_id: int, text: str, remind_at: datetime, recurrence: Optional[str] = None,
         request: Optional[str] = None, source: Optional[MessageSource] = None,
     ) -> Optional[Reminder]:
+        """New time and text (✏️ Edit, "move it to 10"): it no longer follows an event."""
         return self._update(
             reminder_id, status=ReminderStatus.PENDING, text=text, recurrence=recurrence,
             remind_at=remind_at, next_fire_at=remind_at, fire_count=0, last_message_id=None,
-            request=request, source=source,
+            request=request, source=source, event_id=None, event_offset=None,
         )
+
+    def follow_event(self, reminder_id: int, remind_at: datetime, recurrence: Optional[str]) -> Optional[Reminder]:
+        """The event it follows moved (or skips a day): a new time, waiting again."""
+        return self._update(
+            reminder_id, status=ReminderStatus.PENDING, recurrence=recurrence,
+            remind_at=remind_at, next_fire_at=remind_at, fire_count=0, last_message_id=None,
+        )
+
+    def relink(self, reminder_id: int, recurrence: Optional[str]) -> Optional[Reminder]:
+        """Only the repeat changes (its event skips a day): the same time, as it is."""
+        return self._update(reminder_id, recurrence=recurrence)
 
     def cancel(self, reminder_id: int) -> Optional[Reminder]:
         return self._update(reminder_id, status=ReminderStatus.CANCELLED)

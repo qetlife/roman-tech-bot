@@ -29,6 +29,8 @@ class Intent:
     name: str
     phrases: list
     action: Action
+    # Whether typos of its phrases are fixed: not for "move", which "movie" is 1 letter from.
+    typos: bool = True
 
 
 @dataclass
@@ -49,6 +51,7 @@ def match_intent(text: str, intents: list) -> Optional[Match]:
 
 def _match_with_typos(stripped: str, intents: list) -> Optional[Match]:
     """Word by word, with typos of the phrases' words fixed; only if one was fixed."""
+    intents = [intent for intent in intents if intent.typos]
     vocabulary = Vocabulary({w: w for intent in intents for p in intent.phrases for w in p.lower().split()})
     tokens = list(re.finditer(r"\S+", stripped))
     words = [t.group().lower().rstrip(PUNCTUATION) for t in tokens]

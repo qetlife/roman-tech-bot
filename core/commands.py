@@ -10,7 +10,7 @@ from datetime       import date, datetime, timedelta, tzinfo
 from typing         import Optional
 
 from core           import recurrence as recurrences
-from core.parser    import parse_when
+from core.parser    import TooFar, parse_when
 
 
 # Words around what identifies a reminder: "the dentist reminder", "my reminder to call mom"
@@ -44,7 +44,10 @@ def parse_day(request: str, now: datetime) -> Optional[date]:
     # Not before 04:00, when "tomorrow" still means the coming day.
     if now.hour >= 4:
         now = now.replace(hour=4, minute=0, second=0, microsecond=0)
-    when = parse_when(phrase, now)
+    try:
+        when = parse_when(phrase, now)
+    except TooFar:
+        return None
     return when.date() if when is not None else None
 
 

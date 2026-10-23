@@ -33,10 +33,11 @@ e.g. "every day at 9", "at 8:30 on weekdays", "every friday 18:00",
 """
 
 import calendar
+import math
 import re
 
 from calendar        import Day
-from dataclasses     import dataclass
+from dataclasses     import dataclass, replace
 from datetime        import date, datetime, time, timedelta
 from typing          import Optional
 
@@ -51,6 +52,13 @@ from core.recurrence import (
 
 class ParseError(ValueError):
     """The request could not be understood; the message is shown to the user."""
+
+
+class TooFar(ParseError):
+    """A duration longer than MAX_DURATION ("in 99999999 days"), or too big to compute."""
+
+    def __init__(self, message: str = "That's too far in the future."):
+        super().__init__(message)
 
 
 class MissingText(ParseError):
@@ -73,6 +81,9 @@ class ParsedReminder:
     when: datetime   # timezone-aware, in the user's timezone; first occurrence if recurring
     text: str
     recurrence: Optional[Recurrence] = None
+    # Whether a time of day was given ("friday at 9", "in 2 hours"), not just
+    # a day ("friday", 09:00): a day alone is an all-day event.
+    timed: bool = True
 
 
 DEFAULT_TIME = time(9, 0)
@@ -123,6 +134,9 @@ DAY_PARTS = {
 
 # Shortest "every N minutes" reminder.
 MIN_INTERVAL = timedelta(minutes=15)
+
+# Longest duration ("in 100 years"): more would overflow dates (year 9999).
+MAX_DURATION = timedelta(days=100 * 365)
 
 # Words of time expressions whose typos are fixed on a second try
 # ("tomorow", "wensday", "evry"), each with its meaning (core/typos.py).
@@ -178,16 +192,27 @@ def _number(token: str) -> Optional[float]:
     if token in NUMBER_WORDS:
         return float(NUMBER_WORDS[token])
     try:
-        return float(token)
+        value = float(token)
     except ValueError:
         return None
+    # "nan", "inf", "1e400" aren't numbers anyone says
+    return value if math.isfinite(value) else None
 
 
 def _read_duration(tokens: list, i: int):
     """Read "2 hours and 30 minutes" / "1h30m" / "half an hour" starting at i.
 
     Returns (next index, timedelta) or (i, None) if nothing was read.
+    Raises TooFar for more than MAX_DURATION.
     """
+    try:
+        return _read_duration_unchecked(tokens, i)
+    except OverflowError:
+        # "99999999999d": too big for a timedelta
+        raise TooFar()
+
+
+def _read_duration_unchecked(tokens: list, i: int):
     total = timedelta()
     start = i
     while i < len(tokens):
@@ -220,6 +245,8 @@ def _read_duration(tokens: list, i: int):
 
     if i == start or total <= timedelta():
         return start, None
+    if total > MAX_DURATION:
+        raise TooFar()
     return i, total
 
 
@@ -682,6 +709,12 @@ def parse_recurrence(phrase: str, now: datetime) -> Optional[tuple]:
 
     Raises ParseError for an understood but unsupported interval.
     """
+    parsed = _recurrence(phrase, now)
+    return parsed[:2] if parsed is not None else None
+
+
+def _recurrence(phrase: str, now: datetime) -> Optional[tuple]:
+    """parse_recurrence, plus whether a time of day was given: (first, Recurrence, timed)."""
     tokens = ["every" if t == "each" else t for t in _tokenize(phrase)]
     for i in range(len(tokens)):
         j, repeat = _read_recurrence(tokens, i, now)
@@ -725,9 +758,10 @@ def parse_recurrence(phrase: str, now: datetime) -> Optional[tuple]:
         else:
             # "every 2 hours": the first one 2 hours from now
             first = (now + every).replace(second=0, microsecond=0)
+            clock = first.time()
         recurrence = Interval(every, first)
 
-    return recurrence.next_after(now, now.tzinfo), recurrence
+    return recurrence.next_after(now, now.tzinfo), recurrence, clock is not None
 
 
 def _parse_time(phrase: str, now: datetime) -> Optional[tuple]:
@@ -736,6 +770,16 @@ def _parse_time(phrase: str, now: datetime) -> Optional[tuple]:
     if when is not None:
         return when, None
     return parse_recurrence(phrase, now)
+
+
+def _is_timed(phrase: str, now: datetime) -> bool:
+    """Whether a time expression has a time of day ("friday at 9", "in 2 hours", "every morning"), not only a day."""
+    tokens = _tokenize(phrase)
+    w = _parse_when_tokens(tokens, now) if tokens else None
+    if w is not None:
+        return w.clock is not None or w.delta is not None or w.part is not None
+    parsed = _recurrence(phrase, now)
+    return parsed is None or parsed[2]
 
 
 def _clean_text(text: str) -> str:
@@ -775,20 +819,22 @@ def _split(words: list, time_words: list, fixed: list, now: datetime) -> Optiona
     "tomorow at 9" isn't a reminder called “tomorow”. All three are word
     for word the same message.
     """
-    best = None   # (number of words used for the time, (when, recurrence), text)
+    best = None   # (number of words used for the time, (when, recurrence), text, the time's words)
     for k in range(len(words), 0, -1):
         # Time expression at the start: "tomorrow at 9 to pay rent"
-        parsed = _parse_time(" ".join(time_words[:k]), now)
+        phrase = " ".join(time_words[:k])
+        parsed = _parse_time(phrase, now)
         if parsed is not None and _is_text(_clean_text(" ".join(fixed[k:])), now):
             text = _clean_text(" ".join(words[k:]))
             if best is None or k > best[0]:
-                best = (k, parsed, text)
+                best = (k, parsed, text, phrase)
         # Time expression at the end: "to pay rent tomorrow at 9"
-        parsed = _parse_time(" ".join(time_words[-k:]), now)
+        phrase = " ".join(time_words[-k:])
+        parsed = _parse_time(phrase, now)
         if parsed is not None and _is_text(_clean_text(" ".join(fixed[:-k])), now):
             text = _clean_text(" ".join(words[:-k]))
             if best is None or k > best[0]:
-                best = (k, parsed, text)
+                best = (k, parsed, text, phrase)
         if best is not None:
             return best
     return None
@@ -857,7 +903,86 @@ def parse_reminder(request: str, now: datetime) -> ParsedReminder:
             raise MissingText("What should I remind you about?")
         raise MissingTime("I couldn't understand when.", _clean_text(request))
 
-    _, (when, recurrence), text = best
+    _, (when, recurrence), text, phrase = best
     if when <= now:
         raise ParseError("That time has already passed.")
-    return ParsedReminder(when=when, text=text, recurrence=recurrence)
+    return ParsedReminder(when=when, text=text, recurrence=recurrence, timed=_is_timed(phrase, now))
+
+
+def _closest_clock(w: _When, old: time) -> time:
+    """The clock in `w`; for "at 8", whichever of 08:00 and 20:00 is closer to `old`."""
+    if not w.clock_ambiguous:
+        return w.clock
+    later = time(w.clock.hour + 12, w.clock.minute)
+
+    def distance(clock):
+        return abs((clock.hour * 60 + clock.minute) - (old.hour * 60 + old.minute))
+    return later if distance(later) < distance(w.clock) else w.clock
+
+
+@dataclass
+class ParsedMove:
+    when: datetime                          # the new (first) time, in the user's timezone
+    recurrence: Optional[Recurrence] = None # the new repeat, for a repeating event
+    timed: bool = True                      # a time of day was given (else the day changed)
+
+
+def parse_move(phrase: str, old: datetime, now: datetime, recurrence: Optional[Recurrence] = None) -> Optional[ParsedMove]:
+    """The new time in "move padel to 20:00" / "to friday" / "to friday at 8", or None.
+
+    What isn't said stays: a time alone keeps the day of `old` (the current
+    time, aware), a day alone keeps its time of day, and an ambiguous "8" is
+    whichever of 08:00 and 20:00 is closer to it. For a repeating event
+    (`recurrence`), a time changes its time of day, a weekday the day of a
+    weekly one, and a repeat ("every friday at 20:00") replaces it. `old`
+    and `recurrence` are in `now`'s timezone.
+    """
+    tz = now.tzinfo
+    old = old.astimezone(tz)
+    tokens = _tokenize(phrase)
+    if not tokens:
+        return None
+    try:
+        w = _parse_when_tokens(tokens, now)
+        if w is None and tokens[0] not in CONNECTORS:
+            # "move padel to 8": a number alone is a time here
+            w = _parse_when_tokens(["at"] + tokens, now)
+    except TooFar:
+        return None
+
+    if recurrence is not None:
+        try:
+            parsed = _recurrence(phrase, now)
+        except ParseError:
+            return None
+        if parsed is not None:
+            return ParsedMove(parsed[0], parsed[1], parsed[2])
+        if w is None or w.delta is not None or w.day is not None or w.next_week:
+            return None
+        clock = _closest_clock(w, old.time()) if w.clock is not None else old.time()
+        if w.weekday is not None:
+            if not isinstance(recurrence, Weekly) or len(recurrence.days) != 1:
+                return None
+            new = Weekly(frozenset({Day(w.weekday)}), clock)
+        elif isinstance(recurrence, Interval):
+            if not recurrence.whole_days:
+                return None
+            anchor = recurrence.anchor.astimezone(tz)
+            new = Interval(recurrence.every, datetime.combine(anchor.date(), clock, tzinfo=tz))
+        else:
+            new = replace(recurrence, clock=clock)
+        return ParsedMove(new.next_after(now, tz), new, w.clock is not None)
+
+    if w is None:
+        return None
+    if w.delta is not None:
+        return ParsedMove(now + w.delta)
+    has_day = w.day is not None or w.weekday is not None
+    if not has_day:
+        # "to 20:00": the same day
+        return ParsedMove(datetime.combine(old.date(), _closest_clock(w, old.time()), tzinfo=tz))
+    if w.clock is None:
+        # "to friday": the same time of day
+        w.clock, w.clock_ambiguous = old.time(), False
+        return ParsedMove(_resolve(w, now), timed=False)
+    return ParsedMove(_resolve(w, now))

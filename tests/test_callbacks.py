@@ -4,9 +4,9 @@ import re
 
 import pytest
 
-from enums import Callback, CallbackPrefix, OptionAction, PeopleAction, ReminderAction
+from enums import Callback, CallbackPrefix, EventAction, OptionAction, PeopleAction, ReminderAction
 from handlers.people import people_callback
-from handlers.ui import exact, option_callback, prefixed, reminder_callback, split_option
+from handlers.ui import event_callback, exact, option_callback, prefixed, reminder_callback, split_option
 
 
 def test_fixed_values_are_stable():
@@ -15,6 +15,7 @@ def test_fixed_values_are_stable():
         "REMINDERS_MENU": "menu:reminders",
         "SETTINGS_MENU": "menu:settings",
         "PEOPLE_MENU": "menu:people",
+        "EVENTS_MENU": "menu:events",
         "NEW_INVITE": "people:invite",
         "MY_ID": "settings:my_id",
         "SETTINGS_BACK": "settings:back",
@@ -28,6 +29,9 @@ def test_fixed_values_are_stable():
         "LIST_REMINDERS": "rem:list",
         "REMINDER_SETTINGS_FROM_MENU": "rem:settings",
         "REMINDER_SETTINGS_RETURN": "rset:show",
+        "NEW_EVENT": "event:new",
+        "PICK_EVENT": "pick:event",
+        "PICK_REMINDER": "pick:reminder",
     }
 
 
@@ -55,6 +59,15 @@ def test_fixed_values_are_stable():
     (people_callback(PeopleAction.ALLOW, 3),                "ppl:yes:3"),
     (people_callback(PeopleAction.DECLINE, 3),              "ppl:no:3"),
     (f"{CallbackPrefix.INVITE}{PeopleAction.ALLOW}:abc",    "inv:yes:abc"),
+    (event_callback(EventAction.OPEN, 4),                   "evt:open:4"),
+    (event_callback(EventAction.REMIND, 4, -30),            "evt:rem:4:-30"),
+    (event_callback(EventAction.ONCE, 4),                   "evt:once:4"),
+    (event_callback(EventAction.EVERY, 4),                  "evt:every:4"),
+    (event_callback(EventAction.UNDO, 4),                   "evt:undo:4"),
+    (event_callback(EventAction.EDIT, 4),                   "evt:edit:4"),
+    (event_callback(EventAction.WRONG, 4),                  "evt:wrong:4"),
+    (event_callback(EventAction.SKIP, 4, "20261029T2000Z"), "evt:skip:4:20261029T2000Z"),
+    (event_callback(EventAction.CANCEL, 4),                 "evt:del:4"),
 ])
 def test_built_values_are_stable(built, expected):
     assert built == expected

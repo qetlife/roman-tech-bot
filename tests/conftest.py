@@ -82,3 +82,42 @@ def person(db, monkeypatch):
         return send
 
     return make
+
+
+@pytest.fixture
+def chat(db, monkeypatch):
+    """A new user with a timezone, and a function to send them messages/buttons.
+
+    Menu screens aren't sent; `chat.screen()` is the last one rendered: (text, keyboard).
+    """
+    import asyncio
+    import random
+
+    from unittest.mock import AsyncMock, MagicMock
+
+    from db.repositories.user import UserRepository
+    from handlers import commands, events, menus, reminders, settings
+    from handlers.text import on_text
+    from tests.test_handlers import _update
+
+    render = AsyncMock()
+    for module in (commands, events, menus, reminders, settings):
+        monkeypatch.setattr(module, "render_menu", render)
+
+    telegram_id = random.randint(10**9, 10**12)
+    UserRepository().get_or_create(telegram_id)
+    UserRepository().set_timezone(telegram_id, "Europe/Lisbon")
+    context = MagicMock(user_data={}, chat_data={}, args=[])
+    context.bot.edit_message_text = AsyncMock()
+    context.bot.send_message = AsyncMock()
+    context.bot.username = "testbot"
+
+    def send(text=None, data=None, handler=None, reply_to=None):
+        update = _update(telegram_id, data=data, text=text, reply_to=reply_to)
+        asyncio.run((handler or on_text)(update, context))
+        return update
+
+    send.telegram_id = telegram_id
+    send.context = context
+    send.screen = lambda: render.call_args.args[2:4]
+    return send
