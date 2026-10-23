@@ -76,8 +76,12 @@ def skipped(event) -> frozenset:
 
 
 def with_skipped(event, occurrence: datetime, now: datetime) -> str:
-    """events.skipped with `occurrence` added; those already past are dropped."""
-    kept = {s for s in skipped(event) if s > now} | {occurrence}
+    """events.skipped with `occurrence` added; those already past are dropped.
+
+    An all-day one is kept until its day ends: it's still on all day.
+    """
+    length = timedelta(days=1) if event.all_day else timedelta()
+    kept = {s for s in skipped(event) if s + length > now} | {occurrence}
     return ",".join(sorted(recurrences.format_stamp(s) for s in kept))
 
 

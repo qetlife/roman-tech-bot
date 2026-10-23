@@ -110,6 +110,14 @@ def test_with_skipped_drops_the_past():
     assert with_skipped(padel, at(29, 21), NOW) == "20261029T2100Z"
 
 
+def test_with_skipped_keeps_today_of_an_all_day_event():
+    # Wednesday 21st is skipped (its midnight: 23:00 UTC the day before, summer time); skipping the 28th keeps it
+    gym = event(at(21, 0), "wed@00:00", all_day=True, skipped="20261020T2300Z")
+    assert with_skipped(gym, at(28, 0), NOW) == "20261020T2300Z,20261028T0000Z"
+    assert next_occurrence(SimpleNamespace(**{**vars(gym), "skipped": "20261020T2300Z,20261028T0000Z"}), NOW) \
+        == datetime(2026, 11, 4, 0, 0, tzinfo=TZ)
+
+
 # --- what a message says ----------------------------------------------------
 
 @pytest.mark.parametrize("request_, minutes, event_words, text", [
