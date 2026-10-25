@@ -178,7 +178,9 @@ Bot: ⏰ Got it: dentist
 While it asks, you can move on:
 
 - “never mind”, “cancel” or “forget it” drops the question
-  (`OK, dropped the reminder “dentist”.`).
+  (`OK, dropped the reminder “dentist”.`); for “What time?”, “Which day?”
+  and “When?”, so do “no”, “stop” and “skip”. (Elsewhere they can be the
+  answer: a reminder to “stop”, or “no” to switch quiet hours off.)
 - Something that fits as an answer is the answer.
 - A command of its own (“what do I have tomorrow?”, “my reminders”, “cancel
   the second one”) is done, and the question dropped: `Dropped: the reminder

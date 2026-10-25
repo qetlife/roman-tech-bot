@@ -39,6 +39,12 @@ FOLLOW_UP_INTENTS = (IntentName.REMINDER_CANCEL, IntentName.EVENT_CANCEL, Intent
 # Questions whose answer is only a time or a day: "what do I have tomorrow?" is never one.
 TIME_ONLY = (Awaiting.REMINDER_CLOCK, Awaiting.REMINDER_DAY, Awaiting.EVENT_DAY)
 
+# Questions whose answer is a time, a day, or a date: "no" or "stop" can't be one, so they mean "never mind"
+NOT_TEXT = (*TIME_ONLY, Awaiting.REMINDER_TIME, Awaiting.EVENT_TIME)
+# Questions "never mind" drops: about a reminder or an event. Settings and 👥 People keep their own answers.
+NEVER_MIND_QUESTIONS = (*NOT_TEXT, Awaiting.REMINDER, Awaiting.REMINDER_TEXT, Awaiting.EDIT, Awaiting.EVENT,
+                        Awaiting.EVENT_TITLE, Awaiting.EVENT_EDIT)
+
 # A question about a reminder or an event's missing half: "that's wrong" then means the asking.
 QUESTIONS = {
     Awaiting.REMINDER_TEXT: IntentName.REMINDER_CREATE,
@@ -94,8 +100,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
     if await handle_reply(update, context, text):
         return
     awaiting = context.user_data.get(AWAITING)
-    if awaiting is not None and is_never_mind(text):
-        # "never mind", "cancel" while the bot asks something
+    if awaiting in NEVER_MIND_QUESTIONS and is_never_mind(text, loose=awaiting in NOT_TEXT):
+        # "never mind", "cancel" while the bot asks about a reminder or an event (settings take "no" as an answer)
         about = drop_question(context)
         await update.effective_message.reply_text(f"OK, dropped {about}." if about else "OK.")
         return

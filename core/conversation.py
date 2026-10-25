@@ -176,11 +176,12 @@ def parse_follow_up(text: str) -> Optional[FollowUpRequest]:
 
 
 # Drops the question the bot is asking ("never mind"), when one is waiting
-NEVER_MIND = re.compile(
-    r"^(?:never\s*mind|forget\s+(?:it|that|about it)|cancel(?:\s+(?:it|that|this))?|stop|skip(?:\s+it)?"
-    r"|leave\s+it|nothing|no|nope|no thanks)$"
-)
+NEVER_MIND = re.compile(r"^(?:never\s*mind|forget\s+(?:it|that|about it)|cancel(?:\s+(?:it|that|this))?)$")
+# Also these, where they can't be the answer (a time or a day): "stop" may be a reminder's text
+NEVER_MIND_LOOSE = re.compile(r"^(?:stop|skip(?:\s+it)?|leave\s+it|nothing|no|nope|no thanks)$")
 
 
-def is_never_mind(text: str) -> bool:
-    return NEVER_MIND.match(" ".join(text.lower().strip().rstrip(".!").split())) is not None
+def is_never_mind(text: str, loose: bool = False) -> bool:
+    """ "never mind", "forget it", "cancel"; with `loose`, also "no", "stop", "skip", "nothing"."""
+    text = " ".join(text.lower().strip().rstrip(".!").split())
+    return NEVER_MIND.match(text) is not None or (loose and NEVER_MIND_LOOSE.match(text) is not None)

@@ -105,8 +105,11 @@ def test_not_follow_ups(text):
 
 
 def test_never_mind():
-    assert all(is_never_mind(t) for t in ("never mind", "Nevermind.", "cancel", "forget it", "no"))
+    assert all(is_never_mind(t) for t in ("never mind", "Nevermind.", "cancel", "forget it"))
     assert not is_never_mind("cancel the dentist reminder")
+    # Only where they can't be the answer
+    assert not is_never_mind("no") and not is_never_mind("stop")
+    assert is_never_mind("no", loose=True) and is_never_mind("Stop.", loose=True)
 
 
 def test_the_conversation_lasts_10_minutes():
@@ -356,3 +359,17 @@ def test_buttons_of_an_older_question_dont_answer_a_new_one(chat):
     # The new question's buttons do
     chat(data="ans:clock:0900", handler=on_answer, message_id=_asked(chat))
     assert [r.text for r in _active(chat.telegram_id)] == ["gym"]
+
+
+def test_no_and_stop_are_answers_where_they_can_be(chat):
+    from handlers.settings import on_quiet_button
+
+    # "stop" is a reminder's text
+    chat("remind me tomorrow at 12")
+    assert _replies(chat("stop"))[0].startswith("⏰ Got it: stop\n")
+    # …but drops "What time?"
+    chat("remind me next friday dentist")
+    assert _replies(chat("no"))[0] == "OK, dropped the reminder “dentist”."
+    # "no" switches quiet hours off
+    chat(data="qhopt:custom", handler=on_quiet_button)
+    assert _replies(chat("no"))[0].startswith("🌙 Quiet hours set to ")

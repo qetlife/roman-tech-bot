@@ -264,8 +264,11 @@ Every message first marks the [conversation](#conversation) as current
 0. A Telegram reply to a delivered reminder (`reminders.last_message_id`)
    that is a reply command (`core/replies.parse_reply`) acts on that
    reminder (`handlers/replies.py`); other replies go on below.
-   Then, while the bot asks something, “never mind” / “cancel” drops the
-   question (`core/conversation.is_never_mind`), and a follow-up (“move it to
+   Then, while the bot asks about a reminder or an event
+   (`NEVER_MIND_QUESTIONS`; settings and 👥 People questions take “no” as an
+   answer), “never mind” / “cancel” drops the question
+   (`core/conversation.is_never_mind`; “no”, “stop”, “skip” too where the
+   answer is a time or a day, `NOT_TEXT`), and a follow-up (“move it to
    10”, “cancel the second one”, `parse_follow_up`) is handled by
    `handlers/conversation.py`, dropping a waiting question with a note. A
    follow-up never beats a trigger phrase (“also remind me …”), except the
