@@ -373,3 +373,13 @@ def test_no_and_stop_are_answers_where_they_can_be(chat):
     # "no" switches quiet hours off
     chat(data="qhopt:custom", handler=on_quiet_button)
     assert _replies(chat("no"))[0].startswith("🌙 Quiet hours set to ")
+
+
+@pytest.mark.parametrize("fresh", [False, True])
+def test_also_without_a_time_is_no_copy(chat, fresh):
+    from handlers.text import HELP_TEXT
+
+    if fresh:
+        chat("remind me tomorrow at 9 to call mom")
+    assert _replies(chat("also buy milk"))[0] == HELP_TEXT
+    assert len(_active(chat.telegram_id)) == (1 if fresh else 0)

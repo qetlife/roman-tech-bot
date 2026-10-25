@@ -76,6 +76,14 @@ async def handle_follow_up(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     return True
 
 
+def is_time(update: Update, phrase: str) -> bool:
+    """Whether "next week" / "on thursday" / "tomorrow at 10" is a time: else "also buy milk" isn't a copy."""
+    if phrase.strip().lower() in NEXT_WEEK:
+        return True
+    now = user_now(users.get_or_create(update.effective_user.id).timezone or "UTC")
+    return parse_move(phrase, now, now) is not None
+
+
 def _load(update: Update, picked: tuple):
     """(kind, the reminder or event) if it's still there and the user's to change; else None."""
     kind, item_id = picked

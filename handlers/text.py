@@ -8,7 +8,7 @@ from    core.intents                import match_intent
 from    enums                       import AnswerKind, Awaiting, CallbackPrefix, FollowUp, IntentName
 from    handlers.failed             import record_not_understood
 from    handlers                    import calendar
-from    handlers.conversation       import handle_follow_up
+from    handlers.conversation       import handle_follow_up, is_time
 from    handlers                    import events as ev
 from    handlers                    import reminders as rh
 from    handlers.replies            import handle_reply
@@ -108,9 +108,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
     match = match_intent(text, INTENTS)
     follow_up = parse_follow_up(text)
     if follow_up is not None and (match is None or match.intent.name in FOLLOW_UP_INTENTS) \
-            and (awaiting is None or follow_up.action == FollowUp.CANCEL):
+            and (awaiting is None or follow_up.action == FollowUp.CANCEL) \
+            and (follow_up.action != FollowUp.COPY or is_time(update, follow_up.when)):
         # "move it to 10", "cancel the second one": a command of its own. Not over a trigger
         # phrase ("also remind me …"), and while the bot asks, "make it work" may be the answer.
+        # A copy needs a time: "also buy milk" is no "also on thursday".
         if awaiting is not None:
             await say_dropped(update, drop_question(context))
         await handle_follow_up(update, context, text)

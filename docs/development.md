@@ -481,6 +481,8 @@ message); every message touches it first.
 
 `parse_follow_up` reads “move/make/change/push it|that|the second one [to]
 <when>”, “cancel/delete/remove it|…”, and “[and] the same|also|again <when>”
+(a copy only if <when> is a time, `conversation.is_time`: “also buy milk”
+goes the normal way)
 (polite words around are fine; “the dentist” is a name, left to the other
 commands). `handle_follow_up` picks the item (`Conversation.pick`; “the last
 one” without a list is the subject), checks it is still active and the
