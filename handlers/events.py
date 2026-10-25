@@ -38,7 +38,7 @@ from    handlers                        import reminders as rh
 from    handlers.failed                 import record, record_not_understood
 from    handlers.settings               import ask_timezone
 from    handlers.ui                     import (
-    ASKED_REQUEST, AWAITING, EDIT_EVENT_ID, LAST_EVENT_ID, LAST_REMINDER_ID, PENDING_CONTACT_ID,
+    ASKED_MESSAGE_ID, ASKED_REQUEST, AWAITING, EDIT_EVENT_ID, LAST_EVENT_ID, LAST_REMINDER_ID, PENDING_CONTACT_ID,
     PENDING_EVENT_REMINDER, PENDING_EVENT_REQUEST, PENDING_PART, PENDING_PICK, about, ask, event_callback, listed,
     message_source, render_menu,
 )
@@ -259,7 +259,10 @@ async def ask_day(update: Update, context: ContextTypes.DEFAULT_TYPE, request: s
     ask(context, Awaiting.EVENT_DAY, "the weekly event")
     context.user_data[PENDING_PART] = request
     context.user_data[ASKED_REQUEST] = request
-    await update.effective_message.reply_text(f"{prefix}📅 Every week: on which day?", reply_markup=rh.day_keyboard())
+    asked = await update.effective_message.reply_text(f"{prefix}📅 Every week: on which day?",
+                                                      reply_markup=rh.day_keyboard())
+    # Its buttons answer this question only, not a later one
+    context.user_data[ASKED_MESSAGE_ID] = asked.message_id
 
 
 async def answer_day(update: Update, context: ContextTypes.DEFAULT_TYPE, answer: str):

@@ -138,17 +138,23 @@ def test_a_day_without_a_time_asks_what_time(chat):
     assert (_local(reminder).weekday(), _local(reminder).time()) == (4, time(10, 30))
 
 
+def _asked(chat):
+    """The id of the message asking the question (whose buttons answer it)."""
+    from handlers.ui import ASKED_MESSAGE_ID
+    return chat.context.user_data[ASKED_MESSAGE_ID]
+
+
 def test_the_time_by_button(chat):
     from handlers.text import on_answer
 
     chat("remind me next friday to call the bank")
-    update = chat(data="ans:clock:1900", handler=on_answer)
+    update = chat(data="ans:clock:1900", handler=on_answer, message_id=_asked(chat))
     update.callback_query.edit_message_reply_markup.assert_awaited_once_with(reply_markup=None)
     [reminder] = _active(chat.telegram_id)
     assert (reminder.text, _local(reminder).time()) == ("call the bank", time(19, 0))
 
     # Pressed again later: the question is over
-    update = chat(data="ans:clock:0900", handler=on_answer)
+    update = chat(data="ans:clock:0900", handler=on_answer, message_id=_asked(chat))
     assert update.callback_query.answer.call_args.args[0] == "That question has expired. Send it again."
 
 
@@ -172,7 +178,7 @@ def test_every_week_asks_which_day_then_the_time(chat):
     assert _replies(update)[0] == "⏰ Every week: which day should I remind you?"
     assert _buttons(update.effective_message.reply_text.call_args.kwargs["reply_markup"])[0][0] == ("Mon", "ans:day:0")
     assert _replies(chat("someday"))[0].startswith("That isn't a day of the week.")
-    update = chat(data="ans:day:2", handler=on_answer)
+    update = chat(data="ans:day:2", handler=on_answer, message_id=_asked(chat))
     # One question at a time
     assert _replies(update)[0].startswith("⏰ What time should I remind you: “water the plants”?")
     update = chat("8")
@@ -325,3 +331,28 @@ def test_cancel_the_second_one_during_a_question(chat):
     replies = _replies(chat("cancel the second one"))
     assert replies[0] == "Dropped: the reminder for tomorrow at 12."
     assert replies[1].startswith("🗑 Cancelled: pay rent")
+
+
+def test_a_day_as_the_answer_to_when_asks_what_time(chat):
+    chat("remind me to call mom")
+    update = chat("next friday")
+    assert _replies(update)[0].startswith("⏰ What time should I remind you: “call mom”?")
+    assert _active(chat.telegram_id) == []
+    assert _replies(chat("18:00"))[0].startswith("⏰ Got it: call mom\n")
+    [reminder] = _active(chat.telegram_id)
+    assert (_local(reminder).weekday(), _local(reminder).time()) == (4, time(18, 0))
+
+
+def test_buttons_of_an_older_question_dont_answer_a_new_one(chat):
+    from handlers.text import on_answer
+
+    chat("remind me next friday dentist")
+    first = _asked(chat)
+    chat("remind me next saturday gym")
+    assert _asked(chat) != first
+    update = chat(data="ans:clock:0900", handler=on_answer, message_id=first)
+    assert update.callback_query.answer.call_args.args[0] == "That question has expired. Send it again."
+    assert _active(chat.telegram_id) == []
+    # The new question's buttons do
+    chat(data="ans:clock:0900", handler=on_answer, message_id=_asked(chat))
+    assert [r.text for r in _active(chat.telegram_id)] == ["gym"]

@@ -16,7 +16,7 @@ from    handlers                    import people
 from    handlers                    import settings as sh
 from    handlers.intents            import INTENTS
 from    handlers.ui                 import (
-    ASKED_ABOUT, ASKED_REQUEST, AWAITING, EDIT_EVENT_ID, EDIT_REMINDER_ID, PENDING_CONTACT_ID, PENDING_PART,
+    ASKED_ABOUT, ASKED_MESSAGE_ID, ASKED_REQUEST, AWAITING, EDIT_EVENT_ID, EDIT_REMINDER_ID, PENDING_CONTACT_ID, PENDING_PART,
     conversation,
 )
 
@@ -72,7 +72,7 @@ def drop_question(context: ContextTypes.DEFAULT_TYPE):
     """Forget the question the bot is asking. What it was about ("the reminder “dentist”"), if it was asked with ask()."""
     awaiting = context.user_data.pop(AWAITING, None)
     asked = context.user_data.pop(ASKED_ABOUT, None)
-    for key in (ASKED_REQUEST, PENDING_PART, PENDING_CONTACT_ID):
+    for key in (ASKED_REQUEST, ASKED_MESSAGE_ID, PENDING_PART, PENDING_CONTACT_ID):
         context.user_data.pop(key, None)
     if awaiting is None or asked is None or asked[0] != awaiting:
         return None
@@ -190,7 +190,8 @@ async def on_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     kind, _, value = query.data.removeprefix(CallbackPrefix.ANSWER).partition(":")
     answer = ANSWERS.get(kind, {}).get(context.user_data.get(AWAITING))
-    if answer is None or not value.isdigit():
+    if answer is None or not value.isdigit() or query.message.message_id != context.user_data.get(ASKED_MESSAGE_ID):
+        # Not the question being asked (or buttons from an older one)
         await query.answer("That question has expired. Send it again.", show_alert=True)
         await query.edit_message_reply_markup(reply_markup=None)
         return

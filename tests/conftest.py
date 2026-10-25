@@ -112,8 +112,11 @@ def chat(db, monkeypatch):
     context.bot.send_message = AsyncMock()
     context.bot.username = "testbot"
 
-    def send(text=None, data=None, handler=None, reply_to=None):
+    def send(text=None, data=None, handler=None, reply_to=None, message_id=None):
         update = _update(telegram_id, data=data, text=text, reply_to=reply_to)
+        if message_id is not None:
+            # The bot's message whose button was pressed
+            update.callback_query.message.message_id = message_id
         asyncio.run((handler or on_text)(update, context))
         return update
 

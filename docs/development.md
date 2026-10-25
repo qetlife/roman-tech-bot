@@ -463,6 +463,10 @@ change.
   dentist”); either must keep the same text. Otherwise it asks again.
 
 The request waits in `user_data["pending_part"]`, like the other halves.
+The answer buttons only answer the message that asked
+(`user_data["asked_message_id"]`): an older question's buttons say it has
+expired. A day as the answer to “When?” (“remind me to call mom” →
+“friday”) asks the time too.
 
 **The conversation.** `handlers/ui.py` keeps a `Conversation` in
 `user_data["conversation"]`: the time of the last message, the subject

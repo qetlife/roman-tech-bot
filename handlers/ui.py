@@ -54,6 +54,8 @@ CONVERSATION = "conversation"
 # What the waiting question is about, for “Dropped: …” when the user moves on:
 # (the Awaiting value it was asked with, "the reminder “dentist”").
 ASKED_ABOUT = "asked_about"
+# The message asking the question that has answer buttons (What time? Which day?): only its buttons answer it.
+ASKED_MESSAGE_ID = "asked_message_id"
 # A message without a trigger phrase that could be an event or a reminder
 # (“padel on thursday at 21:00”), waiting for 📅 Event / ⏰ Reminder.
 PENDING_PICK = "pending_pick"

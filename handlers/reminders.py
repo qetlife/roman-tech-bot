@@ -40,7 +40,7 @@ from    handlers.failed                 import record, record_not_understood
 from    handlers.people                 import display
 from    handlers.settings               import ask_timezone
 from    handlers.ui                     import (
-    ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, LAST_EVENT_ID, LAST_REMINDER_ID, PENDING_CONTACT_ID, PENDING_PART,
+    ASKED_MESSAGE_ID, ASKED_REQUEST, AWAITING, EDIT_REMINDER_ID, LAST_EVENT_ID, LAST_REMINDER_ID, PENDING_CONTACT_ID, PENDING_PART,
     PENDING_REQUEST,
     about, ask, listed, message_source, reminder_callback, render_menu,
 )
@@ -381,12 +381,21 @@ async def answer_when(update: Update, context: ContextTypes.DEFAULT_TYPE, when: 
     user = users.get_or_create(update.effective_user.id)
     text = context.user_data.get(PENDING_PART, "")
     request = f"{when} to {text}"
+    now = user_now(user.timezone)
     try:
-        parsed = parse_reminder(request, user_now(user.timezone))
+        parsed = parse_reminder(request, now)
     except ParseError as e:
+        if untimed(request, now) is not None:
+            # "today" in the afternoon: a day, and the time still to ask
+            await ask_clock(update, context, request, text, pending_whom(context))
+            return
         # The text is known, so whatever failed is the time.
         record_not_understood(update, context, when, IntentName.REMINDER_WHEN, str(e))
         await ask_when(update, context, text, prefix=f"{e} ", whom=pending_whom(context))
+        return
+    if not parsed.timed:
+        # "friday": a day, and the time still to ask
+        await ask_clock(update, context, request, parsed.text, pending_whom(context))
         return
     context.user_data.pop(PENDING_PART, None)
     await save_reminder(update, context, user, parsed, request)
@@ -414,10 +423,12 @@ async def ask_clock(update: Update, context: ContextTypes.DEFAULT_TYPE, request:
     ask(context, Awaiting.REMINDER_CLOCK, f"the reminder “{text}”")
     context.user_data[PENDING_PART] = request
     context.user_data[ASKED_REQUEST] = request
-    await update.effective_message.reply_text(
+    asked = await update.effective_message.reply_text(
         f"{prefix}⏰ What time should I remind {whom}: “{text}”?\nTap one, or type a time, e.g. “10:30”.",
         reply_markup=clock_keyboard(),
     )
+    # Its buttons answer this question only, not a later one
+    context.user_data[ASKED_MESSAGE_ID] = asked.message_id
 
 
 async def answer_clock(update: Update, context: ContextTypes.DEFAULT_TYPE, answer: str):
@@ -450,9 +461,10 @@ async def ask_day(update: Update, context: ContextTypes.DEFAULT_TYPE, request: s
     ask(context, Awaiting.REMINDER_DAY, "the weekly reminder")
     context.user_data[PENDING_PART] = request
     context.user_data[ASKED_REQUEST] = request
-    await update.effective_message.reply_text(
+    asked = await update.effective_message.reply_text(
         f"{prefix}⏰ Every week: which day should I remind {whom}?", reply_markup=day_keyboard(),
     )
+    context.user_data[ASKED_MESSAGE_ID] = asked.message_id
 
 
 async def answer_day(update: Update, context: ContextTypes.DEFAULT_TYPE, answer: str):
