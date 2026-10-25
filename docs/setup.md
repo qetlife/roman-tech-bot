@@ -51,7 +51,6 @@ CALENDAR_KEY=<a Fernet key>
 | `GOOGLE_REDIRECT_URI` | no     | Where Google sends the user back after linking, e.g. `https://calendar.romanis.xyz/oauth/callback`. Push notifications go to `/google/push` on the same host (HTTPS only) |
 | `CALENDAR_KEY`      | no       | Encrypts the Google logins in the database and signs the link. A Fernet key; changing it unlinks everyone |
 | `WEB_PORT`          | no       | Port of the bot's web server inside the container (default `8080`) |
-| `WEB_HOST_PORT`     | no       | `docker-compose.yml` only: the host port it's published on, `127.0.0.1` only (default `8095`) |
 
 Everything else works without the optional ones.
 
@@ -234,7 +233,7 @@ Optional: syncs events both ways with Google Calendar
 [how it works](development.md#google-calendar)). It needs a Google Cloud
 project, four environment variables, and a public HTTPS address for the
 bot's small web server (Google sends users back to it after linking, and
-pushes changes to it). Until all four variables are set, it's off and the
+pushes changes to it): on the Pi, a route in the Cloudflare Tunnel. Until all four variables are set, it's off and the
 web server doesn't start.
 
 ### 1. Google Cloud
@@ -280,75 +279,66 @@ be read with it (a new key means everyone links again). Then
 
 ### 3. `calendar.romanis.xyz` → the bot
 
-The bot's web server listens on port 8080 in its container. Compose
-publishes it on the Pi as `127.0.0.1:8095` (`WEB_HOST_PORT`), and on
-`shared-network` the container answers to `roman-tech-bot:8080`. Only three
-paths are served: `GET /oauth/callback`, `POST /google/push` and
-`GET /health`.
+The bot's web server listens on port 8080 in its container, which answers
+to `roman-tech-bot` on `shared-network` (an alias in `docker-compose.yml`).
+It isn't published on the Pi. Only three paths are served:
+`GET /oauth/callback`, `POST /google/push` and `GET /health`; everything
+else on the host should be a 404.
 
-Steps on the Pi (first find out how `romanis.xyz` is served today, and do
-it the same way):
+**Cloudflare Tunnel** (how `romanis.xyz` is served): the `cloudflared`
+container is on `shared-network` and sends traffic straight to containers.
+The tunnel is managed remotely, so its rules are in the Cloudflare dashboard
+(Zero Trust → Networks → Tunnels → the tunnel → Published application
+routes / Public hostnames), not in a file. Add two routes:
 
-1. **Look at the current setup.**
-   - `docker ps --format '{{.Names}}\t{{.Image}}\t{{.Ports}}'`: is Nginx (or
-     `cloudflared`) a container, and on `shared-network`
-     (`docker network inspect shared-network`)? Or a host service
-     (`systemctl status nginx cloudflared`)?
-   - Find the existing site for `romanis.xyz`: `/etc/nginx/sites-enabled/`,
-     `/etc/nginx/conf.d/`, or the Nginx container's mounted config.
-   - If `cloudflared` runs, its ingress rules are in
-     `/etc/cloudflared/config.yml` (or `~/.cloudflared/config.yml`), or in
-     the Cloudflare dashboard (Zero Trust → Networks → Tunnels → Public
-     hostnames).
-2. **DNS / tunnel** for `calendar.romanis.xyz`:
-   - *Cloudflare Tunnel*: add a public hostname `calendar.romanis.xyz`
-     pointing where the other hostnames point (usually the Nginx service,
-     e.g. `http://localhost:80`, or straight to `http://localhost:8095`
-     without Nginx), and restart `cloudflared` if its config is a local file.
-     The tunnel creates the DNS record itself.
-   - *Plain DNS*: in Cloudflare DNS, add `calendar` like the existing
-     `romanis.xyz` record (same A/AAAA or a CNAME to it), **proxied**
-     (orange cloud), so Cloudflare does HTTPS.
-3. **Nginx**: a server block like the existing ones, e.g.
-   `/etc/nginx/sites-available/calendar.romanis.xyz` (linked into
-   `sites-enabled`), or the container's `conf.d`:
+| Hostname | Path | Service |
+| --- | --- | --- |
+| `calendar.romanis.xyz` | `^/(oauth/callback\|google/push\|health)$` | `http://roman-tech-bot:8080` |
+| `calendar.romanis.xyz` | (none) | `http_status:404` |
 
-   ```nginx
-   server {
-       listen 80;
-       # listen 443 ssl; plus the same certificate lines as the existing site, if it has them
-       server_name calendar.romanis.xyz;
+- The dashboard has no separate service-type field: the protocol is part
+  of the URL (`http://`), and `http_status:404` is a service of its own.
+- New routes are added at the bottom, and the first matching one wins: move
+  both above any `*.romanis.xyz` wildcard, or the wildcard catches them.
+- The tunnel creates the DNS record, and HTTPS comes from Cloudflare's edge.
+- Nothing to restart: a remotely managed tunnel picks up the change.
 
-       location ~ ^/(oauth/callback|google/push|health)$ {
-           # Nginx on the host:
-           proxy_pass http://127.0.0.1:8095;
-           # Nginx in a container on shared-network instead:
-           # proxy_pass http://roman-tech-bot:8080;
-           proxy_set_header Host $host;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto https;
-       }
+**Without a tunnel** (Nginx in front, e.g. on another server): a server block
+for `calendar.romanis.xyz` that sends only those three paths to the bot and
+404s the rest. If Nginx runs in a container on `shared-network`, it reaches
+`http://roman-tech-bot:8080`; if it runs on the host, publish the port in
+`docker-compose.yml` first (`ports: ["127.0.0.1:8095:8080"]`) and use
+`http://127.0.0.1:8095`. Google's push notifications need valid HTTPS
+(Cloudflare's proxy, with an origin certificate under **Full (strict)**).
 
-       location / {
-           return 404;
-       }
-   }
-   ```
+```nginx
+server {
+    listen 80;
+    server_name calendar.romanis.xyz;
 
-   Then `sudo nginx -t && sudo systemctl reload nginx` (or
-   `docker exec <nginx> nginx -t && docker exec <nginx> nginx -s reload`).
-   Google's push notifications need a valid HTTPS certificate, which
-   Cloudflare's proxy or tunnel provides. With Cloudflare's SSL mode **Full
-   (strict)**, Nginx needs a certificate for the new name too (an origin
-   certificate covering `*.romanis.xyz` does).
-4. **Check it.**
-   - On the Pi: `curl -s http://127.0.0.1:8095/health` prints `ok` (once the
-     bot runs with the four variables).
-   - From outside: `curl -s https://calendar.romanis.xyz/health` prints `ok`.
-   - `https://calendar.romanis.xyz/oauth/callback` in a browser shows "This
-     page is for linking Google Calendar from the bot."
-5. In Telegram: ⚙️ Settings → 📅 Calendar → 🔗 Link Google Calendar, as a
-   test user. The bot says "✅ Google Calendar linked."
+    location ~ ^/(oauth/callback|google/push|health)$ {
+        proxy_pass http://roman-tech-bot:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location / {
+        return 404;
+    }
+}
+```
+
+**Check it**, once the bot runs with the four variables (before that, the
+three paths give a 502):
+
+- The bot's log says `Web server for Google Calendar on port 8080`.
+- `curl -s https://calendar.romanis.xyz/health` prints `ok`; `/` and other
+  paths give a 404.
+- `https://calendar.romanis.xyz/oauth/callback` in a browser shows "This
+  page is for linking Google Calendar from the bot."
+- In Telegram: ⚙️ Settings → 📅 Calendar → 🔗 Link Google Calendar, as a
+  test user. The bot says "✅ Google Calendar linked."
 
 ## Migrating from SQLite
 
