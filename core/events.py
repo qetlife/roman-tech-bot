@@ -2,8 +2,15 @@
 ("30 min before padel, remind me to pack the racket").
 
 No Telegram, no database: an event here is anything with the columns of
-db/models/event.Event (`starts_at`, `recurrence`, `timezone`, `skipped`,
-`all_day`, `title`); handlers/events.py looks them up and saves them.
+db/models/event.Event (`starts_at`, `ends_at`, `recurrence`, `timezone`,
+`skipped`, `moved`, `all_day`, `title`); handlers/events.py looks them up
+and saves them.
+
+An event's repeat is an RFC 5545 RRULE (`recurrence`, "FREQ=WEEKLY;BYDAY=TH")
+from its first occurrence `starts_at`, minus `skipped` (EXDATEs), with the
+single occurrences moved in Google Calendar in `moved`. Events made before
+RRULEs keep the bot's own format until they change; `rule_of` reads both.
+An occurrence counts as on until it ends (`duration`).
 """
 
 import re
@@ -70,67 +77,113 @@ def parse_event(request: str, now: datetime) -> ParsedEvent:
 
 # --- occurrences ------------------------------------------------------------
 
+def _stamps(value: Optional[str]) -> frozenset:
+    return frozenset(recurrences.parse_stamp(s) for s in (value or "").split(",") if s)
+
+
 def skipped(event) -> frozenset:
     """The occurrences of a repeating event that don't happen (events.skipped)."""
-    return frozenset(recurrences.parse_stamp(s) for s in (event.skipped or "").split(",") if s)
+    return _stamps(event.skipped)
+
+
+def moved(event) -> dict:
+    """Single occurrences moved in Google Calendar: original start → new start (events.moved)."""
+    pairs = (pair.split(">") for pair in (getattr(event, "moved", None) or "").split(",") if pair)
+    return {recurrences.parse_stamp(old): recurrences.parse_stamp(new) for old, new in pairs}
+
+
+def format_moved(pairs: dict) -> Optional[str]:
+    return ",".join(f"{recurrences.format_stamp(o)}>{recurrences.format_stamp(n)}"
+                    for o, n in sorted(pairs.items())) or None
+
+
+def duration(event) -> timedelta:
+    """How long each occurrence lasts: to `ends_at`, a whole day if all day, else 0 (a moment)."""
+    if getattr(event, "ends_at", None) is not None:
+        return max(event.ends_at - event.starts_at, timedelta())
+    return timedelta(days=1) if event.all_day else timedelta()
+
+
+def rrule(event) -> Optional[str]:
+    """The event's repeat as an RRULE, also for one stored in the bot's older format; None for a one-off."""
+    if not event.recurrence:
+        return None
+    if recurrences.is_rrule(event.recurrence):
+        return event.recurrence.removeprefix("RRULE:")
+    return recurrences.to_rrule(recurrences.parse(event.recurrence))
+
+
+def rule_of(event, with_skipped: bool = True) -> Optional[recurrences.RRuleSet]:
+    """A repeating event's occurrences, or None for a one-off."""
+    rule = rrule(event)
+    if rule is None:
+        return None
+    shifted = moved(event)
+    exdates = (skipped(event) if with_skipped else frozenset()) | frozenset(shifted)
+    return recurrences.RRuleSet(rule, event.starts_at.astimezone(ZoneInfo(event.timezone)), event.timezone,
+                                exdates, frozenset(shifted.values()))
+
+
+def schedule(event) -> Optional[recurrences.Offset]:
+    """A repeating event's occurrences as an Offset of 0 minutes (what reminders build on), or None."""
+    rule = rule_of(event)
+    return recurrences.Offset(rule, 0, event.timezone) if rule is not None else None
 
 
 def with_skipped(event, occurrence: datetime, now: datetime) -> str:
-    """events.skipped with `occurrence` added; those already past are dropped.
-
-    An all-day one is kept until its day ends: it's still on all day.
-    """
-    length = timedelta(days=1) if event.all_day else timedelta()
+    """events.skipped with `occurrence` added; those already over are dropped."""
+    length = duration(event)
     kept = {s for s in skipped(event) if s + length > now} | {occurrence}
     return ",".join(sorted(recurrences.format_stamp(s) for s in kept))
 
 
-def schedule(event) -> Optional[recurrences.Offset]:
-    """A repeating event's occurrences (an Offset of 0 minutes), or None for a one-off."""
-    if not event.recurrence:
-        return None
-    return recurrences.Offset(recurrences.parse(event.recurrence), 0, event.timezone, skipped(event))
-
-
 def next_occurrence(event, now: datetime) -> Optional[datetime]:
-    """When the event happens next (or is happening: an all-day one, all of today), or None if it's over."""
-    tz = ZoneInfo(event.timezone)
-    after = now
-    if event.all_day:
-        after = datetime.combine(now.astimezone(tz).date(), time(0, 0), tzinfo=tz) - timedelta(seconds=1)
+    """The start of the occurrence that is on now or comes next (all day: all of its day), or None if it's over."""
+    length = duration(event)
     rule = schedule(event)
     if rule is None:
-        return event.starts_at if event.starts_at > after else None
-    return rule.occurrence_after(max(after, event.starts_at - timedelta(seconds=1)))
+        return event.starts_at if event.starts_at + length > now or event.starts_at > now else None
+    return rule.occurrence_after(max(now - length, event.starts_at - timedelta(seconds=1)))
+
+
+def occurrence_on(event, day: date, tz) -> Optional[datetime]:
+    """The start of the first occurrence that is on during `day` (local, in `tz`), or None."""
+    day_start = datetime.combine(day, time(0, 0), tzinfo=tz)
+    day_end = day_start + timedelta(days=1)
+    length = duration(event)
+    rule = schedule(event)
+    if rule is None:
+        start = event.starts_at
+        on = start < day_end and (start + length > day_start if length else start >= day_start)
+        return start if on else None
+    after = day_start - length if length else day_start - timedelta(seconds=1)
+    start = rule.occurrence_after(max(after, event.starts_at - timedelta(seconds=1)))
+    return start if start is not None and start < day_end else None
 
 
 def occurs_on(event, day: date, tz) -> bool:
-    """Whether the event happens on `day` (local, in `tz`)."""
-    start = datetime.combine(day, time(0, 0), tzinfo=tz)
-    rule = schedule(event)
-    if rule is None:
-        return event.starts_at.astimezone(tz).date() == day
-    following = rule.occurrence_after(max(start, event.starts_at) - timedelta(seconds=1))
-    return following.astimezone(tz).date() == day
+    """Whether the event is on during `day` (local, in `tz`)."""
+    return occurrence_on(event, day, tz) is not None
 
 
-def nearest_occurrence(event, around: datetime) -> datetime:
+def nearest_occurrence(event, around: datetime) -> Optional[datetime]:
     """The occurrence of a repeating event closest to `around`, skipped ones included."""
+    rule = rule_of(event, with_skipped=False)
     tz = ZoneInfo(event.timezone)
-    base = recurrences.parse(event.recurrence)
-    occurrence = best = base.next_after(around - timedelta(days=1), tz)
-    while occurrence <= around + timedelta(days=1):
+    occurrence = best = rule.next_after(around - timedelta(days=1), tz)
+    while occurrence is not None and occurrence <= around + timedelta(days=1):
         if abs(occurrence - around) < abs(best - around):
             best = occurrence
-        occurrence = base.next_after(occurrence, tz)
+        occurrence = rule.next_after(occurrence, tz)
     return best
 
 
 def reminder_time(event, minutes: int, now: datetime, every: bool = False) -> tuple:
-    """When a reminder `minutes` from the event's start goes off: (remind_at, Offset or None).
+    """When a reminder `minutes` from the event's start goes off: (remind_at or None, Offset or None).
 
     `every` (repeating events only): before every occurrence, as an Offset
     repeat; otherwise only the next occurrence whose reminder is still ahead.
+    None if a repeating event has no occurrence left for it.
     """
     delta = timedelta(minutes=minutes)
     rule = schedule(event)

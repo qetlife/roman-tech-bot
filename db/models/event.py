@@ -39,22 +39,30 @@ class Event(Base):
     all_day: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # IANA name: the clock of its time and repeat (its creator's when made)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False)
-    # Repeats like a reminder (core/recurrence.py), in `timezone`; None = once
-    recurrence: Mapped[Optional[str]] = mapped_column(String(64))
-    # Occurrences that don't happen, "20261029T2000Z,…" (UTC; past ones are dropped)
+    # An RFC 5545 RRULE ("FREQ=WEEKLY;BYDAY=TH") from `starts_at`, in `timezone`;
+    # older events may have the bot's own format (core/recurrence.py). None = once
+    recurrence: Mapped[Optional[str]] = mapped_column(Text)
+    # Occurrences that don't happen (EXDATE), "20261029T2000Z,…" (UTC; past ones are dropped)
     skipped: Mapped[Optional[str]] = mapped_column(Text)
+    # Single occurrences moved in Google Calendar, "<original>><new>,…" (UTC stamps)
+    moved: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[EventStatus] = mapped_column(_enum(EventStatus), nullable=False, default=EventStatus.ACTIVE)
     # The message it was made (or last edited) from, and how it came in; saved with 👎 Wrong
     request: Mapped[Optional[str]] = mapped_column(Text)
     source: Mapped[Optional[MessageSource]] = mapped_column(_enum(MessageSource))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
-    # For syncing (#22): where it lives, which calendar, its id and version there. None for now.
+    # Synced with Google Calendar: which calendar, its id and version there, and
+    # when Google last changed it. None for events only in the bot.
     external_source: Mapped[Optional[ExternalSource]] = mapped_column(_enum(ExternalSource))
     external_calendar_id: Mapped[Optional[str]] = mapped_column(String(255))
     external_id: Mapped[Optional[str]] = mapped_column(String(255))
     etag: Mapped[Optional[str]] = mapped_column(String(255))
+    external_updated_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime)
+    # Changed in the bot but not yet in Google (it was unreachable): sent on the next sync
+    pending_push: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
         Index("ix_events_user_id_status", "user_id", "status"),
+        Index("ix_events_external", "user_id", "external_calendar_id", "external_id"),
     )

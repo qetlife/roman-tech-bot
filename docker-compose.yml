@@ -13,9 +13,18 @@ services:
       SPEECH_TOKEN: ${SPEECH_TOKEN:-}
       # Telegram user ID of the admin, who can see /failed (optional)
       ADMIN_TELEGRAM_ID: ${ADMIN_TELEGRAM_ID:-}
+      # Google Calendar sync (optional; all four, see docs/setup.md)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      CALENDAR_KEY: ${CALENDAR_KEY:-}
     networks:
-      # Shared with the `postgres` container
-      - shared-network
+      # Shared with the `postgres` container, and with `cloudflared`, which sends
+      # calendar.romanis.xyz to the bot's web server as roman-tech-bot:8080
+      # (Google Calendar, docs/setup.md). Not published on the Pi.
+      shared-network:
+        aliases:
+          - roman-tech-bot
 
 networks:
   shared-network:

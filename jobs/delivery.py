@@ -122,7 +122,8 @@ def _catch_up(recurrence, reminder, now, tz):
     """(latest occurrence after remind_at that is already due or None, the one after it)."""
     latest = None
     upcoming = recurrence.next_after(reminder.remind_at, tz)
-    while upcoming <= now:
+    # None: a repeat with an end (an event's "until December") has no more
+    while upcoming is not None and upcoming <= now:
         latest, upcoming = upcoming, recurrence.next_after(upcoming, tz)
     return latest, upcoming
 
@@ -146,7 +147,11 @@ async def _deliver(bot, reminder, now, snooze_minutes, repeat_every, tz, quiet=N
             if firing:
                 await _mark_message_missed(bot, reminder, "the next one is due" if latest else "no response for 24 h")
                 await tell_creator(bot, reminder, ReminderStatus.MISSED)
-            reminders.advance(reminder.id, latest or upcoming)
+            if latest is None and upcoming is None:
+                # That was the last one.
+                reminders.mark_missed(reminder.id)
+            else:
+                reminders.advance(reminder.id, latest or upcoming)
             return
 
     elif gave_up:

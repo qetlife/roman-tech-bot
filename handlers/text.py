@@ -6,6 +6,7 @@ from    telegram.ext                import ContextTypes
 from    core.intents                import match_intent
 from    enums                       import Awaiting, IntentName
 from    handlers.failed             import record_not_understood
+from    handlers                    import calendar
 from    handlers                    import events as ev
 from    handlers                    import reminders as rh
 from    handlers.replies            import handle_reply
@@ -50,6 +51,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
     """Trigger phrases, or the answer to a question. Also used for transcribed voice messages."""
+    # Anything may be about reminders or events: bring in Google Calendar's changes first (every 5 minutes at most)
+    await calendar.maybe_sync(context.bot, update.effective_user.id)
     # "done", "snooze 20 min" … as a reply to a reminder message
     if await handle_reply(update, context, text):
         return

@@ -37,7 +37,7 @@ import math
 import re
 
 from calendar        import Day
-from dataclasses     import dataclass, replace
+from dataclasses     import dataclass
 from datetime        import date, datetime, time, timedelta
 from typing          import Optional
 
@@ -46,7 +46,8 @@ from core.numbers     import TENS as NUMBER_TENS, UNITS as NUMBER_UNITS
 from core.typos       import Vocabulary
 from enums           import RepeatKind
 from core.recurrence import (
-    EVERY_DAY, WEEKDAYS as WORKDAYS, WEEKENDS, Interval, Monthly, MonthlyWeekday, Recurrence, Weekly,
+    EVERY_DAY, RRULE_DAYS, WEEKDAYS as WORKDAYS, WEEKENDS, Interval, Monthly, MonthlyWeekday, Recurrence, Weekly,
+    format_rule, rule_parts, to_rrule,
 )
 
 
@@ -922,20 +923,20 @@ def _closest_clock(w: _When, old: time) -> time:
 
 @dataclass
 class ParsedMove:
-    when: datetime                          # the new (first) time, in the user's timezone
-    recurrence: Optional[Recurrence] = None # the new repeat, for a repeating event
-    timed: bool = True                      # a time of day was given (else the day changed)
+    when: datetime                  # the new (first) time, in `now`'s timezone
+    rule: Optional[str] = None      # the new RRULE, for a repeating event
+    timed: bool = True              # a time of day was given (else the day changed)
 
 
-def parse_move(phrase: str, old: datetime, now: datetime, recurrence: Optional[Recurrence] = None) -> Optional[ParsedMove]:
+def parse_move(phrase: str, old: datetime, now: datetime, rule: Optional[str] = None) -> Optional[ParsedMove]:
     """The new time in "move padel to 20:00" / "to friday" / "to friday at 8", or None.
 
     What isn't said stays: a time alone keeps the day of `old` (the current
     time, aware), a day alone keeps its time of day, and an ambiguous "8" is
     whichever of 08:00 and 20:00 is closer to it. For a repeating event
-    (`recurrence`), a time changes its time of day, a weekday the day of a
-    weekly one, and a repeat ("every friday at 20:00") replaces it. `old`
-    and `recurrence` are in `now`'s timezone.
+    (`rule`, its RRULE), a time changes its time of day from `old` on, a
+    weekday the day of a weekly one with one day, and a repeat ("every
+    friday at 20:00") replaces it. `old` is in `now`'s timezone.
     """
     tz = now.tzinfo
     old = old.astimezone(tz)
@@ -950,28 +951,25 @@ def parse_move(phrase: str, old: datetime, now: datetime, recurrence: Optional[R
     except TooFar:
         return None
 
-    if recurrence is not None:
+    if rule is not None:
         try:
             parsed = _recurrence(phrase, now)
         except ParseError:
             return None
         if parsed is not None:
-            return ParsedMove(parsed[0], parsed[1], parsed[2])
+            return ParsedMove(parsed[0], to_rrule(parsed[1]), parsed[2])
         if w is None or w.delta is not None or w.day is not None or w.next_week:
             return None
         clock = _closest_clock(w, old.time()) if w.clock is not None else old.time()
         if w.weekday is not None:
-            if not isinstance(recurrence, Weekly) or len(recurrence.days) != 1:
+            parts = rule_parts(rule)
+            days = [d for d in parts.get("BYDAY", "").split(",") if d]
+            if parts.get("FREQ", "").upper() != "WEEKLY" or len(days) > 1 or any(d not in RRULE_DAYS for d in days):
                 return None
-            new = Weekly(frozenset({Day(w.weekday)}), clock)
-        elif isinstance(recurrence, Interval):
-            if not recurrence.whole_days:
-                return None
-            anchor = recurrence.anchor.astimezone(tz)
-            new = Interval(recurrence.every, datetime.combine(anchor.date(), clock, tzinfo=tz))
-        else:
-            new = replace(recurrence, clock=clock)
-        return ParsedMove(new.next_after(now, tz), new, w.clock is not None)
+            parts["BYDAY"] = RRULE_DAYS[w.weekday]
+            first = Weekly(frozenset({Day(w.weekday)}), clock).next_after(now, tz)
+            return ParsedMove(first, format_rule(parts), w.clock is not None)
+        return ParsedMove(datetime.combine(old.date(), clock, tzinfo=tz), rule, w.clock is not None)
 
     if w is None:
         return None

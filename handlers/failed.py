@@ -81,7 +81,13 @@ def describe(entry, tz_name: str) -> str:
         when = to_local(datetime.fromisoformat(understood.get("remind_at") or understood["starts_at"]), tz_name)
         parts.append(f"{when:%a %d %b}" + (" (all day)" if understood.get("all_day") else f", {when:%H:%M}"))
     if understood.get("recurrence"):
-        parts.append(f"🔁 {recurrences.parse(understood['recurrence']).describe(ZoneInfo(tz_name))}")
+        stored = understood["recurrence"]
+        if recurrences.is_rrule(stored):
+            # An event's: the time of day is its start's
+            start = to_local(datetime.fromisoformat(understood.get("starts_at")), tz_name)
+            parts.append(f"🔁 {recurrences.describe_rule(stored, start)}")
+        else:
+            parts.append(f"🔁 {recurrences.parse(stored).describe(ZoneInfo(tz_name))}")
     if understood.get("text"):
         parts.append(f"“{shorten(understood['text'], TEXT_LIMIT)}”")
     if understood.get("title"):

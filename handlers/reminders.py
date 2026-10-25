@@ -482,6 +482,10 @@ def reminders_list_text(user, items, title: str = "Your reminders", empty: str =
 async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = "", toast: str = None):
     """Intent action for "my reminders" (and "my reminders on friday"), and the 📋 menu button."""
     user = users.get_or_create(update.effective_user.id)
+    if update.callback_query is not None and toast is None:
+        # 📋 in the menu: bring in Google Calendar's changes first. Imported here: handlers.calendar imports this module.
+        from handlers.calendar import maybe_sync
+        await maybe_sync(context.bot, update.effective_user.id)
     day = parse_day(request, user_now(user.timezone or "UTC")) if request.strip() else None
     if day is not None:
         await show_day(update, user, day)
@@ -640,6 +644,10 @@ def finish(user, reminder) -> Optional[str]:
     tz_name, rule_tz = user.timezone or "UTC", creator_tz(reminder, user)
     recurrence = recurrences.parse(reminder.recurrence)
     next_at = recurrence.next_after(max(utcnow(), reminder.remind_at), ZoneInfo(rule_tz))
+    if next_at is None:
+        # Its event's repeat has ended: this was the last one.
+        reminders.acknowledge(reminder.id)
+        return f"✅ {reminder.text}"
     next_at = outside_quiet_hours(user, recurrence, next_at)
     if reminders.advance(reminder.id, next_at) is None:
         return f"✅ {reminder.text}"

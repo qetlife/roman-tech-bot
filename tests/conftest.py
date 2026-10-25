@@ -96,12 +96,12 @@ def chat(db, monkeypatch):
     from unittest.mock import AsyncMock, MagicMock
 
     from db.repositories.user import UserRepository
-    from handlers import commands, events, menus, reminders, settings
+    from handlers import calendar, commands, events, menus, reminders, settings
     from handlers.text import on_text
     from tests.test_handlers import _update
 
     render = AsyncMock()
-    for module in (commands, events, menus, reminders, settings):
+    for module in (calendar, commands, events, menus, reminders, settings):
         monkeypatch.setattr(module, "render_menu", render)
 
     telegram_id = random.randint(10**9, 10**12)
