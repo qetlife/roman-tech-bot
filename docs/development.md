@@ -675,7 +675,9 @@ event loop.
   pending. An exception (`recurringEventId`) cancels or moves one occurrence
   of its parent (`skipped`, `moved`). Every change runs `follow`, so
   reminders move, and cancelling cancels them. One-offs that ended over a
-  day ago aren't imported the first time.
+  day ago aren't imported the first time. If any item fails to apply, the
+  sync token isn't advanced, so the next sync gets those changes again (the
+  applied ones are skipped by their `etag`).
 - **Gone means gone**: an event imported from Google (`source` is
   `MessageSource.GOOGLE`) that is cancelled (in Google, in the bot, or with
   🗑 Remove them) is deleted (`EventRepository.delete`; its reminders stay

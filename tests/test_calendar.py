@@ -592,3 +592,63 @@ def test_picking_calendars(chat, google):
     assert GoogleRepository().account(_user(chat).id).default_calendar_id == "me@gmail.com"
     run_button(f"gcal:tgl:{work.id}")
     assert chat.screen()[0].startswith("Stop syncing Work? 1 of its events")
+
+
+def test_cancelled_before_it_reached_google(chat, google):
+    from db.repositories.event import EventRepository
+    from handlers.events import on_event_button
+    from services import google_calendar
+
+    link(chat, google)
+    working = google_calendar.transport
+    google_calendar.transport = httpx.MockTransport(lambda request: httpx.Response(503))
+    chat("event padel on dec 24 at 21:00")
+    [padel] = _events(chat)
+    chat(data=f"evt:del:{padel.id}", handler=on_event_button)
+    google_calendar.transport = working
+    assert not EventRepository().get(padel.id).pending_push
+    # Syncing still works afterwards
+    _padel(google)
+    sync(chat)
+    assert [e.title for e in _events(chat)] == ["Padel"]
+
+
+def test_a_pending_cancellation_that_never_reached_google(chat, google):
+    from db.repositories.event import EventRepository
+
+    from services import google_calendar
+
+    link(chat, google)
+    working = google_calendar.transport
+    google_calendar.transport = httpx.MockTransport(lambda request: httpx.Response(503))
+    chat("event padel on dec 24 at 21:00")
+    google_calendar.transport = working
+    [padel] = _events(chat)
+    # Left over from before the fix: cancelled, never in Google, still marked pending
+    EventRepository().cancel(padel.id)
+    assert EventRepository().get(padel.id).pending_push
+    _padel(google)
+    sync(chat)
+    assert not EventRepository().get(padel.id).pending_push
+    assert [e.title for e in _events(chat)] == ["Padel"]
+
+
+def test_a_failed_google_event_is_retried(chat, google, monkeypatch):
+    from db.repositories.google import GoogleRepository
+    from handlers import calendar as handlers_calendar
+
+    link(chat, google)
+    [calendar, *_] = GoogleRepository().calendars(_user(chat).id)
+    token = GoogleRepository().calendar(calendar.id).sync_token
+    _padel(google)
+    real = handlers_calendar.apply
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("database hiccup")
+    monkeypatch.setattr(handlers_calendar, "apply", broken)
+    sync(chat)
+    assert _events(chat) == [] and GoogleRepository().calendar(calendar.id).sync_token == token
+    monkeypatch.setattr(handlers_calendar, "apply", real)
+    sync(chat)
+    assert [e.title for e in _events(chat)] == ["Padel"]
+    assert GoogleRepository().calendar(calendar.id).sync_token != token

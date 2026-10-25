@@ -211,6 +211,9 @@ async def push(bot, event) -> None:
         return
     calendar_id = event.external_calendar_id or account.default_calendar_id
     if calendar_id is None or (event.external_id is None and event.status != EventStatus.ACTIVE):
+        # Nothing to send (cancelled before it ever reached Google): nothing waits either
+        if event.pending_push:
+            events.set_sync(event.id, pending_push=False)
         return
     client = _client(account)
     if client is None:
@@ -230,6 +233,10 @@ def _google_time(value: Optional[str]) -> Optional[datetime]:
 
 
 async def _send(client, event, calendar_id: str) -> None:
+    if event.status != EventStatus.ACTIVE and event.external_id is None:
+        # Cancelled before it reached Google: nothing to delete there
+        events.set_sync(event.id, pending_push=False)
+        return
     if event.status != EventStatus.ACTIVE:
         await client.delete(calendar_id, event.external_id)
         if event.source == MessageSource.GOOGLE:
@@ -309,12 +316,20 @@ async def sync_calendar(bot, client, user, calendar) -> None:
         if page:
             continue
         first = calendar.sync_token is None
+        failed = 0
         # Repeating events before their exceptions (moved or cancelled occurrences)
         for item in sorted(items, key=lambda i: "recurringEventId" in i):
             try:
                 await apply(bot, user, calendar, from_google(item, calendar.time_zone), first)
             except Exception:
+                failed += 1
                 logger.exception("Couldn't apply Google event %s for %s", item.get("id"), user.telegram_id)
+        if failed:
+            # Keep the old token: the next sync gets these changes again (the ones
+            # applied are skipped then, by their etag), so none is lost
+            logger.warning("%s Google event(s) for %s not applied; retried on the next sync",
+                           failed, user.telegram_id)
+            return
         accounts.update_calendar(calendar.id, sync_token=body.get("nextSyncToken"))
         return
 
