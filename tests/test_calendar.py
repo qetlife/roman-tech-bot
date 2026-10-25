@@ -800,3 +800,35 @@ def test_an_invalid_calendar_key_turns_it_off(google, monkeypatch, caplog):
     monkeypatch.setattr(config, "CALENDAR_KEY", "not-a-key")
     assert not config.calendar_configured()
     assert "CALENDAR_KEY isn't a valid key" in caplog.text
+
+
+@pytest.mark.parametrize("linked_before", [False, True])
+def test_a_permission_left_unticked(chat, google, linked_before):
+    from db.repositories.google import GoogleRepository
+    from enums import GoogleStatus
+
+    if linked_before:
+        link(chat, google)
+        GoogleRepository().update_account(_user(chat).id, status=GoogleStatus.EXPIRED)
+    working = google.handle
+
+    def no_calendar_list(request):
+        # Google gave a login without saying which permissions, then refuses the calendar list
+        if request.url.path == "/token":
+            response = working(request)
+            tokens = response.json()
+            tokens.pop("scope")
+            return httpx.Response(200, json=tokens)
+        if request.url.path.endswith("/calendarList"):
+            return httpx.Response(403, json={"error": {"message": "Request had insufficient authentication scopes."}})
+        return working(request)
+    from services import google_calendar
+    google_calendar.transport = httpx.MockTransport(no_calendar_list)
+    told = len(_told(chat))
+    assert link(chat, google).startswith("The bot needs both permissions.")
+    account = GoogleRepository().account(_user(chat).id)
+    if linked_before:
+        assert account.status == GoogleStatus.EXPIRED and GoogleRepository().calendars(_user(chat).id)
+    else:
+        assert account is None and GoogleRepository().calendars(_user(chat).id) == []
+    assert len(_told(chat)) == told    # no "linked" and no "expired" message

@@ -168,22 +168,34 @@ async def complete_link(bot, state: str, code: str) -> str:
     if granted and not set(google.SCOPES) <= granted:
         return "The bot needs both permissions to sync. Open 📅 Calendar in the bot and try again, ticking both."
 
+    before = accounts.account(user.id)
     accounts.link(user.id, secrets.encrypt(tokens["refresh_token"], config.CALENDAR_KEY))
     client = google.Calendar(tokens["refresh_token"])
     try:
-        calendars = await refresh_calendars(client, user)
-    except GoogleUnavailable as e:
-        logger.warning("Couldn't list the calendars of %s: %s", telegram_id, e)
-        calendars = accounts.calendars(user.id)
-    account = accounts.account(user.id)
-    if account.default_calendar_id is None:
-        writable = [c for c in calendars if c.writable]
-        primary = next((c for c in writable if c.primary), writable[0] if writable else None)
-        if primary is not None:
-            accounts.update_account(user.id, default_calendar_id=primary.calendar_id)
-    for calendar in calendars:
-        if calendar.selected:
-            await _watch(client, calendar)
+        try:
+            calendars = await refresh_calendars(client, user)
+        except GoogleUnavailable as e:
+            logger.warning("Couldn't list the calendars of %s: %s", telegram_id, e)
+            calendars = accounts.calendars(user.id)
+        account = accounts.account(user.id)
+        if account.default_calendar_id is None:
+            writable = [c for c in calendars if c.writable]
+            primary = next((c for c in writable if c.primary), writable[0] if writable else None)
+            if primary is not None:
+                accounts.update_account(user.id, default_calendar_id=primary.calendar_id)
+        for calendar in calendars:
+            if calendar.selected:
+                await _watch(client, calendar)
+    except GoogleAuthError as e:
+        # Google took the login but refuses it (a permission left unticked): undo the link
+        logger.warning("Google refused the new login of %s: %s", telegram_id, e)
+        await google.revoke(tokens["refresh_token"])
+        if before is None:
+            accounts.unlink(user.id)
+        else:
+            # Linked before: back as it was, waiting to be linked again
+            accounts.update_account(user.id, refresh_token=before.refresh_token, status=GoogleStatus.EXPIRED)
+        return "The bot needs both permissions. Open 📅 Calendar in the bot and try again, ticking both."
 
     text, keyboard = screen(user)
     try:
