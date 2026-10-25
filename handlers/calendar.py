@@ -288,8 +288,15 @@ async def sync_user(bot, user, only=None) -> None:
     try:
         for event in events.list_pending(user.id):
             calendar_id = event.external_calendar_id or account.default_calendar_id
-            if calendar_id is not None:
+            if calendar_id is None:
+                continue
+            try:
                 await _send(client, event, calendar_id)
+            except (GoogleUnavailable, GoogleAuthError):
+                raise
+            except Exception:
+                # One event Google won't take mustn't stop the user's whole sync; it's tried again next time
+                logger.exception("Couldn't send event %s to Google", event.id)
         for calendar in accounts.calendars(user.id):
             if calendar.selected and (only is None or calendar.id == only):
                 await sync_calendar(bot, client, user, calendar)

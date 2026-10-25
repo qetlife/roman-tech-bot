@@ -199,8 +199,11 @@ class FakeGoogle:
         event_id = unquote(parts[4])
         key = (calendar_id, event_id)
         if request.method == "PATCH":
-            if key not in self.events or self.events[key]["status"] == "cancelled":
+            if key not in self.events:
                 return httpx.Response(404)
+            if self.events[key]["status"] == "cancelled":
+                # What Google answers for a deleted event
+                return httpx.Response(410, json={"error": {"code": 410, "message": "Resource has been deleted"}})
             item = self.add(calendar_id, {**self.events[key], **body})
             return httpx.Response(200, json={k: v for k, v in item.items() if k != "_v"})
         if request.method == "DELETE":
@@ -652,3 +655,40 @@ def test_a_failed_google_event_is_retried(chat, google, monkeypatch):
     sync(chat)
     assert [e.title for e in _events(chat)] == ["Padel"]
     assert GoogleRepository().calendar(calendar.id).sync_token != token
+
+
+def test_changing_an_event_deleted_in_google(chat, google):
+    from db.repositories.event import EventRepository
+
+    link(chat, google)
+    chat("event padel on dec 24 at 21:00")
+    [padel] = _events(chat)
+    old_id = padel.external_id
+    # Deleted in Google; the bot hasn't synced since. Moving it in the bot (newer) puts it back.
+    google.add("me@gmail.com", {**google.events[("me@gmail.com", old_id)], "status": "cancelled"})
+    chat("move padel to 20:00")
+    moved = EventRepository().get(padel.id)
+    assert not moved.pending_push and moved.external_id != old_id
+    assert google.events[("me@gmail.com", moved.external_id)]["start"]["dateTime"] == "2026-12-24T20:00:00+00:00"
+
+
+def test_one_event_google_wont_take_doesnt_stop_the_sync(chat, google, monkeypatch):
+    from db.repositories.event import EventRepository
+    from handlers import calendar as handlers_calendar
+
+    link(chat, google)
+    chat("event padel on dec 24 at 21:00")
+    [padel] = _events(chat)
+    EventRepository().set_sync(padel.id, pending_push=True)
+    real = handlers_calendar._send
+
+    async def refused(client, event, calendar_id):
+        if event.id == padel.id:
+            raise RuntimeError("something unexpected")
+        await real(client, event, calendar_id)
+    monkeypatch.setattr(handlers_calendar, "_send", refused)
+    google.add("me@gmail.com", {"id": "g2", "summary": "Dinner", "start": {"dateTime": "2026-12-25T19:00:00+00:00"},
+                                "end": {"dateTime": "2026-12-25T22:00:00+00:00"}})
+    sync(chat)
+    assert sorted(e.title for e in _events(chat)) == ["Dinner", "padel"]
+    assert EventRepository().get(padel.id).pending_push     # tried again next time

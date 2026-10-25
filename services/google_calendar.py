@@ -131,7 +131,9 @@ class Calendar:
     def __init__(self, refresh_token: str):
         self.refresh_token = refresh_token
 
-    async def _request(self, method: str, path: str, params: dict = None, json: dict = None) -> Optional[dict]:
+    async def _request(self, method: str, path: str, params: dict = None, json: dict = None,
+                       listing: bool = False) -> Optional[dict]:
+        """One API call. 410 means a sync token too old when `listing` changes, else a deleted event."""
         token = await access_token(self.refresh_token)
         try:
             async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as client:
@@ -145,9 +147,10 @@ class Calendar:
         if response.status_code == 403 and "insufficient" in response.text.lower():
             # Linked before the bot needed a scope it asks for now
             raise GoogleAuthError(response.text[:200])
-        if response.status_code == 410:
+        if response.status_code == 410 and listing:
             raise SyncExpired(response.text[:200])
-        if response.status_code == 404:
+        if response.status_code in (404, 410):
+            # 410: an event deleted in Google
             raise NotFound(path)
         if response.status_code >= 300:
             raise GoogleUnavailable(f"HTTP {response.status_code}: {response.text[:200]}")
@@ -179,7 +182,7 @@ class Calendar:
             params["syncToken"] = sync_token
         if page_token:
             params["pageToken"] = page_token
-        return await self._request("GET", f"/calendars/{self._id(calendar_id)}/events", params=params)
+        return await self._request("GET", f"/calendars/{self._id(calendar_id)}/events", params=params, listing=True)
 
     async def insert(self, calendar_id: str, body: dict) -> dict:
         return await self._request("POST", f"/calendars/{self._id(calendar_id)}/events", json=body)
@@ -191,8 +194,8 @@ class Calendar:
     async def delete(self, calendar_id: str, event_id: str) -> None:
         try:
             await self._request("DELETE", f"/calendars/{self._id(calendar_id)}/events/{quote(event_id, safe='')}")
-        except (NotFound, SyncExpired):
-            # Already gone (410: deleted)
+        except NotFound:
+            # Already gone
             pass
 
     async def watch(self, calendar_id: str, channel_id: str, token: str, address: str) -> dict:
