@@ -28,6 +28,8 @@ GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI") or None
 # Encrypts the Google logins in the database and signs the link state
 # (a Fernet key; generate with: openssl rand -base64 32 | tr '+/' '-_')
 CALENDAR_KEY = os.environ.get("CALENDAR_KEY") or None
+# Where unexpected errors are kept (core/errors.py, scripts/errors.py); empty: only the log
+ERRORS_DIR = os.environ.get("ERRORS_DIR", "data/errors")
 # Port of the bot's small web server (OAuth callback, push notifications), inside the container
 WEB_PORT = int(os.environ.get("WEB_PORT") or 8080)
 

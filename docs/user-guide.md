@@ -341,6 +341,10 @@ message with a fix on the way shows “🔧 Fix waiting in pull request #n”;
 one the bot needs a new feature for shows “⏳ Waiting for: …”; tap ✅
 on it once that feature is added.
 
+If something breaks on the bot's side, it answers “Sorry, something went
+wrong on my side. Try again in a moment.” The error is kept on the bot's own
+server (never sent anywhere) for the admin to fix.
+
 ## 📅 Events
 
 Events are things that happen at a time: padel on Thursday, the dentist on

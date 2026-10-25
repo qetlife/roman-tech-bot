@@ -14,7 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Run as a non-root user
+# data/errors: the errors file (a volume in docker-compose.yml, so it survives deploys)
 RUN useradd --create-home appuser \
+    && mkdir -p /app/data/errors \
     && chown -R appuser:appuser /app
 USER appuser
 

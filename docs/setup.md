@@ -51,6 +51,7 @@ CALENDAR_KEY=<a Fernet key>
 | `GOOGLE_REDIRECT_URI` | no     | Where Google sends the user back after linking, e.g. `https://calendar.romanis.xyz/oauth/callback`. Push notifications go to `/google/push` on the same host (HTTPS only) |
 | `CALENDAR_KEY`      | no       | Encrypts the Google logins in the database and signs the link. A Fernet key; changing it unlinks everyone |
 | `WEB_PORT`          | no       | Port of the bot's web server inside the container (default `8080`) |
+| `ERRORS_DIR`        | no       | Where [unexpected errors](#unexpected-errors) are kept (default `data/errors`, the `errors` volume in Docker). Empty: only the log |
 
 Everything else works without the optional ones.
 
@@ -140,6 +141,23 @@ On the server, run them inside the container, e.g.
 Databases created before Alembic was added (which already have the `users`
 table but no `alembic_version` table) are stamped at the baseline revision
 `0001` on first startup rather than recreated.
+
+### Unexpected errors
+
+The bot records unexpected errors in `errors.jsonl` in the `errors` Docker
+volume (`/app/data/errors`), so they survive restarts and redeploys. It
+rotates at 5 MB and keeps 4 old files (25 MB at most). Nobody is notified;
+review them now and then (with Claude, on the Pi):
+
+```bash
+docker compose exec bot python scripts/errors.py list               # by kind, most frequent first
+docker compose exec bot python scripts/errors.py list --since 2026-11-01
+docker compose exec bot python scripts/errors.py show 1             # one in full, with the traceback
+```
+
+They can hold bits of what users sent: keep them on the Pi, and describe a
+fix in a GitHub issue without them. The container's own log (`docker compose
+logs bot`) is rotated too: 3 files of 10 MB.
 
 ## Deployment
 
