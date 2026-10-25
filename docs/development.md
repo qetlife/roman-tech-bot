@@ -11,6 +11,7 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see
 - [Typos](#typos)
 - [Settings](#settings)
 - [Failed messages](#failed-messages)
+- [Unexpected errors](#unexpected-errors)
 - [People](#people)
 - [Events](#events)
 - [Google Calendar](#google-calendar)
@@ -32,6 +33,7 @@ handlers/           everything that talks to Telegram (messages, buttons)
     events.py       📅 Events: create, list, move, cancel; reminders relative to an event; "event or reminder?"
     calendar.py     📅 Google Calendar: linking, ⚙️ Settings → 📅 Calendar, syncing both ways
     web.py          the small web server for Google: OAuth callback, push notifications
+    errors.py       the catch-all for unexpected errors: recorded, and “Sorry, something went wrong”
     failed.py       saving failed messages; /failed list (admin only)
     people.py       👥 People: invite links, requests by @username, rename, remove
     menus.py        main, ⏰ Reminders and ⚙️ Settings menu screens
@@ -58,6 +60,7 @@ core/               the logic: no Telegram, no database sessions
     events.py       events: parsing (all-day too), occurrences, "30 min before padel", which event a message names
     gcal.py         Google Calendar's JSON ↔ the bot's events
     secrets.py      encrypting Google logins, signing the OAuth state
+    errors.py       recording unexpected errors to a rotating file (no Telegram, no database), reading them back
 
 jobs/
     delivery.py     sends due reminders every 20 seconds
@@ -77,7 +80,7 @@ db/
 alembic/            schema migrations
 autofix/            the daily auto-fix job: sandbox image, prompt, runner script
 docs/               this guide and the user guide
-scripts/            command line: failed.py (failed messages), the one-off SQLite migration
+scripts/            command line: failed.py (failed messages), errors.py (unexpected errors), the one-off SQLite migration
 tests/              pytest, throwaway SQLite database
 ```
 
@@ -207,6 +210,11 @@ obvious from the code.
 - **Only two scopes** (`calendar.events`, `calendar.calendarlist.readonly`):
   enough for both directions and push, and not the full `calendar` scope
   that can delete calendars and change sharing.
+- **Unexpected errors go to a file, not a table** (`core/errors.py`): the
+  database is one of the things that breaks, and its errors would go
+  unrecorded. No outside error tracker either: errors can hold bits of what
+  users sent, so they stay on the Pi. Nobody is notified; they are reviewed
+  now and then with `scripts/errors.py`.
 
 ## Messages and buttons
 
@@ -523,6 +531,44 @@ reply: database errors are logged.
   The repository is public, so fixes are tested with made-up messages of the
   same shape (“remind to call the bank”), never the saved text.
 
+## Unexpected errors
+
+What counts as unexpected: anything logged at ERROR or above **with an
+exception**, i.e. `logger.exception(…)` (or `logger.error(…, exc_info=…)`).
+Expected situations (Google unreachable, a login that expired, Telegram
+network hiccups) are logged at INFO or WARNING and stay out. So: catch what
+you expect and log it as a warning; let the rest reach `logger.exception` or
+the catch-all.
+
+- **The catch-all** `handlers/errors.on_error` gets every exception a handler
+  or job didn't catch. It logs it with what the bot was doing
+  (`describe`: user id, button data or command, the kind of message, **never
+  the text**) and tells the user “Sorry, something went wrong on my side. Try
+  again in a moment.” (an alert for a button). `NetworkError` and `Forbidden`
+  (a user who blocked the bot) are only warnings.
+- **The file**: `install` (in `bot.py`) adds `ErrorFileHandler` to the root
+  logger, which writes to `ERRORS_DIR/errors.jsonl`, one JSON object per
+  line: time, key, count, type, message, where (the innermost frame in the
+  bot's own code), context (the logger, the log message, `extra={"error_context": …}`),
+  traceback. Pass `extra={"error_context": {...}}` to add context to a
+  `logger.exception`. If the directory can't be written the bot logs a
+  warning and runs without it.
+- **Size**: `RotatingFileHandler`, 5 MB per file and 4 old ones
+  (`errors.jsonl.1` … `.4`), 25 MB at most; the oldest is deleted.
+- **Floods**: errors are grouped by key, the exception type and the function
+  it came from (`ValueError@jobs/delivery.py:deliver_due`, not the line, which
+  moves). A group is written in full at most once an hour; repeats in between
+  are counted and written as `{"time", "key", "count"}` at most every 10
+  minutes (and on shutdown), so a bug in the 20-second delivery job takes a
+  few KB a day.
+- **Reading them**: `scripts/errors.py list [--since YYYY-MM-DD]` shows the
+  groups, most frequent first, with their counts and first and last time
+  seen, over all rotated files; `show <n>` prints one in full. See
+  [setup](setup.md#unexpected-errors).
+- **Privacy:** an error's message can hold what a user sent (a database error
+  shows its parameters). The file stays on the Pi; a fix goes in a GitHub
+  issue described without it, tested with made-up input.
+
 ## People
 
 Who may send reminders to whom (`handlers/people.py`, tables `contacts` and
@@ -780,6 +826,7 @@ migrations applied; the `chat` fixture (a user with a timezone) is there too. CI
 and before every deploy. Parser, recurrence, quiet hours and settings tests are pure;
 delivery tests use a fake bot (`tests/test_recurrence.FakeBot`);
 `tests/test_handlers.py`, `tests/test_events.py`, `tests/test_calendar.py`
+`tests/test_errors.py` (with a fake clock)
 and `tests/test_voice.py` drive the handlers with mocked Telegram objects; `tests/test_numbers.py` covers spoken phrases.
 
 ## How to…

@@ -8,10 +8,12 @@ from    telegram.ext                import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, TypeHandler, filters,
 )
 
-from    config                      import BOT_TOKEN, calendar_configured
+from    config                      import BOT_TOKEN, ERRORS_DIR, calendar_configured
+from    core.errors                 import install as install_errors
 from    db.session                  import init_db
 from    enums                       import Callback, CallbackPrefix, ReminderAction
 from    handlers                    import calendar, events, failed, people, reminders, settings, web
+from    handlers.errors             import on_error
 from    handlers.commands           import menu_cmd, start
 from    handlers.menus              import on_main_menu, on_my_id, on_reminders, on_settings
 from    handlers.text               import on_text
@@ -43,6 +45,8 @@ def main():
     logging.basicConfig(format="%(asctime)s %(levelname)s [%(name)s] %(message)s", level=logging.INFO)
     # httpx logs every Telegram poll at INFO
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    # Unexpected errors (logger.exception) also go to a file, to review with scripts/errors.py
+    error_file = install_errors(ERRORS_DIR)
 
     init_db()
 
@@ -120,7 +124,14 @@ def main():
     # Google Calendar: daily sync and push channel renewal (nothing if it isn't set up)
     app.job_queue.run_repeating(calendar_jobs.daily, interval=calendar_jobs.DAILY, first=300)
 
-    app.run_polling()
+    # Anything a handler or job didn't handle: recorded, and the user gets a short apology
+    app.add_error_handler(on_error)
+
+    try:
+        app.run_polling()
+    finally:
+        if error_file is not None:
+            error_file.close()
 
 if __name__ == "__main__":
     print("Running!")

@@ -18,6 +18,16 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
       CALENDAR_KEY: ${CALENDAR_KEY:-}
+    volumes:
+      # Unexpected errors (errors.jsonl, at most 25 MB): kept across deploys, read with
+      # docker compose exec bot python scripts/errors.py list
+      - errors:/app/data/errors
+    # Docker's own log (stdout): at most 3 files of 10 MB
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       # Shared with the `postgres` container, and with `cloudflared`, which sends
       # calendar.romanis.xyz to the bot's web server as roman-tech-bot:8080
@@ -29,3 +39,6 @@ services:
 networks:
   shared-network:
     external: true
+
+volumes:
+  errors:
