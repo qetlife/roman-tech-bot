@@ -1,6 +1,9 @@
 """Settings from the environment (or a .env file next to the code)."""
 
+import logging
 import os
+
+from functools import lru_cache
 
 from dotenv import load_dotenv
 
@@ -30,5 +33,19 @@ WEB_PORT = int(os.environ.get("WEB_PORT") or 8080)
 
 
 def calendar_configured() -> bool:
-    """Whether Google Calendar sync is set up (all four settings)."""
-    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI and CALENDAR_KEY)
+    """Whether Google Calendar sync is set up: all four settings, and CALENDAR_KEY a valid key."""
+    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI and CALENDAR_KEY) \
+        and _valid_key(CALENDAR_KEY)
+
+
+@lru_cache(maxsize=4)
+def _valid_key(key: str) -> bool:
+    # A wrong key would make every stored login unreadable (all "expired"): rather off, and said once
+    from cryptography.fernet import Fernet
+    try:
+        Fernet(key.encode())
+    except ValueError:
+        logging.getLogger(__name__).error("CALENDAR_KEY isn't a valid key (32 bytes, URL-safe base64): "
+                                          "Google Calendar is off")
+        return False
+    return True

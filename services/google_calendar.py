@@ -82,6 +82,21 @@ async def _post(url: str, data: dict) -> httpx.Response:
         raise GoogleUnavailable(f"{type(e).__name__}: {e}") from e
 
 
+def _refused(response: httpx.Response) -> Exception:
+    """A 400/401 from the token endpoint: only `invalid_grant` is the user's login (expired, revoked, a used code).
+
+    Anything else (`invalid_client`: a wrong GOOGLE_CLIENT_SECRET) is the bot's setup, not the user's.
+    """
+    try:
+        error = response.json().get("error")
+    except ValueError:
+        error = None
+    if error == "invalid_grant":
+        return GoogleAuthError(response.text[:200])
+    return GoogleUnavailable(f"Google refused the bot's request ({error or response.status_code}): "
+                             f"check GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET. {response.text[:200]}")
+
+
 async def exchange_code(code: str) -> dict:
     """The tokens for the `code` from the consent page: {"refresh_token", "access_token", "expires_in", "scope"}."""
     response = await _post(TOKEN_URL, {
@@ -89,7 +104,7 @@ async def exchange_code(code: str) -> dict:
         "redirect_uri": config.GOOGLE_REDIRECT_URI, "grant_type": "authorization_code",
     })
     if response.status_code in (400, 401):
-        raise GoogleAuthError(response.text[:200])
+        raise _refused(response)
     if response.status_code != 200:
         raise GoogleUnavailable(f"HTTP {response.status_code}: {response.text[:200]}")
     tokens = response.json()
@@ -108,7 +123,7 @@ async def access_token(refresh_token: str) -> str:
     if response.status_code in (400, 401):
         # invalid_grant: expired (7 days while the app is in testing) or revoked
         _access.pop(refresh_token, None)
-        raise GoogleAuthError(response.text[:200])
+        raise _refused(response)
     if response.status_code != 200:
         raise GoogleUnavailable(f"HTTP {response.status_code}: {response.text[:200]}")
     tokens = response.json()

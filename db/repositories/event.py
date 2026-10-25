@@ -70,7 +70,7 @@ class EventRepository:
         """The active events synced with one of the user's Google calendars."""
         with SessionLocal(expire_on_commit=False) as session:
             stmt = select(Event).where(Event.user_id == user_id, Event.external_calendar_id == calendar_id,
-                                       Event.status == EventStatus.ACTIVE)
+                                       Event.external_source.is_not(None), Event.status == EventStatus.ACTIVE)
             return list(session.scalars(stmt))
 
     def list_unsynced(self, user_id: uuid.UUID) -> list:
@@ -99,12 +99,15 @@ class EventRepository:
             return event
 
     def detach(self, user_id: uuid.UUID, calendar_id: str) -> int:
-        """Stop syncing a calendar's events but keep them in the bot. Returns how many."""
+        """Stop syncing a calendar's events but keep them in the bot. Returns how many.
+
+        Their Google ids stay (with `external_source` None: not synced), so
+        syncing that calendar again links them up instead of importing copies.
+        """
         with SessionLocal(expire_on_commit=False) as session:
             result = session.execute(
                 update(Event).where(Event.user_id == user_id, Event.external_calendar_id == calendar_id)
-                .values(external_source=None, external_calendar_id=None, external_id=None, etag=None,
-                        external_updated_at=None, pending_push=False)
+                .values(external_source=None, pending_push=False)
                 .execution_options(synchronize_session=False)
             )
             session.commit()

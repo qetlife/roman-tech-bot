@@ -15,6 +15,7 @@
 """
 
 import asyncio
+import contextvars
 import logging
 import secrets as random_secrets
 import uuid
@@ -81,6 +82,25 @@ def spawn(coroutine) -> asyncio.Task:
             logger.error("Google Calendar sync failed", exc_info=finished.exception())
     task.add_done_callback(done)
     return task
+
+
+# One sync (or send) at a time per user, so two of them can't both import the same Google event.
+# Per event loop too: a lock belongs to the loop it was first used in (the tests run several).
+_locks = {}
+# Set while a sync runs: what it does inside sends without taking the lock again (it isn't reentrant)
+_syncing = contextvars.ContextVar("syncing", default=False)
+
+
+def _lock(user_id) -> asyncio.Lock:
+    key = (id(asyncio.get_running_loop()), user_id)
+    if key not in _locks:
+        _locks[key] = asyncio.Lock()
+    return _locks[key]
+
+
+# Google events that failed to apply, per (calendar, event): after MAX_TRIES the sync goes past them
+_failures = {}
+MAX_TRIES = 3
 
 
 def _bot_context(bot):
@@ -204,6 +224,9 @@ async def push(bot, event) -> None:
     if account is None:
         return
     event = events.get(event.id) or event
+    if event.external_id is not None and event.external_source is None:
+        # Kept from a calendar that no longer syncs (📌 Keep them)
+        return
     if account.status != GoogleStatus.LINKED:
         # Sent once the user links again
         if event.external_id is not None:
@@ -221,7 +244,11 @@ async def push(bot, event) -> None:
         return
     events.set_sync(event.id, pending_push=True)
     try:
-        await _send(client, event, calendar_id)
+        if _syncing.get():
+            await _send(client, events.get(event.id) or event, calendar_id)
+        else:
+            async with _lock(event.user_id):
+                await _send(client, events.get(event.id) or event, calendar_id)
     except GoogleUnavailable as e:
         logger.info("Event %s not sent to Google yet: %s", event.id, e)
     except GoogleAuthError:
@@ -276,7 +303,23 @@ async def maybe_sync(bot, telegram_id: int) -> None:
 
 
 async def sync_user(bot, user, only=None) -> None:
-    """Send what's waiting, then bring in what changed in the user's synced calendars (or just `only`)."""
+    """Send what's waiting, then bring in what changed in the user's synced calendars (or just `only`).
+
+    One at a time per user: another sync (a burst of push notifications, a
+    question, 🔄) waits, then finds the changes already applied.
+    """
+    if _syncing.get():
+        await _sync_user(bot, user, only)
+        return
+    async with _lock(user.id):
+        token = _syncing.set(True)
+        try:
+            await _sync_user(bot, user, only)
+        finally:
+            _syncing.reset(token)
+
+
+async def _sync_user(bot, user, only=None) -> None:
     account = accounts.account(user.id)
     if account is None or account.status != GoogleStatus.LINKED:
         return
@@ -326,11 +369,20 @@ async def sync_calendar(bot, client, user, calendar) -> None:
         failed = 0
         # Repeating events before their exceptions (moved or cancelled occurrences)
         for item in sorted(items, key=lambda i: "recurringEventId" in i):
+            key = (calendar.id, item.get("id"))
             try:
                 await apply(bot, user, calendar, from_google(item, calendar.time_zone), first)
+                _failures.pop(key, None)
             except Exception:
-                failed += 1
+                _failures[key] = _failures.get(key, 0) + 1
                 logger.exception("Couldn't apply Google event %s for %s", item.get("id"), user.telegram_id)
+                if _failures[key] >= MAX_TRIES:
+                    # Always fails (odd data): go past it rather than re-reading the calendar forever
+                    logger.error("Giving up on Google event %s for %s after %s tries", item.get("id"),
+                                 user.telegram_id, MAX_TRIES)
+                    _failures.pop(key, None)
+                else:
+                    failed += 1
         if failed:
             # Keep the old token: the next sync gets these changes again (the ones
             # applied are skipped then, by their etag), so none is lost
@@ -355,9 +407,10 @@ async def apply(bot, user, calendar, g, first: bool = False) -> None:
     if g.cancelled:
         if existing is not None and existing.status == EventStatus.ACTIVE \
                 and not (existing.pending_push and _newer(existing, g)):
-            await cancel_with_reminders(context, existing)
+            # Google has it already: nothing to send back
+            await cancel_with_reminders(context, existing, push_to_google=False)
         return
-    if existing is not None and existing.etag == g.etag:
+    if existing is not None and existing.etag == g.etag and existing.external_source is not None:
         # Our own change coming back, or nothing new
         return
     if existing is not None and existing.pending_push and _newer(existing, g):
@@ -369,7 +422,8 @@ async def apply(bot, user, calendar, g, first: bool = False) -> None:
         all_day=g.all_day, timezone=g.timezone, recurrence=stored_rule(g.rule),
         skipped=",".join(sorted(format_stamp(s) for s in g.exdates)) or None,
     )
-    sync = dict(etag=g.etag, external_updated_at=g.updated, pending_push=False)
+    # (Also links up one kept when its calendar stopped syncing)
+    sync = dict(external_source=ExternalSource.GOOGLE, etag=g.etag, external_updated_at=g.updated, pending_push=False)
     if existing is None or existing.status != EventStatus.ACTIVE:
         if existing is not None:
             # Cancelled in the bot, and Google doesn't know: that's still pending
@@ -378,8 +432,7 @@ async def apply(bot, user, calendar, g, first: bool = False) -> None:
             return
         created = events.create(
             user.id, values.pop("title"), values.pop("starts_at"), values.pop("timezone"), values.pop("recurrence"),
-            values.pop("all_day"), source=MessageSource.GOOGLE,
-            external_source=ExternalSource.GOOGLE, external_calendar_id=calendar.calendar_id,
+            values.pop("all_day"), source=MessageSource.GOOGLE, external_calendar_id=calendar.calendar_id,
             external_id=g.id, updated_at=g.updated or utcnow(), moved=_rdates_as_moved(g), **values, **sync,
         )
         logger.info("Imported Google event %s as %s", g.id, created.id)
@@ -431,8 +484,9 @@ async def _apply_exception(context, user, calendar, g, follow) -> None:
 async def on_push(bot, channel_id: str, token: str, state: str) -> bool:
     """A push notification from Google (handlers/web.py). False if it isn't one of ours."""
     calendar = accounts.by_channel(channel_id or "")
+    # As bytes: compare_digest refuses a str that isn't ASCII, and the header is anyone's
     if calendar is None or not calendar.channel_token or not random_secrets.compare_digest(
-            token or "", calendar.channel_token):
+            (token or "").encode(), calendar.channel_token.encode()):
         return False
     if state == "sync":
         # The first one, when the channel opens

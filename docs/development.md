@@ -677,7 +677,14 @@ event loop.
   reminders move, and cancelling cancels them. One-offs that ended over a
   day ago aren't imported the first time. If any item fails to apply, the
   sync token isn't advanced, so the next sync gets those changes again (the
-  applied ones are skipped by their `etag`).
+  applied ones are skipped by their `etag`); after 3 tries an item is given up
+  on (logged), so one broken event can't stall a calendar. An unexpected
+  failure sending one pending event is logged and the sync goes on.
+- **One at a time per user**: `sync_user` and `push` take a per-user
+  `asyncio.Lock`, so a sync can't import an event the bot is inserting
+  (Google has it, the bot doesn't know its id yet), and a burst of push
+  notifications syncs one after the other. Inside a sync, sending doesn't take
+  it again (`_syncing`).
 - **Gone means gone**: an event imported from Google (`source` is
   `MessageSource.GOOGLE`) that is cancelled (in Google, in the bot, or with
   🗑 Remove them) is deleted (`EventRepository.delete`; its reminders stay
@@ -698,7 +705,15 @@ event loop.
   `google_calendars` row): ⬜/✅ `tgl`, 📥 `def` (only calendars the user can
   write to), 🔄 `sync`, 🔓 `unl`, then 📌 `keep` / 🗑 `rm` for a calendar or
   `all` (unlink: also revokes the token and deletes the account rows).
-  Keeping detaches the events (`EventRepository.detach`).
+  Keeping detaches the events (`EventRepository.detach`): `external_source`
+  becomes None but the Google ids stay, so nothing is sent for them, and
+  syncing that calendar again (or linking again) links them up instead of
+  importing copies.
+- **Setup mistakes aren't the user's**: only Google's `invalid_grant` is an
+  expired login; any other refusal from the token endpoint (`invalid_client`:
+  a wrong secret) is `GoogleUnavailable`, so nobody is warned or marked
+  expired. A `CALENDAR_KEY` that isn't a valid Fernet key turns the feature
+  off (`config.calendar_configured`, logged once).
 
 Tests fake Google with an `httpx.MockTransport` (`tests/test_calendar.FakeGoogle`).
 

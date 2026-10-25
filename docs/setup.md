@@ -273,7 +273,9 @@ openssl rand -base64 32 | tr '+/' '-_'
 ```
 
 Generate `CALENDAR_KEY` once and keep it: the stored Google logins can only
-be read with it (a new key means everyone links again). Then
+be read with it (a new key means everyone links again). If it isn't a valid
+key, the log says `CALENDAR_KEY isn't a valid key` and Google Calendar stays
+off. Then
 `docker compose up -d` (a restart doesn't read `.env`). The log says
 `Web server for Google Calendar on port 8080`.
 

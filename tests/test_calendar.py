@@ -568,7 +568,8 @@ def test_unlink(chat, google, answer, left):
     assert [e.title for e in _events(chat)] == left
     from db.repositories.event import EventRepository
     assert (EventRepository().get(padel.id) is None) == (answer == "rm")
-    assert all(e.external_id is None for e in _events(chat))
+    # Kept ones aren't synced any more (their Google ids stay, to link up again later)
+    assert all(e.external_source is None for e in _events(chat))
     assert GoogleRepository().account(_user(chat).id) is None
     assert google.asked("POST", "/revoke")
 
@@ -692,3 +693,110 @@ def test_one_event_google_wont_take_doesnt_stop_the_sync(chat, google, monkeypat
     sync(chat)
     assert sorted(e.title for e in _events(chat)) == ["Dinner", "padel"]
     assert EventRepository().get(padel.id).pending_push     # tried again next time
+
+
+def test_keep_then_sync_again_links_them_up(chat, google):
+    from db.repositories.google import GoogleRepository
+    from handlers.calendar import on_calendar_button
+
+    _padel(google)
+    link(chat, google)
+    [roman, *_] = GoogleRepository().calendars(_user(chat).id)
+    chat(data=f"gcal:tgl:{roman.id}", handler=on_calendar_button)
+    chat(data=f"gcal:keep:{roman.id}", handler=on_calendar_button)
+    [kept] = _events(chat)
+    # Not synced meanwhile: a change here stays here
+    chat("move padel to 20:00")
+    assert google.asked("PATCH") == []
+    chat(data=f"gcal:tgl:{roman.id}", handler=on_calendar_button)
+    sync(chat)
+    [padel] = _events(chat)
+    assert padel.id == kept.id and padel.external_source == "google"
+
+
+def test_unlink_keep_then_link_again(chat, google):
+    from handlers.calendar import on_calendar_button
+
+    _padel(google)
+    link(chat, google)
+    chat(data="gcal:unl", handler=on_calendar_button)
+    chat(data="gcal:keep:all", handler=on_calendar_button)
+    link(chat, google)
+    assert [e.title for e in _events(chat)] == ["Padel"]
+
+
+def test_a_sync_during_the_bots_own_insert_doesnt_import_it(chat, google):
+    from db.repositories.event import EventRepository
+    from handlers.calendar import push, sync_user
+    from services import google_calendar
+
+    link(chat, google)
+    user = _user(chat)
+    padel = EventRepository().create(user.id, "padel", datetime(2026, 12, 24, 21, tzinfo=TZ), "Europe/Lisbon")
+
+    async def slow(request):
+        response = google.handle(request)
+        if request.method == "POST" and request.url.path.endswith("/events"):
+            # Google has it, the bot doesn't know its id yet
+            await asyncio.sleep(0.05)
+        return response
+    google_calendar.transport = httpx.MockTransport(slow)
+
+    async def both():
+        await asyncio.gather(push(chat.context.bot, padel), sync_user(chat.context.bot, user))
+    run(both())
+    assert [e.id for e in _events(chat)] == [padel.id]
+
+
+def test_an_event_that_always_fails_is_given_up_after_3_tries(chat, google, monkeypatch):
+    from db.repositories.google import GoogleRepository
+    from handlers import calendar as handlers_calendar
+
+    link(chat, google)
+    [calendar, *_] = GoogleRepository().calendars(_user(chat).id)
+    token = GoogleRepository().calendar(calendar.id).sync_token
+    _padel(google)
+
+    async def broken(*args, **kwargs):
+        raise ValueError("odd data")
+    monkeypatch.setattr(handlers_calendar, "apply", broken)
+    sync(chat)
+    sync(chat)
+    assert GoogleRepository().calendar(calendar.id).sync_token == token
+    sync(chat)
+    assert GoogleRepository().calendar(calendar.id).sync_token != token
+
+
+def test_push_with_an_odd_token(chat, google):
+    from db.repositories.google import GoogleRepository
+    from handlers.calendar import on_push
+
+    link(chat, google)
+    [calendar, *_] = GoogleRepository().calendars(_user(chat).id)
+    assert not run(on_push(chat.context.bot, calendar.channel_id, "tökén", "exists"))
+
+
+def test_a_wrong_client_secret_isnt_an_expired_login(chat, google):
+    from db.repositories.google import GoogleRepository
+    from services import google_calendar
+
+    link(chat, google)
+    google_calendar._access.clear()
+    working = google.handle
+
+    def bad_client(request):
+        if request.url.path == "/token":
+            return httpx.Response(401, json={"error": "invalid_client"})
+        return working(request)
+    google_calendar.transport = httpx.MockTransport(bad_client)
+    sync(chat)
+    assert GoogleRepository().account(_user(chat).id).status == "linked"
+    assert not [t for t in _told(chat) if t.startswith("⚠️ Google Calendar disconnected")]
+
+
+def test_an_invalid_calendar_key_turns_it_off(google, monkeypatch, caplog):
+    import config
+
+    monkeypatch.setattr(config, "CALENDAR_KEY", "not-a-key")
+    assert not config.calendar_configured()
+    assert "CALENDAR_KEY isn't a valid key" in caplog.text

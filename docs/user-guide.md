@@ -500,8 +500,9 @@ New events from the bot go to: Roman
   With more than one, `📥 Put new events in another one` picks where events
   you add here go.
 - **Stopping one**, or `🔓 Unlink`: the bot asks whether to keep its events
-  here (no longer synced) or remove them (with their reminders). Unlinking
-  also gives the bot's access back to Google.
+  here (no longer synced) or remove them (with their reminders). Kept ones
+  link up again, without copies, if you sync that calendar again later.
+  Unlinking also gives the bot's access back to Google.
 - **How fast**: Google tells the bot about changes right away. The bot also
   checks when you ask about reminders or events (at most every 5 minutes) and
   once a day, in case a notice got lost. `🔄 Sync now` checks right away.
