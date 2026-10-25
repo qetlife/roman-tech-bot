@@ -16,7 +16,7 @@ from    handlers                    import calendar, events, failed, people, rem
 from    handlers.errors             import on_error
 from    handlers.commands           import menu_cmd, start
 from    handlers.menus              import on_main_menu, on_my_id, on_reminders, on_settings
-from    handlers.text               import on_text
+from    handlers.text               import on_answer, on_text
 from    handlers.ui                 import exact, prefixed, remember_profile
 from    handlers.voice              import on_voice
 from    jobs                        import calendar as calendar_jobs
@@ -97,6 +97,7 @@ def main():
     app.add_handler(CallbackQueryHandler(events.on_events_menu,         pattern=exact(Callback.EVENTS_MENU)))
     app.add_handler(CallbackQueryHandler(events.on_new,                 pattern=exact(Callback.NEW_EVENT)))
     app.add_handler(CallbackQueryHandler(events.on_event_button,        pattern=prefixed(CallbackPrefix.EVENT)))
+    app.add_handler(CallbackQueryHandler(on_answer,                     pattern=prefixed(CallbackPrefix.ANSWER)))
     app.add_handler(CallbackQueryHandler(events.on_pick,                pattern=exact(Callback.PICK_EVENT, Callback.PICK_REMINDER)))
 
     # 📅 Google Calendar

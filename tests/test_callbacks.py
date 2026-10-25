@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from enums import Callback, CalendarAction, CallbackPrefix, EventAction, OptionAction, PeopleAction, ReminderAction
+from enums import AnswerKind, Callback, CalendarAction, CallbackPrefix, EventAction, OptionAction, PeopleAction, ReminderAction
 from handlers.calendar import calendar_callback
 from handlers.people import people_callback
 from handlers.ui import event_callback, exact, option_callback, prefixed, reminder_callback, split_option
@@ -44,6 +44,9 @@ def test_fixed_values_are_stable():
     (reminder_callback(ReminderAction.EDIT, 5),             "rem:edit:5"),
     (reminder_callback(ReminderAction.DELETE, 5),           "rem:del:5"),
     (reminder_callback(ReminderAction.WRONG, 5),            "rem:wrong:5"),
+    (reminder_callback(ReminderAction.RESTORE, 5),          "rem:back:5"),
+    (f"{CallbackPrefix.ANSWER}{AnswerKind.CLOCK}:0900",     "ans:clock:0900"),
+    (f"{CallbackPrefix.ANSWER}{AnswerKind.DAY}:0",          "ans:day:0"),
     (f"{CallbackPrefix.FAILED_FIXED}7",                     "failfix:7"),
     (option_callback(CallbackPrefix.SNOOZE_OPTION, OptionAction.SET, "10,60"),     "snzopt:set:10,60"),
     (option_callback(CallbackPrefix.SNOOZE_OPTION, OptionAction.CUSTOM),           "snzopt:custom"),

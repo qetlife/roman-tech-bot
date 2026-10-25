@@ -708,7 +708,10 @@ def test_command_words_as_the_answer_to_a_question(chat, answer):
 def test_my_reminders_during_a_question_still_lists(chat):
     chat("remind me tomorrow at 9 to call mom")
     chat("tomorrow at 12")
-    assert _replies(chat("my reminders"))[0].startswith("Your reminders")
+    # The question is dropped, and the bot says so
+    replies = _replies(chat("my reminders"))
+    assert replies[0] == "Dropped: the reminder for tomorrow at 12."
+    assert replies[1].startswith("Your reminders")
 
 
 def test_what_do_i_have_tomorrow(chat):
