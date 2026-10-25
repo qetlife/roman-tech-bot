@@ -188,6 +188,23 @@ class ReminderRepository:
     def cancel(self, reminder_id: int) -> Optional[Reminder]:
         return self._update(reminder_id, status=ReminderStatus.CANCELLED)
 
+    def restore(self, reminder_id: int, remind_at: datetime, now: datetime) -> Optional[Reminder]:
+        """↩️ Undo after "cancel it": waiting again for `remind_at` (going off now if that has passed).
+
+        None unless it is cancelled.
+        """
+        with SessionLocal(expire_on_commit=False) as session:
+            reminder = session.get(Reminder, reminder_id, with_for_update=True)
+            if reminder is None or reminder.status != ReminderStatus.CANCELLED:
+                return None
+            reminder.status = ReminderStatus.PENDING
+            reminder.remind_at = remind_at
+            reminder.next_fire_at = max(remind_at, now)
+            reminder.fire_count = 0
+            reminder.last_message_id = None
+            session.commit()
+            return reminder
+
     def mark_missed(self, reminder_id: int) -> Optional[Reminder]:
         return self._update(reminder_id, status=ReminderStatus.MISSED)
 

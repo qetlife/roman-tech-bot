@@ -157,6 +157,31 @@ class Awaiting(StrEnum):
     EVENT_TITLE = "event_title"         # what the event is, for a time already given
     EVENT_TIME = "event_time"           # when the event is, for a title already given
     EVENT_EDIT = "event_edit"           # ✏️ Edit on an event: new time and title
+    REMINDER_CLOCK = "reminder_clock"   # what time, for a reminder with only a day ("friday dentist")
+    REMINDER_DAY = "reminder_day"       # which day, for "every week" without one
+    EVENT_DAY = "event_day"             # which day, for an event "every week" without one
+
+
+class ItemKind(StrEnum):
+    """What "it" / "the second one" is in a conversation (core/conversation.py)."""
+
+    REMINDER = "reminder"
+    EVENT = "event"
+
+
+class FollowUp(StrEnum):
+    """What a message about the last thing (or a listed one) asks: "move it to 10", "cancel that"."""
+
+    MOVE = "move"       # "move it to 10", "make it 9:30", "change the second one to friday"
+    CANCEL = "cancel"   # "cancel that", "delete it", "remove the first one"
+    COPY = "copy"       # "and the same next week", "also on thursday"
+
+
+class AnswerKind(StrEnum):
+    """Buttons that answer the bot's question (ans:<kind>:<value>)."""
+
+    CLOCK = "clock"     # ans:clock:<HHMM>: what time
+    DAY = "day"         # ans:day:<0-6, Monday = 0>: which day of the week
 
 
 # --- buttons ----------------------------------------------------------------
@@ -216,6 +241,7 @@ class CallbackPrefix(StrEnum):
     INVITE = "inv:"             # inv:<PeopleAction.ALLOW|DECLINE>:<invite token>
     EVENT = "evt:"              # evt:<EventAction>:<event id>[:<value>]
     CALENDAR = "gcal:"          # gcal:<CalendarAction>[:<google_calendars id, or "all">]
+    ANSWER = "ans:"             # ans:<AnswerKind>:<value>: an answer to the bot's question
 
 
 class ReminderAction(StrEnum):
@@ -227,6 +253,7 @@ class ReminderAction(StrEnum):
     EDIT = "edit"
     DELETE = "del"
     WRONG = "wrong"     # 👎 Wrong: save as a failed message and delete the reminder
+    RESTORE = "back"    # ↩️ Undo after “cancel it”: the reminder is back
 
 
 class EventAction(StrEnum):

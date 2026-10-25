@@ -12,6 +12,7 @@ Everything you can do with the bot, and how. For how the code works, see
   - [Recurring reminders](#recurring-reminders)
   - [When a reminder is due](#when-a-reminder-is-due)
   - [Listing, editing and cancelling](#listing-editing-and-cancelling)
+  - [“Move it”, “cancel that”: following up](#move-it-cancel-that-following-up)
   - [When the bot gets it wrong](#when-the-bot-gets-it-wrong)
 - [📅 Events](#-events)
   - [Adding an event](#adding-an-event)
@@ -115,7 +116,7 @@ it with ✏️ Edit or send it again.
 Either type a message that starts with a trigger phrase, or press
 `⏰ Reminders → ➕ New` and send the time and text.
 
-Trigger phrases (case-insensitive; “please”, “hey”, “can you” etc. in front
+Trigger phrases (case-insensitive; “please”, “hey”, “can you”, “also” etc. in front
 are fine; small typos too, see [Typos](#typos)):
 
 | To…               | Start the message with                                                                    |
@@ -155,10 +156,38 @@ If half is missing, the bot asks for it and puts the two together:
 - **No text** (“remind me tomorrow at 12”, or just “tomorrow at 12” on its
   own): it asks `⏰ tomorrow at 12: what should I remind you about?`; answer
   with the text (“call the bank”).
+- **A day but no time** (“remind me friday dentist”, “every monday to call
+  mom”): the time is never guessed. It asks
+  `⏰ What time should I remind you: “dentist”?` with
+  `[🌅 Morning 09:00] [☀️ Afternoon 14:00] [🌙 Evening 19:00]`; tap one, or
+  type a time (“10:30”, “at 9”, “evening”) or a whole new one (“tomorrow at
+  10”).
+- **“every week” without a day** (“remind me every week to water the
+  plants”): it asks which day, with `[Mon] … [Sun]`, then the time if that's
+  missing too. One question at a time.
 
-A message starting with a trigger phrase still wins while it asks. Saying
-“that's wrong” then saves the message it asked about as failed: asking was
-the mistake. If it can't understand the time in some other way (a repeat
+```
+You: remind me friday dentist
+Bot: ⏰ What time should I remind you: “dentist”?
+     [🌅 Morning 09:00] [☀️ Afternoon 14:00] [🌙 Evening 19:00]
+You: 10
+Bot: ⏰ Got it: dentist
+     🗓 Fri 30 Oct, 10:00 (in 4 d)
+```
+
+While it asks, you can move on:
+
+- “never mind”, “cancel” or “forget it” drops the question
+  (`OK, dropped the reminder “dentist”.`); for “What time?”, “Which day?”
+  and “When?”, so do “no”, “stop” and “skip”. (Elsewhere they can be the
+  answer: a reminder to “stop”, or “no” to switch quiet hours off.)
+- Something that fits as an answer is the answer.
+- A command of its own (“what do I have tomorrow?”, “my reminders”, “cancel
+  the second one”) is done, and the question dropped: `Dropped: the reminder
+  “dentist”.` A new “remind me …” just replaces the question. “make it …”
+  and “also …” are taken as the answer then.
+- “that's wrong” saves the message it asked about as failed: asking was
+  the mistake. If it can't understand the time in some other way (a repeat
 under 15 minutes, a time that has passed, more than 100 years away), it says
 so and asks you to send it again.
 
@@ -181,7 +210,11 @@ two hours”), which is what voice messages produce.
 
 Rules:
 
-- A day without a time means **09:00** (“tomorrow” = tomorrow 09:00).
+- The day and the time can be on either side of the text: “friday dentist
+  at 10”, “at 9 to call mom tomorrow”, “every monday to call mom at 10”.
+- A reminder with a day but no time isn't guessed: the bot
+  [asks what time](#creating-a-reminder). (For an [event](#adding-an-event),
+  a day alone is all day.)
 - A bare “at 9” means the **next** 09:00 or 21:00, whichever comes first.
   So do spoken times like “at nine thirty” or “at half past six”. Typed
   “9:30”, “09” and “18:00” are taken as written.
@@ -223,7 +256,7 @@ Add a repeat to any reminder:
 | ------------------- | -------- |
 | Daily               | “every day at 9”, “daily”, “every morning”, “every evening at 7” |
 | On weekdays         | “every weekday at 8:30”, “on weekdays”, “every weekend”, “weekends” |
-| On certain days     | “every monday”, “every mon and thu 18:00”, “mondays and fridays”, “every week” (today's weekday) |
+| On certain days     | “every monday”, “every mon and thu 18:00”, “mondays and fridays”, “every week” (asks which day) |
 | Every few minutes/hours | “every 2 hours”, “every 30 minutes”, “every hour”, “every 1h30m” |
 | Every few days/weeks | “every 3 days”, “every other day at 20:00”, “every 2 weeks at 7am”, “every fortnight”, “fortnightly” |
 | Every other weekday | “every other tuesday at 19”, “every 2nd tuesday”, “every second thursday” (every two weeks, from the next one) |
@@ -232,11 +265,12 @@ Add a repeat to any reminder:
 
 Rules:
 
-- Without a time, a repeat is at **09:00**. “every day at 9” is 09:00, not
-  21:00 (“every evening at 7” is 19:00).
+- Without a time, the bot asks what time (“every evening” is 19:00, so it
+  doesn't ask). “every day at 9” is 09:00, not 21:00 (“every evening at 7”
+  is 19:00).
 - “Every N minutes/hours” starts N minutes/hours from now and must be at
   least **15 minutes** apart. It can't have a time of day.
-- “Every N days/weeks” starts at the given time (09:00 if none), today if
+- “Every N days/weeks” starts at the given time (asked if none), today if
   it's still ahead, otherwise tomorrow.
 - “Monthly” without a day uses today's day of the month. In shorter months,
   the 29th–31st become the last day of the month.
@@ -297,9 +331,43 @@ handled like a normal message, so “remind me …” still works.
   occurrences.
 - **Edit**: tap `✏️ Edit` on the confirmation and send the new time and text,
   e.g. “tomorrow at 10 to call mom”. This can also add or remove a repeat.
+  It needs a time of day: with only a day, the bot asks you to add one.
 
 If a reminder you edit or cancel is currently waiting for your OK, its old
 message loses its buttons.
+
+### “Move it”, “cancel that”: following up
+
+For **10 minutes after your last message**, the bot remembers what you
+talked about, so you don't have to reply to a message or say its name:
+
+- **“it” / “that”** is the reminder or [event](#-events) the bot last made,
+  moved or edited for you.
+- **“the second one”** (“the first”, “number 3”, “the last one”) is from the
+  last numbered list it showed: “my reminders”, “what do I have tomorrow?”
+  (its reminders), “my events”.
+
+| To…  | Say | |
+| ---- | --- | --- |
+| move it | “move it to 10”, “make it 9:30”, “change it to tomorrow”, “push the second one to friday at 10” | What you don't say stays: “to 10” keeps the day, “to friday” the time. A repeating reminder moves just this time. |
+| cancel it | “cancel that”, “delete it”, “remove the first one” | A reminder is cancelled at once: `🗑 Cancelled: call mom [↩️ Undo]`. An event asks first (`Cancel “padel”?`), since its reminders and Google Calendar go with it. |
+| copy it | “and the same next week”, “also on thursday”, “same time tomorrow” | A new one like it at that time (“next week” is a week after it). Not for repeats. |
+
+```
+You: remind me friday at 9 to call mom
+Bot: ⏰ Got it: call mom …
+You: make it 10
+Bot: ⏰ Moved: call mom
+     🗓 Fri 30 Oct, 10:00 (in 4 d)
+You: and the same next week
+Bot: ⏰ Got it: call mom
+     🗓 Fri 6 Nov, 10:00 (in 11 d)
+```
+
+After 10 minutes, “it” means nothing any more and the bot asks which one;
+say its name (“cancel the dentist reminder”, “move padel to 20:00”) or reply
+to its message. Only whoever made a reminder can move or copy it; one sent to
+you can be cancelled.
 
 ### When the bot gets it wrong
 

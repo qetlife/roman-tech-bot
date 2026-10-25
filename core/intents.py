@@ -17,8 +17,9 @@ from core.typos  import Vocabulary
 Action = Callable[..., Awaitable[None]]
 
 # Polite filler allowed before a trigger phrase: "please remind me ...",
-# "hey, can you remind me ..."
-FILLER = re.compile(r"^(?:(?:hey|hi|ok|okay|please|pls|can you|could you|would you)[\s,!]+)*", re.IGNORECASE)
+# "hey, can you remind me ...", "also remind me ..."
+FILLER = re.compile(r"^(?:(?:hey|hi|ok|okay|please|pls|can you|could you|would you|also|and|again)[\s,!]+)*",
+                    re.IGNORECASE)
 
 # Dropped from the end of a word when fixing typos: "remid me," → "remind me".
 PUNCTUATION = ",.!?:;"

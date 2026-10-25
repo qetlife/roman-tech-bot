@@ -841,6 +841,57 @@ def _split(words: list, time_words: list, fixed: list, now: datetime) -> Optiona
     return None
 
 
+# A text doesn't end with these: in "at 9 to tell anna about tomorrow", "tomorrow" is part of the text.
+DANGLING = {"about", "of", "that", "the", "a", "an", "with", "to", "and", "or", "my", "your"}
+
+
+def _kind(phrase: str, now: datetime) -> Optional[tuple]:
+    """What a time expression says: (has a day or a repeat, has a time of day), or None if it isn't one."""
+    tokens = _tokenize(phrase)
+    w = _parse_when_tokens(tokens, now) if tokens else None
+    if w is not None:
+        return (w.delta is not None or w.day is not None or w.weekday is not None or w.next_week,
+                w.clock is not None or w.delta is not None or w.part is not None)
+    parsed = _recurrence(phrase, now)
+    return (True, parsed[2]) if parsed is not None else None
+
+
+def _merge(words: list, time_words: list, fixed: list, best: tuple, now: datetime) -> tuple:
+    """A time split around the text: "friday dentist at 10", "every monday to call mom at 10".
+
+    `best` (from _split) took the time from one end; if it has a day but no
+    time of day, or a time of day but no day, and the other end has the rest,
+    both make the time. Otherwise `best` as it is.
+    """
+    k, _, _, phrase = best
+    kind = _kind(phrase, now)
+    if kind is None or kind[0] == kind[1]:
+        return best
+    n = len(words)
+    at_start = phrase in (" ".join(time_words[:k]), " ".join(words[:k]))
+    for m in range(n - k - 1, 0, -1):
+        if at_start:
+            other, merged = time_words[n - m:], phrase + " " + " ".join(time_words[n - m:])
+            rest, rest_fixed = words[k:n - m], fixed[k:n - m]
+        else:
+            other, merged = time_words[:m], " ".join(time_words[:m]) + " " + phrase
+            rest, rest_fixed = words[m:n - k], fixed[m:n - k]
+        if all(t.lower() in CONNECTORS for t in other):
+            continue
+        try:
+            parsed = _parse_time(merged, now)
+        except ParseError:
+            continue
+        merged_kind = _kind(merged, now) if parsed is not None else None
+        if merged_kind != (True, True):
+            continue
+        text = _clean_text(" ".join(rest))
+        if not _is_text(_clean_text(" ".join(rest_fixed)), now) or text.lower().split()[-1] in DANGLING:
+            continue
+        return n - len(rest), parsed, text, merged
+    return best
+
+
 def _is_yesterday(words: list, now: datetime) -> bool:
     """ "yesterday" plus a time ("yesterday at 9"): a time that has passed."""
     lowered = [w.lower() for w in words]
@@ -904,6 +955,7 @@ def parse_reminder(request: str, now: datetime) -> ParsedReminder:
             raise MissingText("What should I remind you about?")
         raise MissingTime("I couldn't understand when.", _clean_text(request))
 
+    best = _merge(words, fixed, fixed, best, now)
     _, (when, recurrence), text, phrase = best
     if when <= now:
         raise ParseError("That time has already passed.")

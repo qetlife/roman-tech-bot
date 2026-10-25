@@ -290,7 +290,11 @@ def test_skip_today_of_an_all_day_repeat(chat):
 
 def test_before_and_after_without_an_event_is_an_ordinary_reminder(chat):
     update = chat("remind me to take pills 30 min after breakfast every day")
+    # No time of day: asked, not guessed
+    assert _replies(update)[0].startswith("⏰ What time should I remind you: “take pills 30 min after breakfast”?")
+    update = chat("8:30")
     assert _replies(update)[0].startswith("⏰ Got it: take pills 30 min after breakfast\n")
+    assert "every day at 08:30" in _replies(update)[0]
 
 
 def test_moving_an_all_day_event(chat):

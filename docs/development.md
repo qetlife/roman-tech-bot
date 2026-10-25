@@ -9,6 +9,7 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see
 - [Messages and buttons](#messages-and-buttons)
 - [Reminders](#reminders)
 - [Typos](#typos)
+- [Conversation](#conversation)
 - [Settings](#settings)
 - [Failed messages](#failed-messages)
 - [Unexpected errors](#unexpected-errors)
@@ -39,6 +40,7 @@ handlers/           everything that talks to Telegram (messages, buttons)
     menus.py        main, ⏰ Reminders and ⚙️ Settings menu screens
     reminders.py    create, edit, list; OK / snooze / undo / edit / delete / 👎 wrong buttons
     replies.py      replies to a reminder message: “done”, “snooze 20 min”, “move it to 10”, “cancel”
+    conversation.py “move it to 10”, “cancel that”, “the same next week”, “cancel the second one”
     settings.py     🌍 timezone and ⏰ reminder settings screens
     text.py         typed messages: trigger phrases, answers to questions
     voice.py        voice messages: transcribe, then handle like text
@@ -55,6 +57,7 @@ core/               the logic: no Telegram, no database sessions
     settings.py     setting definitions and validation
     intents.py      trigger phrase matching
     replies.py      reading replies to a reminder message (“snooze 20 min” → ReplyCommand)
+    conversation.py asking back (what time? which day?), what “it” and “the second one” mean for 10 minutes
     contacts.py     contact names: valid ones, unique ones (“Anna 2”), the default
     commands.py     plain-language commands: which reminder “cancel the dentist reminder” means, which day “what do I have tomorrow?” is
     events.py       events: parsing (all-day too), occurrences, "30 min before padel", which event a message names
@@ -210,6 +213,20 @@ obvious from the code.
 - **Only two scopes** (`calendar.events`, `calendar.calendarlist.readonly`):
   enough for both directions and push, and not the full `calendar` scope
   that can delete calendars and change sharing.
+- **A time is never guessed** (#28): a reminder with a day but no time asks
+  “What time?”, and “every week” without a day asks which day, rather than
+  09:00 or today's weekday. A wrong guess is worse than one question. An
+  event with only a day is all day, which is a real answer.
+- **“it” lasts 10 minutes** after the user's last message: long enough for a
+  back-and-forth, short enough that “cancel it” an hour later doesn't hit
+  something they forgot about. After that the bot asks which one.
+- **“cancel that” doesn't ask, but has ↩️ Undo** for a reminder (one tap
+  either way). An event is asked about first: cancelling one also cancels
+  its reminders and removes it from Google Calendar, which Undo couldn't
+  bring back cleanly.
+- **No AI** for any of this: the parser and fixed phrases, so it stays fast,
+  free, offline and predictable. A phrasing nobody used before gets “I
+  didn't get that” until it's learned ([failed messages](#failed-messages)).
 - **Unexpected errors go to a file, not a table** (`core/errors.py`): the
   database is one of the things that breaks, and its errors would go
   unrecorded. No outside error tracker either: errors can hold bits of what
@@ -241,22 +258,40 @@ chats still carry it. `tests/test_callbacks.py` pins them.
 
 **Free text** (`handlers/text.py`):
 
+Every message first marks the [conversation](#conversation) as current
+(`handlers/ui.conversation(touch=True)`).
+
 0. A Telegram reply to a delivered reminder (`reminders.last_message_id`)
    that is a reply command (`core/replies.parse_reply`) acts on that
    reminder (`handlers/replies.py`); other replies go on below.
+   Then, while the bot asks about a reminder or an event
+   (`NEVER_MIND_QUESTIONS`; settings and 👥 People questions take “no” as an
+   answer), “never mind” / “cancel” drops the question
+   (`core/conversation.is_never_mind`; “no”, “stop”, “skip” too where the
+   answer is a time or a day, `NOT_TEXT`), and a follow-up (“move it to
+   10”, “cancel the second one”, `parse_follow_up`) is handled by
+   `handlers/conversation.py`, dropping a waiting question with a note. A
+   follow-up never beats a trigger phrase (“also remind me …”), except the
+   cancel and move ones it is about (`FOLLOW_UP_INTENTS`), and while the bot
+   asks only “cancel …” counts: “make it work” or “also buy milk” may be the
+   answer.
 1. A message starting with a trigger phrase runs that intent's action with
    the rest of the message (`handlers/intents.py`, matched by
    `core/intents.py`; longest phrase wins, whole words only, polite filler
-   like “please” allowed in front). This always wins. If no phrase matches
+   like “please”, “also” or “and” allowed in front). This always wins. If no phrase matches
    as written, it's tried again with typos of the phrases' words fixed
    (“remid me”, see [Typos](#typos)); the rest keeps the original words.
+   A waiting question is dropped, and the bot says so (`Dropped: the reminder
+   “dentist”.`, from `user_data["asked_about"]`, set by `ui.ask`), unless the
+   new command makes the same kind of thing (`REPLACES`).
    During a question, the command intents in `NEEDS_KEYWORD`
    (`handlers/text.py`: cancel, list, one day, timezone, new event, list
    events) count only if the message has one of their words (“reminder”,
    “timezone”, “event”, “calendar”), so “delete old photos” or “what's on
    the agenda” can be the answer to “what should I remind you about?”;
    “move” counts only if one of the user's event titles follows
-   (`events.names_event`), so “move the car” is an answer too.
+   (`events.names_event`), so “move the car” is an answer too. Not for
+   questions only a time or a day answers (`TIME_ONLY`).
 2. Otherwise, if the bot asked a question, `context.user_data["awaiting"]`
    holds an `Awaiting` value (`enums.py`; keys in `handlers/ui.py`) and the message is the
    answer. For `Awaiting.EDIT`, the reminder id is in
@@ -278,7 +313,11 @@ chats still carry it. `tests/test_callbacks.py` pins them.
 the text after the trigger phrase into a time and a text. It tries the
 longest time expression at the start or the end of the message
 (`parse_when` for one-offs, `parse_recurrence` for repeats) whose leftover is
-not itself a time. It understands a fixed set of English expressions (module
+not itself a time. If that has a day but no time of day, or a time but no
+day, `_merge` looks for the rest at the other end: “friday dentist at 10”,
+“every monday to call mom at 10”, “at 9 to call mom tomorrow”. It doesn't
+when the text would end in a word like “about” (“at 9 to tell anna about
+tomorrow”). It understands a fixed set of English expressions (module
 docstring and [user guide](user-guide.md#time-expressions)) and raises
 `ParseError` with a user-facing message otherwise. `now` is timezone-aware
 in the user's timezone. Two subclasses say which half is missing:
@@ -407,6 +446,59 @@ change.
   separate, phrase-level step (not in `Vocabulary`) because it merges two
   words, and it only runs when both earlier tries fail, so “remind me to
   borrow a book at 5” is untouched.
+
+## Conversation
+
+`core/conversation.py` (pure) and `handlers/conversation.py`.
+
+**Asking back.** `create_reminder` asks instead of guessing:
+
+- `needs_day(request)`: “every week” without a weekday → `ask_day`
+  (`Awaiting.REMINDER_DAY`, events `EVENT_DAY`); the answer goes into the
+  request (`with_day`: “every week …” → “every wednesday …”), which is
+  created again from the start, so the next missing piece is asked next.
+- `parsed.timed` false (a day, or a repeat, without a time of day), or
+  `untimed()` for “today dentist” after 09:00 → `ask_clock`
+  (`Awaiting.REMINDER_CLOCK`), with 🌅 09:00 / ☀️ 14:00 / 🌙 19:00
+  (`TIMES_OF_DAY`, `ans:clock:HHMM`). `answer_clock` tries the request with
+  the answer at the end (`with_clock`: “friday dentist at 10”, the parser
+  puts it together) and then the answer as a whole time (“tomorrow at 10 to
+  dentist”); either must keep the same text. Otherwise it asks again.
+
+The request waits in `user_data["pending_part"]`, like the other halves.
+The answer buttons only answer the message that asked
+(`user_data["asked_message_id"]`): an older question's buttons say it has
+expired. A day as the answer to “When?” (“remind me to call mom” →
+“friday”) asks the time too.
+
+**The conversation.** `handlers/ui.py` keeps a `Conversation` in
+`user_data["conversation"]`: the time of the last message, the subject
+(`(ItemKind, id)`, set by `ui.about` when a reminder or event is made, moved,
+edited, copied or restored) and the last numbered list (`ui.listed`, by the
+reminder lists, one day, “which one?”, and 📅 Events). `conversation()`
+returns it only while fresh (`CONTEXT_FOR`, 10 minutes since the last
+message); every message touches it first.
+
+`parse_follow_up` reads “move/make/change/push it|that|the second one [to]
+<when>”, “cancel/delete/remove it|…”, and “[and] the same|also|again <when>”
+(a copy only if <when> is a time, `conversation.is_time`: “also buy milk”
+goes the normal way)
+(polite words around are fine; “the dentist” is a name, left to the other
+commands). `handle_follow_up` picks the item (`Conversation.pick`; “the last
+one” without a list is the subject), checks it is still active and the
+user's, and:
+
+- **move**: `parse_move` from its current time (what isn't said stays); a
+  repeating reminder is snoozed to the new time, an event goes through
+  `events.move`.
+- **cancel**: a reminder is cancelled with `↩️ Undo` (`ReminderAction.RESTORE`,
+  `rem:back:<id>`: `ReminderRepository.restore`, a repeat whose time passed
+  moves on to its next one); an event gets `events.confirm_cancel`.
+- **copy**: a new one-off like it (“next week” is a week after it); for a
+  contact only while they're still in 👥 People.
+
+Without a fresh conversation, or if the item is gone, the bot asks which one.
+`user_data` is in memory: a restart forgets it.
 
 ## Voice messages
 
@@ -784,7 +876,8 @@ ones there too.
 | `EventStatus`                           | `events.status`: active or cancelled |
 | `GoogleStatus`                          | `google_accounts.status`: linked, or expired (link again) |
 | `ExternalSource`                        | `events.external_source`: where it's synced (#22) |
-| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction`, `PeopleAction`, `EventAction`, `CalendarAction` | callback data of every button |
+| `ItemKind`, `FollowUp`                  | what “it” is (a reminder or an event), and what a follow-up asks (move, cancel, copy) |
+| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction`, `PeopleAction`, `EventAction`, `CalendarAction`, `AnswerKind` | callback data of every button |
 
 Weekdays use the standard library's `calendar.Day` (in the parser and
 `Weekly`).
@@ -849,9 +942,10 @@ Set `typos=False` for a phrase that's one letter from common words.
 the keyboard, register the handler in `bot.py` with `exact()` / `prefixed()`,
 and add it to `tests/test_callbacks.py`.
 
-**Ask the user a question**: add a value to `Awaiting`, set
-`context.user_data[AWAITING]` when asking, handle it in
-`handlers/text.py`, and pop it once answered.
+**Ask the user a question**: add a value to `Awaiting`, ask with
+`ui.ask(context, awaiting, "the reminder “…”")` (what it's about, for
+“Dropped: …”), handle it in `handlers/text.py`, and pop it once answered.
+Buttons that answer it use `CallbackPrefix.ANSWER` (`text.on_answer`).
 
 **Add a setting**: add a `Setting` (and `validate`) to
 `core/settings.py` and to `SETTINGS`, add a screen and handlers in

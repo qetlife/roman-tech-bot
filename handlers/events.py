@@ -18,6 +18,7 @@ from    telegram.ext                    import ContextTypes
 
 from    core                            import recurrence as recurrences
 from    core.commands                   import parse_day
+from    core.conversation               import needs_day, read_weekday, with_day
 from    core.events                     import (
     clean_text, duration, match_title, nearest_occurrence, next_occurrence, occurrence_on, occurs_on, parse_event,
     reminder_time, rrule, rule_of, skipped, split_move, split_move_statement, split_relative, unknown_title,
@@ -31,15 +32,15 @@ from    db.repositories.failed_message  import FailedMessageRepository
 from    db.repositories.reminder        import ReminderRepository
 from    db.repositories.user            import UserRepository
 from    enums                           import (
-    Awaiting, Callback, CallbackPrefix, EventAction, EventStatus, FailureReason, IntentName, MessageSource,
+    Awaiting, Callback, CallbackPrefix, EventAction, EventStatus, FailureReason, IntentName, ItemKind, MessageSource,
 )
 from    handlers                        import reminders as rh
 from    handlers.failed                 import record, record_not_understood
 from    handlers.settings               import ask_timezone
 from    handlers.ui                     import (
-    ASKED_REQUEST, AWAITING, EDIT_EVENT_ID, LAST_EVENT_ID, LAST_REMINDER_ID, PENDING_CONTACT_ID,
-    PENDING_EVENT_REMINDER, PENDING_EVENT_REQUEST, PENDING_PART, PENDING_PICK, event_callback, message_source,
-    render_menu,
+    ASKED_MESSAGE_ID, ASKED_REQUEST, AWAITING, EDIT_EVENT_ID, LAST_EVENT_ID, LAST_REMINDER_ID, PENDING_CONTACT_ID,
+    PENDING_EVENT_REMINDER, PENDING_EVENT_REQUEST, PENDING_PART, PENDING_PICK, about, ask, event_callback, listed,
+    message_source, render_menu,
 )
 
 
@@ -183,6 +184,9 @@ async def create_event(update: Update, context: ContextTypes.DEFAULT_TYPE, reque
         context.user_data[PENDING_EVENT_REQUEST] = request
         await ask_timezone(update, context, "First, one-time setup. ")
         return
+    if needs_day(request):
+        await ask_day(update, context, request)
+        return
     try:
         parsed = parse_event(request, user_now(user.timezone))
     except MissingText:
@@ -232,7 +236,7 @@ async def answer_event(update: Update, context: ContextTypes.DEFAULT_TYPE, reque
 
 
 async def ask_title(update: Update, context: ContextTypes.DEFAULT_TYPE, when: str):
-    context.user_data[AWAITING] = Awaiting.EVENT_TITLE
+    ask(context, Awaiting.EVENT_TITLE, f"the event on {when}")
     context.user_data[PENDING_PART] = when
     context.user_data[ASKED_REQUEST] = when
     await update.effective_message.reply_text(f"📅 {when}: what's the event?")
@@ -240,7 +244,7 @@ async def ask_title(update: Update, context: ContextTypes.DEFAULT_TYPE, when: st
 
 async def ask_time(update: Update, context: ContextTypes.DEFAULT_TYPE, title: str, prefix: str = "",
                    request: str = None):
-    context.user_data[AWAITING] = Awaiting.EVENT_TIME
+    ask(context, Awaiting.EVENT_TIME, f"the event “{title}”")
     context.user_data[PENDING_PART] = title
     if request is not None:
         context.user_data[ASKED_REQUEST] = request
@@ -248,6 +252,29 @@ async def ask_time(update: Update, context: ContextTypes.DEFAULT_TYPE, title: st
         f"{prefix}📅 When is “{title}”?\n"
         "e.g. “thursday at 21:00”, “every Monday at 8”, “on dec 24”"
     )
+
+
+async def ask_day(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str, prefix: str = ""):
+    """ "event yoga every week at 19:00": which day? The answer goes into the request (answer_day)."""
+    ask(context, Awaiting.EVENT_DAY, "the weekly event")
+    context.user_data[PENDING_PART] = request
+    context.user_data[ASKED_REQUEST] = request
+    asked = await update.effective_message.reply_text(f"{prefix}📅 Every week: on which day?",
+                                                      reply_markup=rh.day_keyboard())
+    # Its buttons answer this question only, not a later one
+    context.user_data[ASKED_MESSAGE_ID] = asked.message_id
+
+
+async def answer_day(update: Update, context: ContextTypes.DEFAULT_TYPE, answer: str):
+    """The answer to ask_day: "monday", "on fri". Asks again if it isn't a day of the week."""
+    request = context.user_data.get(PENDING_PART, "")
+    weekday = read_weekday(answer)
+    if weekday is None:
+        record_not_understood(update, context, answer, IntentName.EVENT_WHEN, "not a day of the week")
+        await ask_day(update, context, request, "That isn't a day of the week. ")
+        return
+    context.user_data.pop(PENDING_PART, None)
+    await create_event(update, context, with_day(request, weekday))
 
 
 async def answer_title(update: Update, context: ContextTypes.DEFAULT_TYPE, title: str):
@@ -280,6 +307,7 @@ async def save_event(update: Update, context: ContextTypes.DEFAULT_TYPE, user, p
         request, message_source(update),
     )
     context.user_data[LAST_EVENT_ID] = event.id
+    about(context, ItemKind.EVENT, event.id)
     await update.effective_message.reply_text(
         f"📅 Added: {event.title}\n{when_text(event, user.timezone)}\n\nA reminder before it?",
         reply_markup=build_created_keyboard(event),
@@ -377,6 +405,7 @@ async def edit_event(update: Update, context: ContextTypes.DEFAULT_TYPE, event_i
         return
     moved = await follow(context, event, updated)
     context.user_data[LAST_EVENT_ID] = updated.id
+    about(context, ItemKind.EVENT, updated.id)
     await update.effective_message.reply_text(
         f"✏️ Updated: {updated.title}\n{when_text(updated, user.timezone)}{_moved_note(moved)}",
         reply_markup=build_created_keyboard(updated),
@@ -433,6 +462,7 @@ async def move(update: Update, context: ContextTypes.DEFAULT_TYPE, user, event, 
         await reply("That event has been cancelled.")
         return
     count = await follow(context, event, updated)
+    about(context, ItemKind.EVENT, updated.id)
     await reply(f"📅 Moved: {updated.title}\n{when_text(updated, user.timezone)}{_moved_note(count)}",
                 reply_markup=build_created_keyboard(updated))
     await to_google(context, updated)
@@ -632,6 +662,7 @@ async def list_events(update: Update, context: ContextTypes.DEFAULT_TYPE, reques
     from handlers.calendar import warning
     text = warning(user) + text
     keyboard = build_list_keyboard(items)
+    listed(context, ItemKind.EVENT, [e.id for _, e in items])
     if update.callback_query is not None:
         await update.callback_query.answer(toast)
         await render_menu(update, context, text, keyboard)
@@ -667,7 +698,7 @@ async def agenda(update: Update, context: ContextTypes.DEFAULT_TYPE, request: st
             "I can show one day, e.g. “what do I have tomorrow?” or “what's on friday?”."
         )
         return
-    await rh.show_day(update, user, day, day_text(user, day))
+    await rh.show_day(update, context, user, day, day_text(user, day))
 
 
 def event_screen(user, event):
@@ -731,7 +762,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, request: st
 
     event = titles[found[0]]
     tz_name = user.timezone or "UTC"
-    count = len(reminders.list_for_event(event.id))
     if day is not None:
         if not occurs_on(event, day, ZoneInfo(tz_name)):
             await reply(f"There's no {event.title} on {day:%a %d %b}.\n{when_text(event, tz_name)}")
@@ -746,7 +776,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, request: st
                 )]]),
             )
             return
+    await confirm_cancel(update, user, event)
 
+
+async def confirm_cancel(update: Update, user, event):
+    """ "Cancel “padel”?" with ⏭ Just <the next one> (if it repeats) and 🗑: an event is never cancelled unasked."""
+    tz_name = user.timezone or "UTC"
+    count = len(reminders.list_for_event(event.id))
     buttons = []
     upcoming = next_occurrence(event, utcnow())
     if event.recurrence and upcoming is not None:
@@ -759,8 +795,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE, request: st
         callback_data=event_callback(EventAction.CANCEL, event.id),
     ))
     note = f"\nIts {'reminder is' if count == 1 else f'{count} reminders are'} cancelled with it." if count else ""
-    await reply(f"Cancel “{event.title}”?\n{when_text(event, tz_name)}{note}",
-                reply_markup=InlineKeyboardMarkup([buttons]))
+    await update.effective_message.reply_text(f"Cancel “{event.title}”?\n{when_text(event, tz_name)}{note}",
+                                              reply_markup=InlineKeyboardMarkup([buttons]))
 
 
 async def cancel_event(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str = ""):
