@@ -297,3 +297,31 @@ def test_edit_with_only_a_day_asks_for_the_time(chat):
     assert _replies(chat("next friday to call dad"))[0].startswith("At what time?")
     # Still editing: the answer with a time does it
     assert _replies(chat("next friday at 10 to call dad"))[0].startswith("✏️ Updated: call dad")
+
+
+def test_also_remind_me_is_a_new_reminder(chat):
+    chat("remind me tomorrow at 8 to call mom")
+    update = chat("also remind me tomorrow at 9 to pay rent")
+    assert _replies(update)[0].startswith("⏰ Got it: pay rent\n")
+    assert sorted(r.text for r in _active(chat.telegram_id)) == ["call mom", "pay rent"]
+    assert _replies(chat("and remind me tomorrow at 10 to water plants"))[0].startswith("⏰ Got it: water plants")
+
+
+@pytest.mark.parametrize("answer", ["make it work", "push it to prod", "also buy milk"])
+def test_a_follow_up_phrase_can_be_the_answer(chat, answer):
+    chat("remind me tomorrow at 9 to call mom")
+    update = chat("remind me tomorrow at 12")
+    assert _replies(update)[0] == "⏰ tomorrow at 12: what should I remind you about?"
+    update = chat(answer)
+    assert _replies(update)[0].startswith(f"⏰ Got it: {answer}\n")
+    assert len(_active(chat.telegram_id)) == 2
+
+
+def test_cancel_the_second_one_during_a_question(chat):
+    chat("remind me tomorrow at 9 to call mom")
+    chat("remind me tomorrow at 10 to pay rent")
+    chat("my reminders")
+    chat("remind me tomorrow at 12")
+    replies = _replies(chat("cancel the second one"))
+    assert replies[0] == "Dropped: the reminder for tomorrow at 12."
+    assert replies[1].startswith("🗑 Cancelled: pay rent")

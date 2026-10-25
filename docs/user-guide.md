@@ -116,7 +116,7 @@ it with ✏️ Edit or send it again.
 Either type a message that starts with a trigger phrase, or press
 `⏰ Reminders → ➕ New` and send the time and text.
 
-Trigger phrases (case-insensitive; “please”, “hey”, “can you” etc. in front
+Trigger phrases (case-insensitive; “please”, “hey”, “can you”, “also” etc. in front
 are fine; small typos too, see [Typos](#typos)):
 
 | To…               | Start the message with                                                                    |
@@ -180,9 +180,10 @@ While it asks, you can move on:
 - “never mind”, “cancel” or “forget it” drops the question
   (`OK, dropped the reminder “dentist”.`).
 - Something that fits as an answer is the answer.
-- A command of its own (“what do I have tomorrow?”, “my reminders”, “move it
-  to 10”) is done, and the question dropped: `Dropped: the reminder
-  “dentist”.` A new “remind me …” just replaces the question.
+- A command of its own (“what do I have tomorrow?”, “my reminders”, “cancel
+  the second one”) is done, and the question dropped: `Dropped: the reminder
+  “dentist”.` A new “remind me …” just replaces the question. “make it …”
+  and “also …” are taken as the answer then.
 - “that's wrong” saves the message it asked about as failed: asking was
   the mistake. If it can't understand the time in some other way (a repeat
 under 15 minutes, a time that has passed, more than 100 years away), it says

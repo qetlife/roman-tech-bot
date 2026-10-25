@@ -268,12 +268,14 @@ Every message first marks the [conversation](#conversation) as current
    question (`core/conversation.is_never_mind`), and a follow-up (“move it to
    10”, “cancel the second one”, `parse_follow_up`) is handled by
    `handlers/conversation.py`, dropping a waiting question with a note. A
-   copy (“also on thursday”) doesn't count during a question: it may be the
+   follow-up never beats a trigger phrase (“also remind me …”), except the
+   cancel and move ones it is about (`FOLLOW_UP_INTENTS`), and while the bot
+   asks only “cancel …” counts: “make it work” or “also buy milk” may be the
    answer.
 1. A message starting with a trigger phrase runs that intent's action with
    the rest of the message (`handlers/intents.py`, matched by
    `core/intents.py`; longest phrase wins, whole words only, polite filler
-   like “please” allowed in front). This always wins. If no phrase matches
+   like “please”, “also” or “and” allowed in front). This always wins. If no phrase matches
    as written, it's tried again with typos of the phrases' words fixed
    (“remid me”, see [Typos](#typos)); the rest keeps the original words.
    A waiting question is dropped, and the bot says so (`Dropped: the reminder

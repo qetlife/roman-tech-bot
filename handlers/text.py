@@ -33,6 +33,9 @@ NEEDS_KEYWORD = {
     IntentName.EVENT_LIST: ("event", "calendar"),
 }
 
+# Trigger phrases a follow-up wins over: "cancel it" and "move it to 10" are about "it".
+FOLLOW_UP_INTENTS = (IntentName.REMINDER_CANCEL, IntentName.EVENT_CANCEL, IntentName.EVENT_MOVE)
+
 # Questions whose answer is only a time or a day: "what do I have tomorrow?" is never one.
 TIME_ONLY = (Awaiting.REMINDER_CLOCK, Awaiting.REMINDER_DAY, Awaiting.EVENT_DAY)
 
@@ -96,14 +99,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
         about = drop_question(context)
         await update.effective_message.reply_text(f"OK, dropped {about}." if about else "OK.")
         return
+    match = match_intent(text, INTENTS)
     follow_up = parse_follow_up(text)
-    if follow_up is not None and not (awaiting is not None and follow_up.action == FollowUp.COPY):
-        # "move it to 10", "cancel the second one": a command of its own ("also …" may be an answer)
+    if follow_up is not None and (match is None or match.intent.name in FOLLOW_UP_INTENTS) \
+            and (awaiting is None or follow_up.action == FollowUp.CANCEL):
+        # "move it to 10", "cancel the second one": a command of its own. Not over a trigger
+        # phrase ("also remind me …"), and while the bot asks, "make it work" may be the answer.
         if awaiting is not None:
             await say_dropped(update, drop_question(context))
         await handle_follow_up(update, context, text)
         return
-    match = match_intent(text, INTENTS)
 
     if match is not None and awaiting not in (None, *TIME_ONLY) and match.intent.name in NEEDS_KEYWORD \
             and not any(word in text.lower() for word in NEEDS_KEYWORD[match.intent.name]):
