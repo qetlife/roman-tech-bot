@@ -46,6 +46,9 @@ Bot  › ⏰ call mom
   racket”: move padel and the reminder moves too.
 - **🔄 Google Calendar sync.** Both ways, with the calendars you pick: events
   from Google get reminders too, and changes made here show up there.
+- **🌐 A web app to talk to.** The same chat in a page, inside Telegram or
+  in a browser: hold to talk and it answers out loud (offline voice, with
+  Piper), plus what's coming up this week.
 - **👥 Remind other people.** “remind anna tomorrow at 9 to bring the keys”
   sends it to Anna, once she has accepted your invite link. You hear when
   she taps ✅ (or misses it).

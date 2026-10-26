@@ -1,12 +1,14 @@
-"""The bot's small web server, for Google: the OAuth callback and push notifications.
+"""The bot's small web server: for Google (the OAuth callback and push notifications) and the web app.
 
 Runs next to Telegram polling, in the same event loop (started by bot.py),
-on WEB_PORT, only when Google Calendar is set up. Nginx and Cloudflare put
-it at the host of GOOGLE_REDIRECT_URI (docs/setup.md).
+on WEB_PORT, when Google Calendar or the web app (WEBAPP_URL) is set up.
+Cloudflare puts it at the host of GOOGLE_REDIRECT_URI and at WEBAPP_URL's
+(docs/setup.md).
 
     GET  /oauth/callback   Google's consent page sends the user back here
     POST /google/push      Google says a synced calendar changed
     GET  /health           "ok", to check the route works
+    /, /api/…              the web app (handlers/webapp.py)
 """
 
 import html
@@ -16,7 +18,7 @@ from    aiohttp                     import web
 
 import  config
 
-from    handlers                    import calendar
+from    handlers                    import calendar, webapp
 
 
 logger = logging.getLogger(__name__)
@@ -64,19 +66,23 @@ async def health(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
-def make_app(bot) -> web.Application:
-    app = web.Application()
-    app["bot"] = bot
+def make_app(application) -> web.Application:
+    """`application`: the bot's (python-telegram-bot); the web app uses its users' data."""
+    app = web.Application(client_max_size=webapp.MAX_AUDIO_BYTES + 1024)
+    app["application"] = application
+    app["bot"] = application.bot
     app.router.add_get("/oauth/callback", oauth_callback)
     app.router.add_post("/google/push", google_push)
     app.router.add_get("/health", health)
+    if config.WEBAPP_URL:
+        webapp.add_routes(app)
     return app
 
 
-async def start(bot) -> web.AppRunner:
+async def start(application) -> web.AppRunner:
     """Start serving on WEB_PORT; returns the runner, to stop it on shutdown."""
-    runner = web.AppRunner(make_app(bot), access_log=None)
+    runner = web.AppRunner(make_app(application), access_log=None)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", config.WEB_PORT).start()
-    logger.info("Web server for Google Calendar on port %s", config.WEB_PORT)
+    logger.info("Web server on port %s", config.WEB_PORT)
     return runner

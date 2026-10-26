@@ -95,10 +95,18 @@ def test_patterns():
     assert re.match(prefixed(CallbackPrefix.QUIET_OPTION), "qhopt:off")
 
 
-def test_reminder_button_pattern_skips_menu_buttons(monkeypatch):
-    monkeypatch.setenv("DB_CONNECTION", "sqlite://")
-    import bot
+def test_reminder_button_pattern_skips_menu_buttons():
+    from handlers.buttons import REMINDER_BUTTON
 
-    assert re.match(bot.REMINDER_BUTTON, "rem:snz:5:10")
+    assert re.match(REMINDER_BUTTON, "rem:snz:5:10")
     for data in ("rem:new", "rem:list", "rem:settings"):
-        assert not re.match(bot.REMINDER_BUTTON, data)
+        assert not re.match(REMINDER_BUTTON, data)
+
+
+def test_every_button_has_one_handler():
+    from handlers import reminders
+    from handlers.buttons import handler_for
+
+    assert handler_for("rem:new") is reminders.on_new
+    assert handler_for("rem:snz:5:10") is reminders.on_reminder_button
+    assert handler_for("nothing:like:this") is None

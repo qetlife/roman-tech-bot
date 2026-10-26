@@ -6,6 +6,7 @@ Everything you can do with the bot, and how. For how the code works, see
 - [Getting started](#getting-started)
 - [Menus](#menus)
 - [Voice messages](#voice-messages)
+- [🌐 Web app](#-web-app)
 - [Reminders](#reminders)
   - [Creating a reminder](#creating-a-reminder)
   - [Time expressions](#time-expressions)
@@ -108,6 +109,39 @@ it with ✏️ Edit or send it again.
 - Transcription runs on the bot's own server (offline, with Vosk): your audio
   is never sent to Google or any other company.
 - If voice isn't available, the bot says so; typing always works.
+
+## 🌐 Web app
+
+The bot's chat in a page, for talking to it: type, or hold 🎙 and speak, and
+it answers out loud. Two ways in:
+
+- **In Telegram**: tap **Open app** next to the text box in the bot's chat.
+  You're logged in already. You can add it to your phone's home screen from
+  its ⋯ menu.
+- **In a browser**: [app.romanis.xyz](https://app.romanis.xyz), then **Log
+  in with Telegram**.
+
+It's the same bot: the same phrases, questions and buttons (What time?, ↩️
+Undo, ✏️ Edit, 👎 Wrong), and the same conversation, so “move it to 10” works
+on a reminder you just made in Telegram, and the other way round.
+
+- **💬 Chat**: type and send, or **hold 🎙** while you speak and let go. It
+  shows what it heard (`🎙 “…”`), then the reply.
+- **🔊 Spoken replies**: the bot reads its replies aloud. Tap 🔊 to switch
+  that off (🔇); the text is always there. On an iPhone in silent mode you
+  may not hear it.
+- **📅 Upcoming**: your reminders and events today and in the next 6 days.
+
+Good to know:
+
+- **Reminders still arrive in Telegram**, with their buttons, also when the
+  app is closed or your phone is locked. Tap **Open app** to go back.
+- The app only runs while it's open; the chat starts fresh when you open it
+  again (what you made is all there, in 📅 Upcoming and in Telegram).
+- Like voice messages, your recordings and the bot's spoken replies stay on
+  the bot's own server (offline speech, with Vosk and Piper).
+- Logging in shows the app who you are (your Telegram ID, name and
+  @username), nothing else. Everyone sees only their own reminders and events.
 
 ## Reminders
 

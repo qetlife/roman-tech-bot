@@ -2,6 +2,7 @@
 
 POST the voice message as it is (Telegram's OGG/Opus), get the text back.
 Spoken numbers come back as words ("nine thirty"); core/numbers.py handles them.
+And the other way (the web app's spoken replies): text in, audio out (`speak`).
 """
 
 import httpx
@@ -46,3 +47,27 @@ async def transcribe(audio: bytes) -> str:
     if response.status_code != 200:
         raise SpeechUnavailable(f"HTTP {response.status_code}: {response.text[:200]}")
     return response.json().get("text", "").strip()
+
+
+class VoiceOff(SpeechUnavailable):
+    """The speech-service has no voice (its /speak answers 503)."""
+
+
+async def speak(text: str, fmt: str = "mp3") -> bytes:
+    """The text spoken by the speech-service's Piper voice: audio in `fmt` ("mp3", "ogg" or "wav")."""
+    if not is_configured():
+        raise SpeechUnavailable("SPEECH_URL is not set")
+
+    headers = {"Authorization": f"Bearer {config.SPEECH_TOKEN}"} if config.SPEECH_TOKEN else {}
+    url = config.SPEECH_URL.rstrip("/") + "/speak"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as client:
+            response = await client.post(url, json={"text": text, "format": fmt}, headers=headers)
+    except httpx.HTTPError as e:
+        raise SpeechUnavailable(f"{type(e).__name__}: {e}") from e
+
+    if response.status_code == 503:
+        raise VoiceOff(response.text[:200])
+    if response.status_code != 200:
+        raise SpeechUnavailable(f"HTTP {response.status_code}: {response.text[:200]}")
+    return response.content

@@ -517,7 +517,7 @@ def test_web_routes(chat, google):
     from aiohttp.test_utils import make_mocked_request
     from handlers import web
 
-    app = web.make_app(chat.context.bot)
+    app = web.make_app(SimpleNamespace(bot=chat.context.bot))
     request = make_mocked_request("GET", "/oauth/callback?error=access_denied", app=app)
     assert "cancelled" in run(web.oauth_callback(request)).text
     request = make_mocked_request("POST", "/google/push", headers={"X-Goog-Channel-ID": "nope"}, app=app)

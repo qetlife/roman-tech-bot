@@ -38,6 +38,8 @@ GOOGLE_CLIENT_ID=<…>.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=<…>
 GOOGLE_REDIRECT_URI=https://calendar.romanis.xyz/oauth/callback
 CALENDAR_KEY=<a Fernet key>
+# Optional: the web app (see Web app below)
+WEBAPP_URL=https://app.romanis.xyz
 ```
 
 | Variable            | Required | What it does |
@@ -50,6 +52,7 @@ CALENDAR_KEY=<a Fernet key>
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | no | The OAuth client of the Google Cloud project ([Google Calendar](#google-calendar)). Unset: no 📅 Calendar sync, no web server |
 | `GOOGLE_REDIRECT_URI` | no     | Where Google sends the user back after linking, e.g. `https://calendar.romanis.xyz/oauth/callback`. Push notifications go to `/google/push` on the same host (HTTPS only) |
 | `CALENDAR_KEY`      | no       | Encrypts the Google logins in the database and signs the link. A Fernet key; changing it unlinks everyone |
+| `WEBAPP_URL`        | no       | The [web app](#web-app)'s address, e.g. `https://app.romanis.xyz`. Unset: no web app |
 | `WEB_PORT`          | no       | Port of the bot's web server inside the container (default `8080`) |
 | `ERRORS_DIR`        | no       | Where [unexpected errors](#unexpected-errors) are kept (default `data/errors`, the `errors` volume in Docker). Empty: only the log |
 
@@ -251,8 +254,8 @@ Optional: syncs events both ways with Google Calendar
 [how it works](development.md#google-calendar)). It needs a Google Cloud
 project, four environment variables, and a public HTTPS address for the
 bot's small web server (Google sends users back to it after linking, and
-pushes changes to it): on the Pi, a route in the Cloudflare Tunnel. Until all four variables are set, it's off and the
-web server doesn't start.
+pushes changes to it): on the Pi, a route in the Cloudflare Tunnel. Until all four variables are set, it's off (and the
+web server only starts for the [web app](#web-app)).
 
 ### 1. Google Cloud
 
@@ -295,7 +298,7 @@ be read with it (a new key means everyone links again). If it isn't a valid
 key, the log says `CALENDAR_KEY isn't a valid key` and Google Calendar stays
 off. Then
 `docker compose up -d` (a restart doesn't read `.env`). The log says
-`Web server for Google Calendar on port 8080`.
+`Web server on port 8080`.
 
 ### 3. `calendar.romanis.xyz` → the bot
 
@@ -352,13 +355,53 @@ server {
 **Check it**, once the bot runs with the four variables (before that, the
 three paths give a 502):
 
-- The bot's log says `Web server for Google Calendar on port 8080`.
+- The bot's log says `Web server on port 8080`.
 - `curl -s https://calendar.romanis.xyz/health` prints `ok`; `/` and other
   paths give a 404.
 - `https://calendar.romanis.xyz/oauth/callback` in a browser shows "This
   page is for linking Google Calendar from the bot."
 - In Telegram: ⚙️ Settings → 📅 Calendar → 🔗 Link Google Calendar, as a
   test user. The bot says "✅ Google Calendar linked."
+
+## Web app
+
+Optional: the bot's chat in a page, at `app.romanis.xyz`, inside Telegram (a
+Mini App) and in a browser ([user guide](user-guide.md#-web-app),
+[how it works](development.md#web-app)). It's served by the bot's own web
+server (the same one as Google Calendar's), so there's no new container.
+
+1. **The speech-service with `/speak`** (spoken replies, Piper): deploy the
+   speech-service version that has it (its own repository; the voice is
+   baked into its image). `SPEECH_URL` (and `SPEECH_TOKEN`) are the same as
+   for voice messages. Without it, the app works, silently; without
+   `SPEECH_URL`, also without 🎙.
+2. **`app.romanis.xyz` → the bot**: in the Cloudflare dashboard (Zero Trust
+   → Networks → Tunnels → the tunnel → Published application routes), add
+   one route, above any `*.romanis.xyz` wildcard:
+
+   | Hostname | Path | Service |
+   | --- | --- | --- |
+   | `app.romanis.xyz` | (none) | `http://roman-tech-bot:8080` |
+
+   The page is `/` and its files; the API is `/api/…`.
+3. **The environment**: `WEBAPP_URL=https://app.romanis.xyz` in `.env`, then
+   `docker compose up -d`. On startup the bot sets its menu button (next to
+   the text box in every chat with it) to **Open app**.
+4. **Login in a browser**: the Telegram Login Widget only works on a domain
+   the bot knows. In [@BotFather](https://t.me/BotFather): `/setdomain` →
+   the bot → `app.romanis.xyz`. (Inside Telegram it isn't needed.)
+
+**Check it**:
+
+- The bot's log says `Web server on port 8080`, and `curl -s
+  https://app.romanis.xyz/api/config` prints the bot's @username.
+- In Telegram, **Open app** opens the chat; “remind me friday dentist” asks
+  “What time?” with buttons, and the reply is spoken.
+- `https://app.romanis.xyz` in a browser shows **Log in with Telegram**.
+
+Logins are checked with the bot token (Telegram signs them with it), and the
+app's session tokens are signed with a key derived from it: changing
+`BOT_TOKEN` logs everyone out of the app.
 
 ## Migrating from SQLite
 
