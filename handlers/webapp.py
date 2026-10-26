@@ -23,6 +23,7 @@ Every /api call but config and login needs "Authorization: Bearer <token>".
 """
 
 import logging
+import time as time_module
 
 from    datetime                    import datetime, time, timedelta
 from    pathlib                     import Path
@@ -44,6 +45,7 @@ from    core.webauth                import check_init_data, check_login, sign_se
 from    db.repositories.event       import EventRepository
 from    db.repositories.reminder    import ReminderRepository
 from    db.repositories.user        import UserRepository
+from    enums                       import ItemKind
 from    handlers.buttons            import handler_for
 from    handlers.errors             import SORRY
 from    handlers.text               import handle_text
@@ -62,7 +64,8 @@ STATIC = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
 
 # The largest recording /api/voice takes (about 2 minutes of browser audio)
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
-# user_data key: the last id given to a message in the web chat (they count down from -1, so never a Telegram one)
+# user_data key: the last id given to a message in the web chat. Negative, so never a Telegram one, and
+# counting down from -(milliseconds since 1970) after a restart, so never one a page that stayed open has
 WEB_MESSAGE_ID = "web_message_id"
 DAYS = 7
 
@@ -87,7 +90,7 @@ class WebChat:
         self.alert = None
 
     def new_message(self, text: str, markup=None) -> "WebMessage":
-        message_id = self.user_data.get(WEB_MESSAGE_ID, 0) - 1
+        message_id = self.user_data.get(WEB_MESSAGE_ID, -int(time_module.time() * 1000)) - 1
         self.user_data[WEB_MESSAGE_ID] = message_id
         self.messages.append({"id": message_id, "text": text, "buttons": _buttons(markup)})
         return WebMessage(self, message_id, text)
@@ -331,13 +334,13 @@ def days_ahead(user, days: int = DAYS, now: datetime = None) -> list:
         for r in active:
             rule_tz = ZoneInfo(rule_tzs.get(r.creator_user_id) or "UTC")
             if reminder_occurs_on(r.remind_at, r.recurrence, day, tz, r.created_at, rule_tz):
-                items.append({"kind": "reminder", "time": f"{_reminder_time(r, day, tz, rule_tz):%H:%M}",
+                items.append({"kind": ItemKind.REMINDER, "time": f"{_reminder_time(r, day, tz, rule_tz):%H:%M}",
                               "text": r.text})
         for e in mine:
             if not event_occurs_on(e, day, tz):
                 continue
             when = None if e.all_day else occurrence_on(e, day, tz)
-            items.append({"kind": "event", "time": f"{when.astimezone(tz):%H:%M}" if when else None,
+            items.append({"kind": ItemKind.EVENT, "time": f"{when.astimezone(tz):%H:%M}" if when else None,
                           "text": e.title})
         items.sort(key=lambda i: (i["time"] is not None, i["time"] or ""))
         label = "Today" if n == 0 else "Tomorrow" if n == 1 else f"{day:%a %d %b}"

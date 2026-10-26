@@ -177,6 +177,14 @@ def test_chat_like_telegram(web):
     assert body["edits"][0]["id"] == undo["id"] and body["edits"][0]["text"].startswith("↩️ Back: dentist")
 
 
+def test_message_ids_never_repeat_after_a_restart(web):
+    first = _json(web("POST", "/api/message", json={"text": "remind me next friday dentist"}, token=web.token))
+    # A restart forgets user_data; the page still has the old messages
+    web.application.user_data.clear()
+    second = _json(web("POST", "/api/message", json={"text": "remind me next friday dentist"}, token=web.token))
+    assert second["messages"][0]["id"] < first["messages"][0]["id"] < 0
+
+
 def test_upcoming(web):
     web("POST", "/api/message", json={"text": "remind me tomorrow at 9 to call mom"}, token=web.token)
     web("POST", "/api/message", json={"text": "event padel tomorrow at 21:00"}, token=web.token)
