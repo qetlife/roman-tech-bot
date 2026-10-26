@@ -25,7 +25,7 @@ from    core.quiet                      import skip_quiet
 from    core.settings                   import (
     QUIET_HOURS, SENDER_UPDATES, SNOOZE_MAX_MINUTES, SNOOZE_MIN_MINUTES, format_minutes, quiet_window,
 )
-from    core.timezones                  import format_when, user_now
+from    core.timezones                  import format_when, to_local, user_now
 from    db.models.reminder              import utcnow
 from    db.repositories.contact         import ContactRepository
 from    db.repositories.reminder        import ReminderRepository
@@ -33,9 +33,10 @@ from    db.repositories.settings        import SettingsRepository
 from    db.repositories.user            import UserRepository
 from    db.repositories.failed_message  import FailedMessageRepository
 from    enums                           import (
-    AnswerKind, Awaiting, Callback, CallbackPrefix, ContactStatus, FailureReason, IntentName, ItemKind,
+    AnswerKind, Awaiting, Callback, CallbackPrefix, CardKind, ContactStatus, FailureReason, IntentName, ItemKind,
     MessageSource, ReminderAction, ReminderStatus,
 )
+from    handlers                        import report
 from    handlers.failed                 import record, record_not_understood
 from    handlers.people                 import display
 from    handlers.settings               import ask_timezone
@@ -138,6 +139,19 @@ def schedule_text(reminder, tz_name: str, rule_tz: str = None, whose: str = None
         if rule_tz != tz_name and whose:
             text += f" ({whose} time)"
     return text
+
+
+def report_card(update: Update, sent, reminder, tz_name: str, whom: str = None):
+    """The web app's card for a reminder just made or changed, and what to say next (handlers/report.py)."""
+    local = to_local(reminder.remind_at, tz_name)
+    repeat = recurrences.parse(reminder.recurrence).describe(ZoneInfo(tz_name)) if reminder.recurrence else None
+    report.card(update, sent, CardKind.REMINDER, title=reminder.text, date=local.date().isoformat(),
+                time=f"{local:%H:%M}", when=format_when(reminder.remind_at, tz_name, utcnow()), repeat=repeat,
+                whom=whom)
+    later = local + timedelta(hours=1)
+    # "move it to 00:30" would mean 00:30 that same day, which is earlier
+    moves = [f"move it to {later:%H:%M}"] if later.date() == local.date() else []
+    report.suggest(update, *moves, "the same next week", "cancel that")
 
 
 # --- reminders for others ---------------------------------------------------
@@ -481,29 +495,36 @@ async def answer_day(update: Update, context: ContextTypes.DEFAULT_TYPE, answer:
 
 async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, user, parsed, request: str):
     contact_id = context.user_data.get(PENDING_CONTACT_ID)
-    target, for_whom = None, ""
+    target, for_whom, whom = None, "", None
     if contact_id is not None:
         # Checked again: they may have left 👥 People while the bot asked.
         contact = await usable_contact(update, context, user, contact_id)
         if contact is None:
             return
-        target, for_whom = users.get_by_id(contact.contact_user_id), f" for {contact.name}"
+        target, for_whom, whom = users.get_by_id(contact.contact_user_id), f" for {contact.name}", contact.name
     context.user_data.pop(AWAITING, None)
     context.user_data.pop(PENDING_CONTACT_ID, None)
     recurrence = parsed.recurrence.serialize() if parsed.recurrence else None
     # The quiet hours of whoever gets it
     when = outside_quiet_hours(target or user, parsed.recurrence, parsed.when)
+    said = parsed.recurrence.describe(ZoneInfo(user.timezone)) if parsed.recurrence \
+        else report.when(format_when(parsed.when, user.timezone, utcnow()))
+    report.step(update, f"Understood: a reminder{for_whom}, {said}")
+    if when != parsed.when:
+        report.step(update, f"Moved out of quiet hours, to {report.when(format_when(when, user.timezone, utcnow()))}")
     reminder = reminders.create(
         user, target.telegram_id if target else update.effective_chat.id, parsed.text, when, recurrence,
         request, message_source(update), target=target,
     )
+    report.step(update, f"Saved, {whom} will get it" if whom else "Saved")
     context.user_data[LAST_REMINDER_ID] = reminder.id
     context.user_data.pop(LAST_EVENT_ID, None)
     about(context, ItemKind.REMINDER, reminder.id)
-    await update.effective_message.reply_text(
+    sent = await update.effective_message.reply_text(
         f"⏰ Got it{for_whom}: {reminder.text}\n{schedule_text(reminder, user.timezone)}",
         reply_markup=build_created_keyboard(reminder.id),
     )
+    report_card(update, sent, reminder, user.timezone, whom)
 
 
 async def edit_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, reminder_id: int, request: str):
@@ -538,11 +559,14 @@ async def edit_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
     context.user_data.pop(LAST_EVENT_ID, None)
     about(context, ItemKind.REMINDER, updated.id)
     await retire_fired_message(context, reminder, "✏️ Edited, see the updated reminder below.")
-    for_whom = f" for {contact_name(user.id, target)}" if target.id != user.id else ""
-    await update.effective_message.reply_text(
+    whom = contact_name(user.id, target) if target.id != user.id else None
+    for_whom = f" for {whom}" if whom else ""
+    report.step(update, f"Rescheduled for {report.when(format_when(updated.remind_at, user.timezone, utcnow()))}")
+    sent = await update.effective_message.reply_text(
         f"✏️ Updated{for_whom}: {updated.text}\n{schedule_text(updated, user.timezone)}",
         reply_markup=build_created_keyboard(updated.id),
     )
+    report_card(update, sent, updated, user.timezone, whom)
 
 
 async def on_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
