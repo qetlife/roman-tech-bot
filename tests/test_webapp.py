@@ -233,6 +233,19 @@ def test_no_move_suggestion_past_midnight(web):
     assert body["suggestions"][0] == "move it to 23:59"
 
 
+def test_an_events_move_suggestion_is_in_its_own_clock(web):
+    from db.repositories.user import UserRepository
+
+    _json(web("POST", "/api/message", json={"text": "event padel next friday at 18:00"}, token=web.token))
+    # Made in Lisbon; the user is in Kyiv now (2 hours ahead), the event keeps Lisbon's clock
+    UserRepository().set_timezone(web.telegram_id, "Europe/Kyiv")
+    body = _json(web("POST", "/api/message", json={"text": "move it to 19:00"}, token=web.token))
+    assert body["messages"][0]["card"]["time"] == "21:00"
+    assert body["suggestions"][0] == "move it to 20:00"
+    body = _json(web("POST", "/api/message", json={"text": body["suggestions"][0]}, token=web.token))
+    assert body["messages"][0]["card"]["time"] == "22:00"
+
+
 def test_what_can_you_do(web):
     body = _json(web("POST", "/api/message", json={"text": "what can you do?"}, token=web.token))
     assert body["messages"][0]["text"].startswith("Here's what I can do:")

@@ -180,9 +180,10 @@ def report_card(update: Update, sent, event, tz_name: str):
                 time=None if event.all_day else f"{local:%H:%M}", when=at_text(event, when, tz_name, now),
                 repeat=repeat_text(event, tz_name) if event.recurrence else None)
     moves = ["the same next week"] if not event.recurrence else []
-    later = local + timedelta(hours=1)
-    # "move it to 00:30" would mean 00:30 that same day, which is earlier
-    if not event.all_day and later.date() == local.date():
+    # "move it to …" is read in the event's own clock; "move it to 00:30" would mean that same day, earlier
+    own = to_local(when, event.timezone)
+    later = own + timedelta(hours=1)
+    if not event.all_day and later.date() == own.date():
         moves.insert(0, f"move it to {later:%H:%M}")
     report.suggest(update, *moves, "cancel that")
 
