@@ -455,6 +455,40 @@ def test_google_unreachable_sends_it_later(chat, google):
     assert not padel.pending_push and padel.external_id is not None
 
 
+def test_push_says_whether_google_has_it(chat, google, monkeypatch):
+    """True only when Google took the change: the web app then says “Added to Google Calendar”."""
+    import config
+    from handlers import report
+    from handlers.calendar import push
+    from handlers.events import report_google
+    from services import google_calendar
+
+    chat("event padel on dec 24 at 21:00")
+    [padel] = _events(chat)
+
+    def pushed(done="Added to Google Calendar"):
+        update = SimpleNamespace(report=report.Report())
+        run(report_google(update, chat.context, padel, done))
+        return update.report.steps
+
+    # Not linked
+    assert run(push(chat.context.bot, padel)) is False and pushed() == []
+    link(chat, google)
+    assert run(push(chat.context.bot, padel)) is True and pushed() == ["Added to Google Calendar"]
+    # Google unreachable
+    working = google_calendar.transport
+    google_calendar.transport = httpx.MockTransport(lambda request: httpx.Response(503))
+    assert run(push(chat.context.bot, padel)) is False and pushed() == []
+    google_calendar.transport = working
+    # The login expired
+    google.refused = True
+    google_calendar._access.clear()
+    assert run(push(chat.context.bot, padel)) is False and pushed() == []
+    # Google Calendar not set up on this bot
+    monkeypatch.setattr(config, "GOOGLE_CLIENT_ID", None)
+    assert run(push(chat.context.bot, padel)) is False
+
+
 def test_last_change_wins(chat, google):
     from db.repositories.event import EventRepository
 

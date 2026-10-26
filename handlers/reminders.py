@@ -149,7 +149,9 @@ def report_card(update: Update, sent, reminder, tz_name: str, whom: str = None):
                 time=f"{local:%H:%M}", when=format_when(reminder.remind_at, tz_name, utcnow()), repeat=repeat,
                 whom=whom)
     later = local + timedelta(hours=1)
-    report.suggest(update, f"move it to {later:%H:%M}", "the same next week", "cancel that")
+    # "move it to 00:30" would mean 00:30 that same day, which is earlier
+    moves = [f"move it to {later:%H:%M}"] if later.date() == local.date() else []
+    report.suggest(update, *moves, "the same next week", "cancel that")
 
 
 # --- reminders for others ---------------------------------------------------

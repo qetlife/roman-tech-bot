@@ -224,6 +224,15 @@ def test_replies_come_with_steps_cards_and_suggestions(web):
     assert edit["id"] == made["id"] and "card" not in edit and edit["text"]
 
 
+def test_no_move_suggestion_past_midnight(web):
+    body = _json(web("POST", "/api/message", json={"text": "remind me next friday at 23:30 to lock up"}, token=web.token))
+    assert body["suggestions"] == ["the same next week", "cancel that"]
+    body = _json(web("POST", "/api/message", json={"text": "event party next friday at 23:15"}, token=web.token))
+    assert body["suggestions"] == ["the same next week", "cancel that"]
+    body = _json(web("POST", "/api/message", json={"text": "event party next saturday at 22:59"}, token=web.token))
+    assert body["suggestions"][0] == "move it to 23:59"
+
+
 def test_what_can_you_do(web):
     body = _json(web("POST", "/api/message", json={"text": "what can you do?"}, token=web.token))
     assert body["messages"][0]["text"].startswith("Here's what I can do:")
