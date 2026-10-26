@@ -221,7 +221,9 @@ def test_move_it(chat):
     chat("make it tomorrow")
     [reminder] = _active(chat.telegram_id)
     assert _local(reminder).time() == time(10, 0)
-    assert _local(reminder).date() == (datetime.now(TZ) + timedelta(days=1)).date()
+    # What "tomorrow" is now (before 04:00 it's the coming day, today)
+    from core.parser import parse_when
+    assert _local(reminder).date() == parse_when("tomorrow", datetime.now(TZ)).date()
 
 
 def test_cancel_it_with_undo(chat):

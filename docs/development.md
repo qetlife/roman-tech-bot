@@ -16,6 +16,7 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see
 - [People](#people)
 - [Events](#events)
 - [Google Calendar](#google-calendar)
+- [Web app](#web-app)
 - [Enums](#enums)
 - [Database](#database)
 - [Tests](#tests)
@@ -33,7 +34,9 @@ handlers/           everything that talks to Telegram (messages, buttons)
     commands.py     /start, /menu
     events.py       📅 Events: create, list, move, cancel; reminders relative to an event; "event or reminder?"
     calendar.py     📅 Google Calendar: linking, ⚙️ Settings → 📅 Calendar, syncing both ways
-    web.py          the small web server for Google: OAuth callback, push notifications
+    web.py          the small web server: Google's OAuth callback and push notifications, the web app
+    webapp.py       🌐 the web app's API: login, chat (the same handlers, replies as JSON), voice, spoken replies
+    buttons.py      every button: callback data pattern → handler (bot.py and the web app)
     errors.py       the catch-all for unexpected errors: recorded, and “Sorry, something went wrong”
     failed.py       saving failed messages; /failed list (admin only)
     people.py       👥 People: invite links, requests by @username, rename, remove
@@ -63,6 +66,8 @@ core/               the logic: no Telegram, no database sessions
     events.py       events: parsing (all-day too), occurrences, "30 min before padel", which event a message names
     gcal.py         Google Calendar's JSON ↔ the bot's events
     secrets.py      encrypting Google logins, signing the OAuth state
+    webauth.py      the web app's logins: Telegram's signed initData / Login Widget data, session tokens
+    speakable.py    a reply as it's said out loud: no emoji, “9 hours” for “9 h”
     errors.py       recording unexpected errors to a rotating file (no Telegram, no database), reading them back
 
 jobs/
@@ -71,7 +76,7 @@ jobs/
     calendar.py     daily: renew Google push channels, sync every linked user
 
 services/           clients for other services (no Telegram)
-    speech.py       speech-service: audio → text
+    speech.py       speech-service: audio → text, and text → audio (spoken replies)
     google_calendar.py  Google OAuth and the Calendar API
 
 db/
@@ -82,6 +87,7 @@ db/
 
 alembic/            schema migrations
 autofix/            the daily auto-fix job: sandbox image, prompt, runner script
+webapp/             the web app's page: index.html, app.js, style.css (no build step)
 docs/               this guide and the user guide
 scripts/            command line: failed.py (failed messages), errors.py (unexpected errors), the one-off SQLite migration
 tests/              pytest, throwaway SQLite database
@@ -227,6 +233,17 @@ obvious from the code.
 - **No AI** for any of this: the parser and fixed phrases, so it stays fast,
   free, offline and predictable. A phrasing nobody used before gets “I
   didn't get that” until it's learned ([failed messages](#failed-messages)).
+- **The web app drives the same handlers** (#58): a web request becomes a
+  `WebUpdate` that looks enough like Telegram's for `handle_text` and the
+  button handlers, and their replies come back as JSON. One code path, so a
+  phrase or a button that works in Telegram works in the page, and the
+  conversation (`user_data`) is shared. A second, JSON-only API would have
+  meant every feature twice.
+- **Reminders stay in Telegram**: the page doesn't do notifications (web
+  push is unreliable on iPhones, and only works while installed); Telegram
+  delivers them, with one tap back into the app.
+- **Spoken replies are Piper on the Pi**, in the speech-service next to
+  Vosk: private like voice messages, and the same voice on every phone.
 - **Unexpected errors go to a file, not a table** (`core/errors.py`): the
   database is one of the things that breaks, and its errors would go
   unrecorded. No outside error tracker either: errors can hold bits of what
@@ -855,6 +872,57 @@ event loop.
 
 Tests fake Google with an `httpx.MockTransport` (`tests/test_calendar.FakeGoogle`).
 
+## Web app
+
+The bot's chat in a page (#58): `webapp/` (plain HTML, CSS and JavaScript,
+no build step) and its API, `handlers/webapp.py`, on the bot's web server
+(`handlers/web.py`, only with `WEBAPP_URL` set). See the [user
+guide](user-guide.md#-web-app) and [setup](setup.md#web-app).
+
+**Logging in** (`core/webauth.py`): inside Telegram the page has `initData`,
+signed with a key made from the bot token (`check_init_data`); in a browser
+the Telegram Login Widget's fields are signed with the bot token's SHA-256
+(`check_login`). Either is accepted for 24 hours after it was made. The page
+then gets a session token (`sign_session`: the Telegram id and the time,
+HMAC-signed with a key derived from the bot token, valid 30 days), kept in
+`localStorage` and sent as `Authorization: Bearer …`. Not a cookie: inside
+Telegram's desktop app the page is in an iframe, where cookies are third
+party.
+
+**The chat** goes through the bot's own handlers:
+
+- `/api/message` hands the text to `handlers/text.handle_text`, and
+  `/api/button` the tap to the button's handler (`handlers/buttons.py`,
+  the same list `bot.py` registers), with a `WebUpdate`: the user, a private
+  chat with their id, and a `WebMessage` / `WebQuery` that collect what the
+  handler does (`reply_text`, `edit_message_text`, `answer`) in a
+  `WebChat`. The response is `{"messages", "edits", "alert"}`: new
+  messages with their buttons (`{"text", "data"}`, or `{"text", "url"}`),
+  edits of earlier ones, and an alert (a button's `answer` text).
+- The context is a `WebContext`: the user's own `user_data` (the same dict as
+  in Telegram, so a question asked in one can be answered in the other) and a
+  `chat_data` of its own, so `render_menu` never edits the Telegram menu
+  message. `context.bot` is the real bot: a reminder for someone else is
+  sent to them through Telegram.
+- Web messages have negative ids (counting down in
+  `user_data["web_message_id"]`), never a Telegram one, so “that question
+  has expired” checks work the same.
+- An unexpected error is recorded like in Telegram (`logger.exception`, so
+  in the [errors file](#unexpected-errors)) and the user gets the same
+  apology.
+
+**Voice**: `/api/voice` takes the browser's recording as it is (WebM/Opus, or
+MP4/AAC on iPhones), the speech-service transcribes it (ffmpeg reads both),
+and it goes on as a typed message would, with `voice` set so a reminder made
+from it says so. **Spoken replies**: the page sends the bot's new messages to
+`/api/speak`, which makes them speakable (`core/speakable.py`) and has the
+speech-service's `/speak` (Piper) say them, as MP3. Phones only play sound
+started by a tap, so the page plays a moment of silence on the first one.
+
+**📅 Upcoming** (`/api/upcoming`, `days_ahead`): today and the next 6 days,
+reminders (repeats on each day they fall on) and events, in the user's
+timezone.
+
 ## Enums
 
 Use an enum instead of loose strings for any fixed set of values. **All
@@ -919,7 +987,7 @@ migrations applied; the `chat` fixture (a user with a timezone) is there too. CI
 and before every deploy. Parser, recurrence, quiet hours and settings tests are pure;
 delivery tests use a fake bot (`tests/test_recurrence.FakeBot`);
 `tests/test_handlers.py`, `tests/test_events.py`, `tests/test_calendar.py`
-`tests/test_errors.py` (with a fake clock)
+`tests/test_errors.py` (with a fake clock), `tests/test_webapp.py` (logins, and the API through aiohttp's test server)
 and `tests/test_voice.py` drive the handlers with mocked Telegram objects; `tests/test_numbers.py` covers spoken phrases.
 
 ## How to…

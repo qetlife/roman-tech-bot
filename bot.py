@@ -1,38 +1,39 @@
 """Entry point: registers the handlers and the delivery job, then polls Telegram."""
 
 import logging
-import re
 
-from    telegram                    import Update
+from    telegram                    import MenuButtonWebApp, Update, WebAppInfo
+from    telegram.error              import TelegramError
 from    telegram.ext                import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, TypeHandler, filters,
 )
 
-from    config                      import BOT_TOKEN, ERRORS_DIR, calendar_configured
+from    config                      import BOT_TOKEN, ERRORS_DIR, WEBAPP_URL, calendar_configured
 from    core.errors                 import install as install_errors
 from    db.session                  import init_db
-from    enums                       import Callback, CallbackPrefix, ReminderAction
-from    handlers                    import calendar, events, failed, people, reminders, settings, web
+from    handlers                    import calendar, failed, web
+from    handlers.buttons            import BUTTONS
 from    handlers.errors             import on_error
 from    handlers.commands           import menu_cmd, start
-from    handlers.menus              import on_main_menu, on_my_id, on_reminders, on_settings
-from    handlers.text               import on_answer, on_text
-from    handlers.ui                 import exact, prefixed, remember_profile
+from    handlers.text               import on_text
+from    handlers.ui                 import remember_profile
 from    handlers.voice              import on_voice
 from    jobs                        import calendar as calendar_jobs
 from    jobs.delivery               import POLL_INTERVAL, deliver_due
 from    jobs.failed                 import resolve_understood
 
-# rem:<action>:<id>[:<minutes>]; "rem:new" etc. are separate buttons.
-REMINDER_BUTTON = (
-    "^" + re.escape(CallbackPrefix.REMINDER) + "(?:" + "|".join(ReminderAction) + r"):\d+"
-)
 
 
 async def start_web(app):
-    """With Google Calendar set up: the web server for its login and push notifications."""
-    if calendar_configured():
-        app.bot_data["web"] = await web.start(app.bot)
+    """With Google Calendar or the web app set up: the web server (Google's login and push, the web app)."""
+    if calendar_configured() or WEBAPP_URL:
+        app.bot_data["web"] = await web.start(app)
+    if WEBAPP_URL:
+        # The button next to the text box opens the web app (a Mini App)
+        try:
+            await app.bot.set_chat_menu_button(menu_button=MenuButtonWebApp("Open app", WebAppInfo(WEBAPP_URL)))
+        except TelegramError:
+            logging.getLogger(__name__).warning("Couldn't set the web app's menu button", exc_info=True)
 
 
 async def stop_web(app):
@@ -67,52 +68,9 @@ def main():
     app.add_handler(CommandHandler("failed", failed.on_failed_cmd))         # admin only
     app.add_handler(CommandHandler("calendar", calendar.on_calendar_cmd))
 
-    # Main Menu
-    app.add_handler(CallbackQueryHandler(on_main_menu,    pattern=exact(Callback.MAIN_MENU, Callback.SETTINGS_BACK)))
-    app.add_handler(CallbackQueryHandler(on_reminders,    pattern=exact(Callback.REMINDERS_MENU)))
-    app.add_handler(CallbackQueryHandler(on_settings,     pattern=exact(Callback.SETTINGS_MENU)))
-
-    # Settings
-    app.add_handler(CallbackQueryHandler(on_my_id,        pattern=exact(Callback.MY_ID)))
-    app.add_handler(CallbackQueryHandler(settings.on_timezone_settings, pattern=exact(Callback.TIMEZONE_SETTINGS)))
-    app.add_handler(CallbackQueryHandler(settings.on_timezone_button,   pattern=prefixed(CallbackPrefix.TIMEZONE)))
-    app.add_handler(CallbackQueryHandler(settings.on_reminder_settings, pattern=exact(
-        Callback.REMINDER_SETTINGS, Callback.REMINDER_SETTINGS_FROM_MENU, Callback.REMINDER_SETTINGS_RETURN,
-    )))
-    app.add_handler(CallbackQueryHandler(settings.on_snooze_settings, pattern=exact(Callback.SNOOZE_SETTINGS)))
-    app.add_handler(CallbackQueryHandler(settings.on_snooze_button,   pattern=prefixed(CallbackPrefix.SNOOZE_OPTION)))
-    app.add_handler(CallbackQueryHandler(settings.on_repeat_settings, pattern=exact(Callback.REPEAT_SETTINGS)))
-    app.add_handler(CallbackQueryHandler(settings.on_repeat_button,   pattern=prefixed(CallbackPrefix.REPEAT_OPTION)))
-    app.add_handler(CallbackQueryHandler(settings.on_quiet_settings,  pattern=exact(Callback.QUIET_SETTINGS)))
-    app.add_handler(CallbackQueryHandler(settings.on_quiet_button,    pattern=prefixed(CallbackPrefix.QUIET_OPTION)))
-    app.add_handler(CallbackQueryHandler(settings.on_updates_settings, pattern=exact(Callback.UPDATES_SETTINGS)))
-    app.add_handler(CallbackQueryHandler(settings.on_updates_button,  pattern=prefixed(CallbackPrefix.UPDATES_OPTION)))
-
-    # Reminders
-    app.add_handler(CallbackQueryHandler(reminders.on_new,              pattern=exact(Callback.NEW_REMINDER)))
-    app.add_handler(CallbackQueryHandler(reminders.list_reminders,      pattern=exact(Callback.LIST_REMINDERS)))
-    app.add_handler(CallbackQueryHandler(reminders.on_reminder_button,  pattern=REMINDER_BUTTON))
-
-    # 📅 Events
-    app.add_handler(CallbackQueryHandler(events.on_events_menu,         pattern=exact(Callback.EVENTS_MENU)))
-    app.add_handler(CallbackQueryHandler(events.on_new,                 pattern=exact(Callback.NEW_EVENT)))
-    app.add_handler(CallbackQueryHandler(events.on_event_button,        pattern=prefixed(CallbackPrefix.EVENT)))
-    app.add_handler(CallbackQueryHandler(on_answer,                     pattern=prefixed(CallbackPrefix.ANSWER)))
-    app.add_handler(CallbackQueryHandler(events.on_pick,                pattern=exact(Callback.PICK_EVENT, Callback.PICK_REMINDER)))
-
-    # 📅 Google Calendar
-    app.add_handler(CallbackQueryHandler(calendar.on_calendar_settings, pattern=exact(Callback.CALENDAR_SETTINGS)))
-    app.add_handler(CallbackQueryHandler(calendar.on_calendar_button,   pattern=prefixed(CallbackPrefix.CALENDAR)))
-
-    # 👥 People
-    app.add_handler(CallbackQueryHandler(people.on_people_menu,         pattern=exact(Callback.PEOPLE_MENU)))
-    app.add_handler(CallbackQueryHandler(people.on_new_invite,          pattern=exact(Callback.NEW_INVITE)))
-    app.add_handler(CallbackQueryHandler(people.on_people_button,       pattern=prefixed(CallbackPrefix.PEOPLE)))
-    app.add_handler(CallbackQueryHandler(people.on_invite_button,       pattern=prefixed(CallbackPrefix.INVITE)))
-
-    # Failed messages (/failed list)
-    app.add_handler(CallbackQueryHandler(failed.on_failed_button,       pattern=prefixed(CallbackPrefix.FAILED_FIXED)))
-    app.add_handler(CallbackQueryHandler(failed.on_failed_button,       pattern=prefixed(CallbackPrefix.FAILED_IGNORED)))
+    # Buttons (handlers/buttons.py: the web app uses the same list)
+    for pattern, handler in BUTTONS:
+        app.add_handler(CallbackQueryHandler(handler, pattern=pattern))
 
     # Free text in private chats: trigger phrases ("remind me ...") and answers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, on_text))

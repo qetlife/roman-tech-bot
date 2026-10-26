@@ -18,6 +18,8 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
       CALENDAR_KEY: ${CALENDAR_KEY:-}
+      # The web app's address, e.g. https://app.romanis.xyz (optional, docs/setup.md)
+      WEBAPP_URL: ${WEBAPP_URL:-}
     volumes:
       # Unexpected errors (errors.jsonl, at most 25 MB): kept across deploys, read with
       # docker compose exec bot python scripts/errors.py list
@@ -30,8 +32,8 @@ services:
         max-file: "3"
     networks:
       # Shared with the `postgres` container, and with `cloudflared`, which sends
-      # calendar.romanis.xyz to the bot's web server as roman-tech-bot:8080
-      # (Google Calendar, docs/setup.md). Not published on the Pi.
+      # calendar.romanis.xyz and app.romanis.xyz to the bot's web server as
+      # roman-tech-bot:8080 (Google Calendar, the web app; docs/setup.md). Not published on the Pi.
       shared-network:
         aliases:
           - roman-tech-bot
