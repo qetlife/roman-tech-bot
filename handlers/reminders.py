@@ -58,18 +58,6 @@ failed = FailedMessageRepository()
 # bot_understood["error"] of a message flagged with "that's wrong" while the bot asked about it.
 ASKED_ERROR = "asked for the missing time or text"
 
-EXAMPLES = (
-    "Examples:\n"
-    "• in 2 hours to call mom\n"
-    "• tomorrow at 9 to pay rent\n"
-    "• to stretch at 18:30\n"
-    "• friday 10am: dentist\n"
-    "• every day at 9 to take pills\n"
-    "• on weekdays at 8:30: standup\n"
-    "• every 2 hours to drink water\n"
-    "• on the 1st of every month to pay rent"
-)
-
 # --- keyboards --------------------------------------------------------------
 
 def build_fire_keyboard(reminder_id: int, snooze_minutes):
@@ -142,16 +130,12 @@ def schedule_text(reminder, tz_name: str, rule_tz: str = None, whose: str = None
 
 
 def report_card(update: Update, sent, reminder, tz_name: str, whom: str = None):
-    """The web app's card for a reminder just made or changed, and what to say next (handlers/report.py)."""
+    """The web app's card for a reminder just made or changed (handlers/report.py)."""
     local = to_local(reminder.remind_at, tz_name)
     repeat = recurrences.parse(reminder.recurrence).describe(ZoneInfo(tz_name)) if reminder.recurrence else None
     report.card(update, sent, CardKind.REMINDER, title=reminder.text, date=local.date().isoformat(),
                 time=f"{local:%H:%M}", when=format_when(reminder.remind_at, tz_name, utcnow()), repeat=repeat,
                 whom=whom)
-    later = local + timedelta(hours=1)
-    # "move it to 00:30" would mean 00:30 that same day, which is earlier
-    moves = [f"move it to {later:%H:%M}"] if later.date() == local.date() else []
-    report.suggest(update, *moves, "the same next week", "cancel that")
 
 
 # --- reminders for others ---------------------------------------------------
@@ -345,7 +329,7 @@ def pending_whom(context: ContextTypes.DEFAULT_TYPE) -> str:
 async def not_understood(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str, error: ParseError):
     record_not_understood(update, context, request, IntentName.REMINDER_CREATE, str(error))
     context.user_data[AWAITING] = Awaiting.REMINDER
-    await update.effective_message.reply_text(f"{error} Send it again, e.g. “in 2 hours to call mom”.\n\n{EXAMPLES}")
+    await update.effective_message.reply_text(f"{error} Send it again.")
 
 
 def is_bare_time(update: Update, text: str) -> bool:
@@ -378,8 +362,7 @@ async def ask_when(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str
     if request is not None:
         context.user_data[ASKED_REQUEST] = request
     await update.effective_message.reply_text(
-        f"{prefix}⏰ When should I remind {whom}: “{text}”?\n"
-        "e.g. “tomorrow at 9”, “in 2 hours”, “every Monday at 8”"
+        f"{prefix}⏰ When should I remind {whom}: “{text}”?"
     )
 
 
@@ -438,7 +421,7 @@ async def ask_clock(update: Update, context: ContextTypes.DEFAULT_TYPE, request:
     context.user_data[PENDING_PART] = request
     context.user_data[ASKED_REQUEST] = request
     asked = await update.effective_message.reply_text(
-        f"{prefix}⏰ What time should I remind {whom}: “{text}”?\nTap one, or type a time, e.g. “10:30”.",
+        f"{prefix}⏰ What time should I remind {whom}: “{text}”?\nTap one, or type a time.",
         reply_markup=clock_keyboard(),
     )
     # Its buttons answer this question only, not a later one
@@ -539,12 +522,12 @@ async def edit_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
         parsed = parse_reminder(request, user_now(user.timezone))
     except ParseError as e:
         record_not_understood(update, context, request, IntentName.REMINDER_EDIT, str(e))
-        await update.effective_message.reply_text(f"{e} Try again, e.g. “tomorrow at 10 to call mom”.")
+        await update.effective_message.reply_text(f"{e} Try again.")
         return
     if not parsed.timed:
         # Never a guessed time, here either
         await update.effective_message.reply_text(
-            f"At what time? Send it with the time, e.g. “{request} at 10”.")
+            "At what time? Send it with the time.")
         return
 
     context.user_data.pop(AWAITING, None)
@@ -574,7 +557,7 @@ async def on_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     context.user_data[AWAITING] = Awaiting.REMINDER
     context.user_data.pop(PENDING_CONTACT_ID, None)
-    await update.effective_message.reply_text(f"What should I remind you about, and when?\n\n{EXAMPLES}")
+    await update.effective_message.reply_text("What should I remind you about, and when?")
 
 
 # --- listing ----------------------------------------------------------------
@@ -810,7 +793,7 @@ async def start_edit(context: ContextTypes.DEFAULT_TYPE, reminder, reply, intro:
     """Ask for the new time and text of a reminder (✏️ Edit)."""
     context.user_data[AWAITING] = Awaiting.EDIT
     context.user_data[EDIT_REMINDER_ID] = reminder.id
-    await reply(f"{intro}Send the new time and text for “{reminder.text}”, e.g. “tomorrow at 10 to {reminder.text}”.")
+    await reply(f"{intro}Send the new time and text for “{reminder.text}”.")
 
 
 # --- 👎 Wrong ----------------------------------------------------------------

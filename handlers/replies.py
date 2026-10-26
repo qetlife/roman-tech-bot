@@ -72,7 +72,7 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
             if parsed.text != MOVE_PLACEHOLDER:
                 raise ParseError("I couldn't understand when.")
         except ParseError as e:
-            await reply(f"{e} Try e.g. “move it to 10” or “move it to tomorrow at 9”.")
+            await reply(str(e))
             return True
         if parsed.recurrence:
             await reply("To change how it repeats, use ✏️ Edit on its confirmation.")

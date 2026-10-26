@@ -742,7 +742,7 @@ def test_nothing_on_that_day(chat):
 
 
 def test_agenda_needs_a_day(chat):
-    assert _replies(chat("what's on my mind"))[0].startswith("I can show one day")
+    assert _replies(chat("what's on my mind")) == ["I couldn't understand the day."]
 
 
 def test_agenda_without_a_day_is_today(chat):

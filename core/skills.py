@@ -1,8 +1,7 @@
 """What the assistant can do, in one list (#61).
 
-The web app's home ("What I can do"), the reply to "what can you do?" and
-its suggestions all come from here, so a new skill shows up everywhere once
-it's added. Each example must be a phrase the bot understands.
+The web app's home ("What I can do") and the reply to "what can you do?"
+both come from here, so a new skill shows up everywhere once it's added. Each example must be a phrase the bot understands.
 """
 
 from    dataclasses     import dataclass

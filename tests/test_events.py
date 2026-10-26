@@ -228,7 +228,7 @@ def test_other_ways_to_create(chat, message):
 
 
 def test_add_without_calendar_isnt_an_event(chat):
-    assert _replies(chat("add milk to the list"))[0].startswith("I didn't get that.")
+    assert _replies(chat("add milk to the list")) == ["I didn't get that."]
     assert _events(chat.telegram_id) == []
 
 
@@ -566,7 +566,7 @@ def test_reminder_for_an_event_cancelled_meanwhile(chat):
 
 @pytest.mark.parametrize("message, reply", [
     ("remind me in 99999999 days to call mom", "That's too far in the future."),
-    ("what do I have in 99999999 days?", "I can show one day"),
+    ("what do I have in 99999999 days?", "I couldn't understand the day."),
     ("event padel in 99999999 days", "That's too far in the future."),
 ])
 def test_too_far_in_the_future_doesnt_crash(chat, message, reply):

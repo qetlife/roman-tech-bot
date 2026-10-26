@@ -63,10 +63,7 @@ REPLACES = {
     IntentName.EVENT_CREATE: {Awaiting.EVENT, Awaiting.EVENT_TITLE, Awaiting.EVENT_TIME, Awaiting.EVENT_DAY},
 }
 
-HELP_TEXT = (
-    "I didn't get that. Try “remind me in 2 hours to call mom”, "
-    "“event padel on thursday at 21:00”, “my reminders”, or /menu."
-)
+HELP_TEXT = "I didn't get that."
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):

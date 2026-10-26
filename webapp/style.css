@@ -369,26 +369,6 @@ main {
 
 #composer { padding: 0.25rem 1rem calc(0.75rem + env(safe-area-inset-bottom)); }
 
-.suggestions {
-  display: flex;
-  gap: 0.5rem;
-  overflow-x: auto;
-  padding-bottom: 0.5rem;
-  scrollbar-width: none;
-}
-
-.suggestions:empty { display: none; }
-
-.suggestions button {
-  flex: none;
-  min-height: 40px;
-  padding: 0 0.9rem;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  font-size: 0.85rem;
-}
-
 .bar {
   display: flex;
   align-items: center;

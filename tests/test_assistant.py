@@ -59,7 +59,6 @@ def test_reports_do_nothing_outside_the_web_app():
     for update in (Update(update_id=1), SimpleNamespace()):
         report.step(update, "Saved")
         report.card(update, SimpleNamespace(message_id=1), CardKind.REMINDER, title="x")
-        report.suggest(update, "cancel that")
 
 
 def test_a_report():
@@ -67,11 +66,8 @@ def test_a_report():
     report.step(update, "Saved")
     report.card(update, SimpleNamespace(message_id=-5), CardKind.EVENT, title="padel")
     report.card(update, None, CardKind.EVENT, title="nothing to show it on")
-    report.suggest(update, "cancel that", "move it to 10:00")
-    report.suggest(update, "cancel that")
     assert update.report.steps == ["Saved"]
     assert update.report.cards == {-5: {"kind": CardKind.EVENT, "title": "padel"}}
-    assert update.report.suggestions == ["cancel that", "move it to 10:00"]
 
 
 def test_times_in_steps():

@@ -53,14 +53,6 @@ events = EventRepository()
 reminders = ReminderRepository()
 failed = FailedMessageRepository()
 
-EXAMPLES = (
-    "Examples:\n"
-    "• padel on thursday at 21:00\n"
-    "• every thursday at 21:00: padel\n"
-    "• dentist on friday (all day)\n"
-    "• dec 24 at 18:00: dinner at mom's"
-)
-
 # ⏰ buttons on an event: minutes from its start (negative: before)
 QUICK_REMINDERS = (-15, -30, -60)
 # On an all-day event (which starts at midnight): 09:00 the day before, 09:00 on the day
@@ -172,20 +164,13 @@ def _quick_buttons(event) -> list:
 
 
 def report_card(update: Update, sent, event, tz_name: str):
-    """The web app's card for an event just made or changed, and what to say next (handlers/report.py)."""
+    """The web app's card for an event just made or changed (handlers/report.py)."""
     now = utcnow()
     when = next_occurrence(event, now) or event.starts_at
     local = to_local(when, event.timezone if event.all_day else tz_name)
     report.card(update, sent, CardKind.EVENT, title=event.title, date=local.date().isoformat(),
                 time=None if event.all_day else f"{local:%H:%M}", when=at_text(event, when, tz_name, now),
                 repeat=repeat_text(event, tz_name) if event.recurrence else None)
-    moves = ["the same next week"] if not event.recurrence else []
-    # "move it to …" is read in the event's own clock; "move it to 00:30" would mean that same day, earlier
-    own = to_local(when, event.timezone)
-    later = own + timedelta(hours=1)
-    if not event.all_day and later.date() == own.date():
-        moves.insert(0, f"move it to {later:%H:%M}")
-    report.suggest(update, *moves, "cancel that")
 
 
 async def report_google(update: Update, context: ContextTypes.DEFAULT_TYPE, event, done: str):
@@ -242,8 +227,7 @@ async def put_in_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE, re
         return
     record_not_understood(update, context, update.effective_message.text or request)
     await update.effective_message.reply_text(
-        "I didn't get that. To add an event, try “put padel on thursday at 21:00 in my calendar”, "
-        "or “event padel on thursday at 21:00”."
+        "I didn't get that."
     )
 
 
@@ -251,7 +235,7 @@ async def not_understood(update: Update, context: ContextTypes.DEFAULT_TYPE, req
     record_not_understood(update, context, request, IntentName.EVENT_CREATE, str(error))
     context.user_data[AWAITING] = Awaiting.EVENT
     await update.effective_message.reply_text(
-        f"{error} Send it again, e.g. “padel on thursday at 21:00”.\n\n{EXAMPLES}"
+        f"{error} Send it again."
     )
 
 
@@ -274,8 +258,7 @@ async def ask_time(update: Update, context: ContextTypes.DEFAULT_TYPE, title: st
     if request is not None:
         context.user_data[ASKED_REQUEST] = request
     await update.effective_message.reply_text(
-        f"{prefix}📅 When is “{title}”?\n"
-        "e.g. “thursday at 21:00”, “every Monday at 8”, “on dec 24”"
+        f"{prefix}📅 When is “{title}”?"
     )
 
 
@@ -349,7 +332,7 @@ async def on_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Menu button: 📅 ➕ New event."""
     await update.callback_query.answer()
     context.user_data[AWAITING] = Awaiting.EVENT
-    await update.effective_message.reply_text(f"What's the event, and when?\n\n{EXAMPLES}")
+    await update.effective_message.reply_text("What's the event, and when?")
 
 
 # --- editing and moving -----------------------------------------------------
@@ -407,7 +390,7 @@ async def start_edit(context: ContextTypes.DEFAULT_TYPE, event, reply):
     """Ask for the new time and title of an event (✏️ Edit)."""
     context.user_data[AWAITING] = Awaiting.EVENT_EDIT
     context.user_data[EDIT_EVENT_ID] = event.id
-    await reply(f"Send the new time and title for “{event.title}”, e.g. “{event.title} on friday at 20:00”.")
+    await reply(f"Send the new time and title for “{event.title}”.")
 
 
 async def edit_event(update: Update, context: ContextTypes.DEFAULT_TYPE, event_id: int, request: str):
@@ -422,7 +405,7 @@ async def edit_event(update: Update, context: ContextTypes.DEFAULT_TYPE, event_i
         parsed = parse_event(request, user_now(event.timezone))
     except ParseError as e:
         record_not_understood(update, context, request, IntentName.EVENT_EDIT, str(e))
-        await update.effective_message.reply_text(f"{e} Try again, e.g. “{event.title} on friday at 20:00”.")
+        await update.effective_message.reply_text(f"{e} Try again.")
         return
     context.user_data.pop(AWAITING, None)
     updated = events.update(
@@ -445,9 +428,6 @@ async def edit_event(update: Update, context: ContextTypes.DEFAULT_TYPE, event_i
     )
     report_card(update, sent, updated, user.timezone)
     await report_google(update, context, updated, "Updated in Google Calendar")
-
-
-MOVE_HELP = "Try “move {title} to 20:00”, “to friday” or “to friday at 20:00”."
 
 
 async def move_event(update: Update, context: ContextTypes.DEFAULT_TYPE, request: str):
@@ -474,10 +454,8 @@ async def move(update: Update, context: ContextTypes.DEFAULT_TYPE, user, event, 
     reply = update.effective_message.reply_text
     if moved is None:
         record_not_understood(update, context, request, IntentName.EVENT_MOVE, "couldn't read the new time")
-        hint = MOVE_HELP.format(title=event.title)
-        if rule is not None:
-            hint += " For a bigger change, ✏️ Edit it in 📅 Events."
-        await reply(f"I couldn't understand the new time. {hint}")
+        hint = " For a bigger change, ✏️ Edit it in 📅 Events." if rule is not None else ""
+        await reply(f"I couldn't understand the new time.{hint}")
         return
     all_day = event.all_day and not moved.timed
     when = moved.when
@@ -587,7 +565,7 @@ async def remind_relative(update: Update, context: ContextTypes.DEFAULT_TYPE, us
             pass
         name = unknown_title(relative.event)
         context.user_data.pop(AWAITING, None)
-        await reply(f"I don't have an event called “{name}”. Add it first, e.g. “event {name} on thursday at 21:00”.",
+        await reply(f"I don't have an event called “{name}”. Add it first.",
                     reply_markup=_events_button())
         return True
     title, rest = found
@@ -667,7 +645,7 @@ def events_text(user, items, title: str = "Your events", empty: str = None) -> s
     """The numbered list of (next time, event)."""
     if not items:
         return empty or (
-            "You have no upcoming events.\n\nAdd one by typing, e.g. “event padel on thursday at 21:00”."
+            "You have no upcoming events."
         )
     tz_name = user.timezone or "UTC"
     lines = [f"📅 {title}:", ""]
@@ -735,7 +713,7 @@ async def agenda(update: Update, context: ContextTypes.DEFAULT_TYPE, request: st
     day = parse_day(request, now) if request.strip().strip("?!. ") else now.date()
     if day is None:
         await update.effective_message.reply_text(
-            "I can show one day, e.g. “what do I have tomorrow?” or “what's on friday?”."
+            "I couldn't understand the day."
         )
         return
     await rh.show_day(update, context, user, day, day_text(user, day))
