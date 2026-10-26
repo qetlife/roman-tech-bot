@@ -1,4 +1,4 @@
-"""The web app (#58): the bot's chat in a page, inside Telegram (a Mini App) and in a browser.
+"""The web app (#58, #61): the assistant in a page, inside Telegram (a Mini App) and in a browser.
 
 The page (webapp/) talks to this JSON API on the bot's web server
 (handlers/web.py). A message from the page goes through the same text path
@@ -8,16 +8,19 @@ replies, edits and alerts are collected (`WebChat`) and sent back as JSON
 instead of to Telegram. The conversation state (`user_data`) is the user's
 own, the same as in Telegram, so "move it to 10" works across both.
 Anything the bot sends to other people (a reminder for Anna) still goes
-through Telegram.
+through Telegram. What handlers report for the page (handlers/report.py:
+the steps they took, result cards, suggestions) comes back with the reply.
 
     GET  /                the page; /app.js, /style.css
     GET  /api/config      the bot's @username, whether voice works
     POST /api/login       {"init_data"} (Mini App) or {"login": {…}} (Login Widget) → {"token", "name"}
-    POST /api/message     {"text"} → {"messages", "edits", "alert"}
+    POST /api/message     {"text"} → {"messages", "edits", "alert", "steps", "suggestions"};
+                          a message or edit shown as a card has "card": {"kind", …}
     POST /api/voice       the recording → the same, after "🎙 “what was heard”"
     POST /api/button      {"data", "message_id"} → the same
     POST /api/speak       {"text"} → the reply spoken (MP3), by the speech-service
     GET  /api/upcoming    the next 7 days: reminders and events
+    GET  /api/briefing    the home screen: greeting, briefing blocks, skills
 
 Every /api call but config and login needs "Authorization: Bearer <token>".
 """
@@ -37,6 +40,7 @@ from    telegram.ext                import CallbackContext
 import  config
 
 from    core                        import recurrence as recurrences
+from    core.briefing               import greeting, left_today, today_text, tomorrow_text
 from    core.commands               import occurs_on as reminder_occurs_on
 from    core.events                 import occurrence_on, occurs_on as event_occurs_on
 from    core.speakable              import speakable
@@ -45,9 +49,11 @@ from    core.webauth                import check_init_data, check_login, sign_se
 from    db.repositories.event       import EventRepository
 from    db.repositories.reminder    import ReminderRepository
 from    db.repositories.user        import UserRepository
-from    enums                       import ItemKind
+from    enums                       import Block, ItemKind
 from    handlers.buttons            import handler_for
 from    handlers.errors             import SORRY
+from    handlers.report             import Report
+from    handlers.skills             import skills
 from    handlers.text               import handle_text
 from    handlers.voice              import NO_WORDS, NOT_SET_UP, UNAVAILABLE
 from    services                    import speech
@@ -88,6 +94,7 @@ class WebChat:
         self.messages = []
         self.edits = {}
         self.alert = None
+        self.report = Report()
 
     def new_message(self, text: str, markup=None) -> "WebMessage":
         message_id = self.user_data.get(WEB_MESSAGE_ID, -int(time_module.time() * 1000)) - 1
@@ -109,7 +116,12 @@ class WebChat:
         edit["buttons"] = _buttons(markup)
 
     def result(self) -> dict:
-        return {"messages": self.messages, "edits": list(self.edits.values()), "alert": self.alert}
+        edits = list(self.edits.values())
+        for message in self.messages + edits:
+            if message["id"] in self.report.cards:
+                message["card"] = self.report.cards[message["id"]]
+        return {"messages": self.messages, "edits": edits, "alert": self.alert,
+                "steps": self.report.steps, "suggestions": self.report.suggestions}
 
 
 class WebMessage:
@@ -163,6 +175,8 @@ class WebUpdate:
         self.callback_query = query
         self.effective_message = query.message if query is not None else message
         self.message = message
+        # What handlers report for the page (handlers/report.py)
+        self.report = self.effective_message.chat.report
 
 
 class WebContext(CallbackContext):
@@ -317,6 +331,28 @@ async def upcoming(request: web.Request) -> web.Response:
     return web.json_response({"days": days_ahead(_user(request))})
 
 
+async def briefing(request: web.Request) -> web.Response:
+    return web.json_response(brief(_user(request)))
+
+
+def brief(user, now: datetime = None) -> dict:
+    """The home screen: a greeting, one block per skill with something to say, and what the assistant can do."""
+    tz_name = user.timezone or "UTC"
+    local = now.astimezone(ZoneInfo(tz_name)) if now is not None else user_now(tz_name)
+    today, tomorrow = days_ahead(user, 2, local)
+    left = left_today(today["items"], local)
+    blocks = [{"block": Block.TODAY, "text": today_text(left, local), "items": left,
+               "after": tomorrow_text(tomorrow["items"])}]
+    return {
+        "greeting": greeting(local, user.first_name),
+        "date": f"{local:%A %-d %B}",
+        "time": f"{local:%H:%M}",
+        "blocks": blocks,
+        "skills": [{"skill": s.skill, "title": s.title, "summary": s.summary, "example": s.examples[0]}
+                   for s in skills()],
+    }
+
+
 # --- the next days ------------------------------------------------------------
 
 def days_ahead(user, days: int = DAYS, now: datetime = None) -> list:
@@ -367,3 +403,4 @@ def add_routes(app: web.Application):
     app.router.add_post("/api/button", button)
     app.router.add_post("/api/speak", speak)
     app.router.add_get("/api/upcoming", upcoming)
+    app.router.add_get("/api/briefing", briefing)

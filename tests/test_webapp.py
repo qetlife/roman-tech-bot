@@ -129,7 +129,7 @@ def _json(result):
 
 def test_the_page(web):
     status, headers, body = web("GET", "/")
-    assert status == 200 and b"<title>Reminders</title>" in body
+    assert status == 200 and b"<title>Assistant</title>" in body
     assert web("GET", "/app.js")[0] == 200 and web("GET", "/style.css")[0] == 200
     assert _json(web("GET", "/api/config"))["bot"] == "testbot"
 
@@ -194,6 +194,56 @@ def test_upcoming(web):
     [day] = [d for d in days if d["items"]]
     assert day["items"] == [{"kind": "reminder", "time": "09:00", "text": "call mom"},
                             {"kind": "event", "time": "21:00", "text": "padel"}]
+
+
+def test_replies_come_with_steps_cards_and_suggestions(web):
+    body = _json(web("POST", "/api/message", json={"text": "remind me next friday at 9 to call mom"}, token=web.token))
+    [made] = body["messages"]
+    card = made["card"]
+    assert card["kind"] == "reminder" and card["title"] == "call mom" and card["time"] == "09:00"
+    assert ", 09:00 (in " in card["when"] and card["repeat"] is None
+    assert card["whom"] is None and [b["text"] for b in made["buttons"][0]] == ["↩️ Undo", "✏️ Edit", "👎 Wrong"]
+    assert body["steps"][0].startswith("Understood: a reminder, ") and body["steps"][1:] == ["Saved"]
+    assert body["suggestions"] == ["move it to 10:00", "the same next week", "cancel that"]
+
+    # The suggestions are understood
+    body = _json(web("POST", "/api/message", json={"text": "move it to 10:00"}, token=web.token))
+    assert body["steps"] == ["Moved “call mom”"] and body["messages"][0]["card"]["time"] == "10:00"
+    body = _json(web("POST", "/api/message", json={"text": "cancel that"}, token=web.token))
+    assert body["steps"] == ["Cancelled “call mom”"] and "card" not in body["messages"][0]
+
+    # An event; ↩️ Undo turns its card back into text
+    body = _json(web("POST", "/api/message", json={"text": "event padel next friday at 19:00"}, token=web.token))
+    [made] = body["messages"]
+    assert made["card"]["kind"] == "event" and made["card"]["time"] == "19:00" and made["card"]["repeat"] is None
+    assert body["steps"][0].startswith("Understood: an event, ") and body["steps"][1:] == ["Saved “padel”"]
+    assert body["suggestions"] == ["move it to 20:00", "the same next week", "cancel that"]
+    undo = made["buttons"][1][0]
+    body = _json(web("POST", "/api/button", json={"data": undo["data"], "message_id": made["id"]}, token=web.token))
+    [edit] = body["edits"]
+    assert edit["id"] == made["id"] and "card" not in edit and edit["text"]
+
+
+def test_what_can_you_do(web):
+    body = _json(web("POST", "/api/message", json={"text": "what can you do?"}, token=web.token))
+    assert body["messages"][0]["text"].startswith("Here's what I can do:")
+    assert body["suggestions"][0] == "every monday at 8 to take out the bins"
+    # Every example is understood
+    for example in body["suggestions"]:
+        reply = _json(web("POST", "/api/message", json={"text": example}, token=web.token))
+        assert not reply["messages"][0]["text"].startswith("I didn't get that"), example
+
+
+def test_briefing(web):
+    web("POST", "/api/message", json={"text": "remind me tomorrow at 9 to call mom"}, token=web.token)
+    body = _json(web("GET", "/api/briefing", token=web.token))
+    assert body["greeting"].split(",")[0] in ("Good morning", "Good afternoon", "Good evening")
+    [block] = body["blocks"]
+    # "tomorrow" before 04:00 is today
+    assert block["block"] == "today" and "call mom" in f"{block['text']} {block['after']}"
+    assert [s["skill"] for s in body["skills"]][:3] == ["reminders", "events", "people"]
+    assert all(s["title"] and s["example"] for s in body["skills"])
+    assert web("GET", "/api/briefing")[0] == 401
 
 
 def test_voice(web, monkeypatch):

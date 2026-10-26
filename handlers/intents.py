@@ -9,6 +9,7 @@ from enums              import IntentName
 from handlers.events    import agenda, cancel, cancel_event, create_event, list_events, move_event, put_in_calendar
 from handlers.reminders import create_reminder, flag_last_reminder, list_reminders, remind_someone
 from handlers.settings  import set_timezone
+from handlers.skills    import what_i_can_do
 
 
 INTENTS = [
@@ -97,6 +98,14 @@ INTENTS = [
             "my timezone is", "set my timezone", "change my timezone",
         ],
         action=set_timezone,
+    ),
+    Intent(
+        name=IntentName.SKILLS,
+        phrases=[
+            "what can you do", "what else can you do", "what do you do", "what can i ask you", "what can i ask",
+            "what are you able to do", "how can you help", "what can you help with", "what can you help me with",
+        ],
+        action=what_i_can_do,
     ),
     Intent(
         name=IntentName.FLAG_FAILED,

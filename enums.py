@@ -139,6 +139,7 @@ class IntentName(StrEnum):
     EVENT_LIST = "event.list"           # "my events", "what's on my calendar"
     EVENT_MOVE = "event.move"           # "move padel to 20:00", "padel is at 20:00 now"
     EVENT_CANCEL = "event.cancel"       # "cancel event padel" (plain "cancel padel" too)
+    SKILLS = "skills"                   # "what can you do?"
 
 
 class Awaiting(StrEnum):
@@ -164,6 +165,28 @@ class Awaiting(StrEnum):
 
 class ItemKind(StrEnum):
     """What "it" / "the second one" is in a conversation (core/conversation.py)."""
+
+    REMINDER = "reminder"
+    EVENT = "event"
+
+
+class Skill(StrEnum):
+    """What the assistant can do (core/skills.py): the web app's home and "what can you do?"."""
+
+    REMINDERS = "reminders"
+    EVENTS = "events"
+    PEOPLE = "people"
+    CALENDAR = "calendar"       # Google Calendar sync, only where it's set up
+
+
+class Block(StrEnum):
+    """A part of the web app's briefing (handlers/webapp.py, /api/briefing)."""
+
+    TODAY = "today"             # what's left today, and how tomorrow starts
+
+
+class CardKind(StrEnum):
+    """The result card of a reply in the web app (handlers/report.py)."""
 
     REMINDER = "reminder"
     EVENT = "event"

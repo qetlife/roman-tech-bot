@@ -112,8 +112,9 @@ it with ✏️ Edit or send it again.
 
 ## 🌐 Web app
 
-The bot's chat in a page, for talking to it: type, or hold 🎙 and speak, and
-it answers out loud. Two ways in:
+The bot as an assistant in a page: it tells you what's left today, what it
+can do, and when you ask for something, the steps it took and the result.
+Type, or hold 🎙 and speak, and it answers out loud. Two ways in:
 
 - **In Telegram**: tap **Open app** next to the text box in the bot's chat.
   You're logged in already. You can add it to your phone's home screen from
@@ -125,19 +126,38 @@ It's the same bot: the same phrases, questions and buttons (What time?, ↩️
 Undo, ✏️ Edit, 👎 Wrong), and the same conversation, so “move it to 10” works
 on a reminder you just made in Telegram, and the other way round.
 
-- **💬 Chat**: type and send, or **hold 🎙** while you speak and let go. It
-  shows what it heard (`🎙 “…”`), then the reply.
-- **🔊 Spoken replies**: the bot reads its replies aloud. Tap 🔊 to switch
-  that off (🔇); the text is always there. On an iPhone in silent mode you
+- **The briefing**, when you open it: a greeting, what's left today (and
+  what's next, and how soon), and how tomorrow starts.
+- **What I can do**: one tile per skill (⏰ Reminders, 📅 Events, 👥 People,
+  and 🔄 Google Calendar where it's set up), each with an example. Tap one
+  to put the example in the text box, to change or send.
+- **Asking**: type and send, or **hold 🎙** while you speak and let go. Your
+  message (or what it heard) shows on the right, then:
+  - **the steps** it took, e.g. “Understood: a reminder, tomorrow at
+    09:00”, “Saved”, “Added to Google Calendar”;
+  - **the result**: a reminder or event as a card, with its buttons (↩️
+    Undo, ✏️ Edit, 👎 Wrong, ⏰ a reminder before an event); other replies
+    as text;
+  - **suggestions** above the text box (“move it to 10:00”, “the same next
+    week”, “cancel that”): tap one to put it in the text box.
+
+  Scroll up for what you asked before; tap **Assistant** at the top to go
+  back to the briefing.
+- **🔊 Spoken replies**: the bot reads its replies aloud. Tap the speaker to
+  switch that off; the text is always there. On an iPhone in silent mode you
   may not hear it.
-- **📅 Upcoming**: your reminders and events today and in the next 6 days.
+- **📅 The next 7 days** (the calendar button at the top): your reminders
+  and events today and in the next 6 days.
+- It follows Telegram's light or dark look (in a browser, your system's).
 
 Good to know:
 
 - **Reminders still arrive in Telegram**, with their buttons, also when the
   app is closed or your phone is locked. Tap **Open app** to go back.
-- The app only runs while it's open; the chat starts fresh when you open it
-  again (what you made is all there, in 📅 Upcoming and in Telegram).
+- The app only runs while it's open; it starts at the briefing when you open
+  it again (what you made is all there, in 📅 the next 7 days and in
+  Telegram).
+- No AI: it understands exactly the phrases the Telegram bot does.
 - Like voice messages, your recordings and the bot's spoken replies stay on
   the bot's own server (offline speech, with Vosk and Piper).
 - Logging in shows the app who you are (your Telegram ID, name and
@@ -160,6 +180,7 @@ are fine; small typos too, see [Typos](#typos)):
 | list reminders    | “my reminders”, “show my reminders”, “show reminders”, “list reminders”, “list my reminders”, “reminders” |
 | list one day      | “what do I have tomorrow?”, “what's on friday?”, “my reminders on dec 24”, “anything on monday?” (repeats included, also ones that already went off today); all but “my reminders on …” also show that day's [events](#-events) |
 | cancel a reminder | “cancel the dentist reminder”, “delete my reminder to call mom”, “remove …”: finds the one whose text has those words and asks you to confirm with ❌; if several or none match, it shows them to pick with ❌. If one of your [events](#-events) has that name (“cancel padel”), it's the event, unless you say “reminder” |
+| see what the bot can do | “what can you do?”, “what else can you do”, “what can I ask you”, “how can you help”, “what can you help with”: each skill with an example |
 | set your timezone | “set my timezone to Lisbon”, “my timezone is UTC+3”, “change my timezone” (asks) |
 | flag the last reminder (or event) as wrong | “that's wrong”, “that is wrong”, “that was wrong”, “that's not right”, “you got that wrong”, “wrong reminder”, “save the last one as failed”, “mark the last one as failed”, “save it as failed”, “mark as failed” |
 

@@ -27,6 +27,7 @@ from    enums                       import (
 )
 from    handlers                    import events as ev
 from    handlers                    import reminders as rh
+from    handlers                    import report
 from    handlers.failed             import record_not_understood
 from    handlers.ui                 import LAST_EVENT_ID, LAST_REMINDER_ID, about, conversation, message_source, reminder_callback
 
@@ -140,8 +141,10 @@ async def move_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
         return
     await rh.retire_fired_message(context, reminder, "🗓 Moved, see the reminder below.")
     about(context, ItemKind.REMINDER, updated.id)
-    await reply(f"⏰ Moved: {updated.text}\n{rh.schedule_text(updated, tz_name)}",
-                reply_markup=rh.build_created_keyboard(updated.id))
+    report.step(update, f"Moved “{updated.text}”" + (", just this time" if reminder.recurrence else ""))
+    sent = await reply(f"⏰ Moved: {updated.text}\n{rh.schedule_text(updated, tz_name)}",
+                       reply_markup=rh.build_created_keyboard(updated.id))
+    rh.report_card(update, sent, updated, tz_name)
 
 
 async def cancel_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, reminder):
@@ -153,6 +156,7 @@ async def cancel_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, re
     await rh.retire_fired_message(context, reminder, "↩️ Cancelled.")
     if user.id == reminder.target_user_id:
         await rh.tell_creator(context.bot, reminder, ReminderStatus.CANCELLED)
+    report.step(update, f"Cancelled “{reminder.text}”")
     await update.effective_message.reply_text(
         f"🗑 Cancelled: {reminder.text}\n{rh.schedule_text(reminder, user.timezone or 'UTC')}",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
@@ -197,8 +201,10 @@ async def copy_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
     context.user_data[LAST_REMINDER_ID] = copy.id
     context.user_data.pop(LAST_EVENT_ID, None)
     about(context, ItemKind.REMINDER, copy.id)
-    await reply(f"⏰ Got it{for_whom}: {copy.text}\n{rh.schedule_text(copy, tz_name)}",
-                reply_markup=rh.build_created_keyboard(copy.id))
+    report.step(update, f"Copied “{copy.text}”{for_whom}")
+    sent = await reply(f"⏰ Got it{for_whom}: {copy.text}\n{rh.schedule_text(copy, tz_name)}",
+                       reply_markup=rh.build_created_keyboard(copy.id))
+    rh.report_card(update, sent, copy, tz_name, for_whom.removeprefix(" for ") or None)
 
 
 # --- events -----------------------------------------------------------------
@@ -226,6 +232,8 @@ async def copy_event(update: Update, context: ContextTypes.DEFAULT_TYPE, event, 
         copy = events.update(copy.id, ends_at=when + (event.ends_at - event.starts_at)) or copy
     context.user_data[LAST_EVENT_ID] = copy.id
     about(context, ItemKind.EVENT, copy.id)
-    await reply(f"📅 Added: {copy.title}\n{ev.when_text(copy, user.timezone)}\n\nA reminder before it?",
-                reply_markup=ev.build_created_keyboard(copy))
-    await ev.to_google(context, copy)
+    report.step(update, f"Copied “{copy.title}”")
+    sent = await reply(f"📅 Added: {copy.title}\n{ev.when_text(copy, user.timezone)}\n\nA reminder before it?",
+                       reply_markup=ev.build_created_keyboard(copy))
+    ev.report_card(update, sent, copy, user.timezone)
+    await ev.report_google(update, context, copy, "Added to Google Calendar")

@@ -35,7 +35,9 @@ handlers/           everything that talks to Telegram (messages, buttons)
     events.py       📅 Events: create, list, move, cancel; reminders relative to an event; "event or reminder?"
     calendar.py     📅 Google Calendar: linking, ⚙️ Settings → 📅 Calendar, syncing both ways
     web.py          the small web server: Google's OAuth callback and push notifications, the web app
-    webapp.py       🌐 the web app's API: login, chat (the same handlers, replies as JSON), voice, spoken replies
+    webapp.py       🌐 the web app's API: login, chat (the same handlers, replies as JSON), voice, spoken replies, briefing
+    report.py       what a handler did, for the web app: steps, result cards, suggestions (nothing in Telegram)
+    skills.py       “what can you do?”
     buttons.py      every button: callback data pattern → handler (bot.py and the web app)
     errors.py       the catch-all for unexpected errors: recorded, and “Sorry, something went wrong”
     failed.py       saving failed messages; /failed list (admin only)
@@ -68,6 +70,8 @@ core/               the logic: no Telegram, no database sessions
     secrets.py      encrypting Google logins, signing the OAuth state
     webauth.py      the web app's logins: Telegram's signed initData / Login Widget data, session tokens
     speakable.py    a reply as it's said out loud: no emoji, “9 hours” for “9 h”
+    skills.py       what the assistant can do: the web app's home and “what can you do?”
+    briefing.py     the web app's greeting and “2 things left today…” sentences
     errors.py       recording unexpected errors to a rotating file (no Telegram, no database), reading them back
 
 jobs/
@@ -239,6 +243,15 @@ obvious from the code.
   phrase or a button that works in Telegram works in the page, and the
   conversation (`user_data`) is shared. A second, JSON-only API would have
   meant every feature twice.
+- **The page reports, Telegram doesn't** (#61): steps, cards and
+  suggestions are extra calls in the handlers (`handlers/report.py`) that do
+  nothing in Telegram, where the reply's text already says it all and more
+  messages would be noise. Handlers report what they did rather than the
+  page guessing it from the reply's text, which would break whenever a
+  wording changes.
+- **No AI in the assistant either**: it's the same parser and handlers; the
+  steps are what the code did, and the suggestions are fixed phrases it
+  understands.
 - **Reminders stay in Telegram**: the page doesn't do notifications (web
   push is unreliable on iPhones, and only works while installed); Telegram
   delivers them, with one tap back into the app.
@@ -874,8 +887,8 @@ Tests fake Google with an `httpx.MockTransport` (`tests/test_calendar.FakeGoogle
 
 ## Web app
 
-The bot's chat in a page (#58): `webapp/` (plain HTML, CSS and JavaScript,
-no build step) and its API, `handlers/webapp.py`, on the bot's web server
+The bot as an assistant in a page (#58, #61): `webapp/` (plain HTML, CSS and
+JavaScript, no build step) and its API, `handlers/webapp.py`, on the bot's web server
 (`handlers/web.py`, only with `WEBAPP_URL` set). See the [user
 guide](user-guide.md#-web-app) and [setup](setup.md#web-app).
 
@@ -896,9 +909,10 @@ party.
   the same list `bot.py` registers), with a `WebUpdate`: the user, a private
   chat with their id, and a `WebMessage` / `WebQuery` that collect what the
   handler does (`reply_text`, `edit_message_text`, `answer`) in a
-  `WebChat`. The response is `{"messages", "edits", "alert"}`: new
-  messages with their buttons (`{"text", "data"}`, or `{"text", "url"}`),
-  edits of earlier ones, and an alert (a button's `answer` text).
+  `WebChat`. The response is `{"messages", "edits", "alert", "steps",
+  "suggestions"}`: new messages with their buttons (`{"text", "data"}`, or
+  `{"text", "url"}`), edits of earlier ones, an alert (a button's `answer`
+  text), and what the handlers reported (below).
 - The context is a `WebContext`: the user's own `user_data` (the same dict as
   in Telegram, so a question asked in one can be answered in the other) and a
   `chat_data` of its own, so `render_menu` never edits the Telegram menu
@@ -911,6 +925,33 @@ party.
   in the [errors file](#unexpected-errors)) and the user gets the same
   apology.
 
+**What handlers report** (`handlers/report.py`, #61): besides replying,
+a handler can say what it did, for the page:
+
+- `report.step(update, "Saved")`: a step, shown as a timeline above the
+  replies. Steps say what happened, nothing invented: “Understood: a
+  reminder, tomorrow at 09:00” (`report.when` makes a time read as part of
+  a sentence), “Moved out of quiet hours…”, “Added to Google Calendar”
+  (only when `handlers/calendar.push` says Google has it).
+- `report.card(update, sent, CardKind.REMINDER, title=…, date=…, …)`: show
+  the message `sent` as a card. It's keyed by the message's id, so it's in
+  that message's JSON (`"card"`), and an edit of it (↩️ Undo) with a new
+  text and no card turns it back into text. `handlers/reminders.report_card`
+  and `handlers/events.report_card` build them, with suggestions.
+- `report.suggest(update, "cancel that")`: follow-ups to tap. They must be
+  phrases the bot understands (tests send them).
+
+A web request's `WebUpdate` carries a `Report` (`update.report`); a Telegram
+`Update` has none, so these calls do nothing there.
+
+**Home** (`/api/briefing`, `brief`): the greeting by the user's clock, and
+blocks (`Block`): `today` is what's left today (`core/briefing.py`, from
+`days_ahead`) and how tomorrow starts. Then the skills (`core/skills.py`):
+the same list answers “what can you do?” (`handlers/skills.py`); Google
+Calendar is only there where it's set up. A new skill is added to
+`SKILLS` (an example the bot understands), and a briefing block if it has
+something to say.
+
 **Voice**: `/api/voice` takes the browser's recording as it is (WebM/Opus, or
 MP4/AAC on iPhones), the speech-service transcribes it (ffmpeg reads both),
 and it goes on as a typed message would, with `voice` set so a reminder made
@@ -919,7 +960,7 @@ from it says so. **Spoken replies**: the page sends the bot's new messages to
 speech-service's `/speak` (Piper) say them, as MP3. Phones only play sound
 started by a tap, so the page plays a moment of silence on the first one.
 
-**📅 Upcoming** (`/api/upcoming`, `days_ahead`): today and the next 6 days,
+**📅 The next 7 days** (`/api/upcoming`, `days_ahead`): today and the next 6 days,
 reminders (repeats on each day they fall on) and events, in the user's
 timezone.
 
@@ -945,6 +986,7 @@ ones there too.
 | `GoogleStatus`                          | `google_accounts.status`: linked, or expired (link again) |
 | `ExternalSource`                        | `events.external_source`: where it's synced (#22) |
 | `ItemKind`, `FollowUp`                  | what “it” is (a reminder or an event), and what a follow-up asks (move, cancel, copy) |
+| `Skill`, `Block`, `CardKind`            | the web app's skills (`core/skills.py`), briefing blocks, and result cards (`handlers/report.py`) |
 | `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction`, `PeopleAction`, `EventAction`, `CalendarAction`, `AnswerKind` | callback data of every button |
 
 Weekdays use the standard library's `calendar.Day` (in the parser and

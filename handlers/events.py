@@ -32,9 +32,11 @@ from    db.repositories.failed_message  import FailedMessageRepository
 from    db.repositories.reminder        import ReminderRepository
 from    db.repositories.user            import UserRepository
 from    enums                           import (
-    Awaiting, Callback, CallbackPrefix, EventAction, EventStatus, FailureReason, IntentName, ItemKind, MessageSource,
+    Awaiting, Callback, CallbackPrefix, CardKind, EventAction, EventStatus, FailureReason, IntentName, ItemKind,
+    MessageSource,
 )
 from    handlers                        import reminders as rh
+from    handlers                        import report
 from    handlers.failed                 import record, record_not_understood
 from    handlers.settings               import ask_timezone
 from    handlers.ui                     import (
@@ -167,6 +169,26 @@ def _quick_buttons(event) -> list:
     return [InlineKeyboardButton(f"⏰ {recurrences.format_offset(m)}",
                                  callback_data=event_callback(EventAction.REMIND, event.id, m))
             for m in QUICK_REMINDERS]
+
+
+def report_card(update: Update, sent, event, tz_name: str):
+    """The web app's card for an event just made or changed, and what to say next (handlers/report.py)."""
+    now = utcnow()
+    when = next_occurrence(event, now) or event.starts_at
+    local = to_local(when, event.timezone if event.all_day else tz_name)
+    report.card(update, sent, CardKind.EVENT, title=event.title, date=local.date().isoformat(),
+                time=None if event.all_day else f"{local:%H:%M}", when=at_text(event, when, tz_name, now),
+                repeat=repeat_text(event, tz_name) if event.recurrence else None)
+    moves = ["the same next week"] if not event.recurrence else []
+    if not event.all_day:
+        moves.insert(0, f"move it to {local + timedelta(hours=1):%H:%M}")
+    report.suggest(update, *moves, "cancel that")
+
+
+async def report_google(update: Update, context: ContextTypes.DEFAULT_TYPE, event, done: str):
+    """Send the change to Google Calendar; a step in the web app if it got there."""
+    if await to_google(context, event):
+        report.step(update, done)
 
 
 # --- creating ---------------------------------------------------------------
@@ -308,11 +330,16 @@ async def save_event(update: Update, context: ContextTypes.DEFAULT_TYPE, user, p
     )
     context.user_data[LAST_EVENT_ID] = event.id
     about(context, ItemKind.EVENT, event.id)
-    await update.effective_message.reply_text(
+    said = repeat_text(event, user.timezone) if event.recurrence \
+        else report.when(at_text(event, event.starts_at, user.timezone, utcnow()))
+    report.step(update, f"Understood: an event, {said}")
+    report.step(update, f"Saved “{event.title}”")
+    sent = await update.effective_message.reply_text(
         f"📅 Added: {event.title}\n{when_text(event, user.timezone)}\n\nA reminder before it?",
         reply_markup=build_created_keyboard(event),
     )
-    await to_google(context, event)
+    report_card(update, sent, event, user.timezone)
+    await report_google(update, context, event, "Added to Google Calendar")
 
 
 async def on_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -406,11 +433,15 @@ async def edit_event(update: Update, context: ContextTypes.DEFAULT_TYPE, event_i
     moved = await follow(context, event, updated)
     context.user_data[LAST_EVENT_ID] = updated.id
     about(context, ItemKind.EVENT, updated.id)
-    await update.effective_message.reply_text(
+    report.step(update, f"Updated “{updated.title}”")
+    if moved:
+        report.step(update, _moved_note(moved).strip().removeprefix("⏰ "))
+    sent = await update.effective_message.reply_text(
         f"✏️ Updated: {updated.title}\n{when_text(updated, user.timezone)}{_moved_note(moved)}",
         reply_markup=build_created_keyboard(updated),
     )
-    await to_google(context, updated)
+    report_card(update, sent, updated, user.timezone)
+    await report_google(update, context, updated, "Updated in Google Calendar")
 
 
 MOVE_HELP = "Try “move {title} to 20:00”, “to friday” or “to friday at 20:00”."
@@ -463,9 +494,13 @@ async def move(update: Update, context: ContextTypes.DEFAULT_TYPE, user, event, 
         return
     count = await follow(context, event, updated)
     about(context, ItemKind.EVENT, updated.id)
-    await reply(f"📅 Moved: {updated.title}\n{when_text(updated, user.timezone)}{_moved_note(count)}",
-                reply_markup=build_created_keyboard(updated))
-    await to_google(context, updated)
+    report.step(update, f"Moved “{updated.title}”")
+    if count:
+        report.step(update, _moved_note(count).strip().removeprefix("⏰ "))
+    sent = await reply(f"📅 Moved: {updated.title}\n{when_text(updated, user.timezone)}{_moved_note(count)}",
+                       reply_markup=build_created_keyboard(updated))
+    report_card(update, sent, updated, user.timezone)
+    await report_google(update, context, updated, "Updated in Google Calendar")
 
 
 def names_event(update: Update, request: str) -> bool:
@@ -610,11 +645,13 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     )
     context.user_data[LAST_REMINDER_ID] = reminder.id
     context.user_data.pop(LAST_EVENT_ID, None)
-    await update.effective_message.reply_text(
+    report.step(update, f"Added a reminder {recurrences.format_offset(minutes)} {event.title}")
+    sent = await update.effective_message.reply_text(
         f"⏰ Got it{for_whom}: {reminder.text}\n📅 {recurrences.format_offset(minutes)} {event.title}\n"
         f"{rh.schedule_text(reminder, user.timezone)}",
         reply_markup=rh.build_created_keyboard(reminder.id),
     )
+    rh.report_card(update, sent, reminder, user.timezone, for_whom.removeprefix(" for ") or None)
 
 
 # --- listing ----------------------------------------------------------------
@@ -809,11 +846,11 @@ async def retire_all(context: ContextTypes.DEFAULT_TYPE, cancelled):
         await rh.retire_fired_message(context, reminder, "↩️ Cancelled.")
 
 
-async def to_google(context: ContextTypes.DEFAULT_TYPE, event):
-    """Send the change to Google Calendar, if the event's owner linked it (handlers/calendar.py)."""
+async def to_google(context: ContextTypes.DEFAULT_TYPE, event) -> bool:
+    """Send the change to Google Calendar, if the event's owner linked it (handlers/calendar.py); True if it got there."""
     # Imported here: handlers.calendar imports this module.
     from handlers.calendar import push
-    await push(context.bot, event)
+    return await push(context.bot, event)
 
 
 async def cancel_with_reminders(context: ContextTypes.DEFAULT_TYPE, event, push_to_google: bool = True):

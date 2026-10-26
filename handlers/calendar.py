@@ -228,32 +228,35 @@ async def _first_sync(bot, user) -> None:
 
 # --- bot → Google --------------------------------------------------------------
 
-async def push(bot, event) -> None:
-    """Send an event's change (or cancellation) to Google, if its owner synced; later if Google is unreachable."""
+async def push(bot, event) -> bool:
+    """Send an event's change (or cancellation) to Google, if its owner synced; later if Google is unreachable.
+
+    True if Google has it now.
+    """
     if not google.is_configured():
-        return
+        return False
     account = accounts.account(event.user_id)
     if account is None:
-        return
+        return False
     event = events.get(event.id) or event
     if event.external_id is not None and event.external_source is None:
         # Kept from a calendar that no longer syncs (📌 Keep them)
-        return
+        return False
     if account.status != GoogleStatus.LINKED:
         # Sent once the user links again
         if event.external_id is not None:
             events.set_sync(event.id, pending_push=True)
-        return
+        return False
     calendar_id = event.external_calendar_id or account.default_calendar_id
     if calendar_id is None or (event.external_id is None and event.status != EventStatus.ACTIVE):
         # Nothing to send (cancelled before it ever reached Google): nothing waits either
         if event.pending_push:
             events.set_sync(event.id, pending_push=False)
-        return
+        return False
     client = _client(account)
     if client is None:
         await expire(bot, event.user_id)
-        return
+        return False
     events.set_sync(event.id, pending_push=True)
     try:
         if _syncing.get():
@@ -263,8 +266,11 @@ async def push(bot, event) -> None:
                 await _send(client, events.get(event.id) or event, calendar_id)
     except GoogleUnavailable as e:
         logger.info("Event %s not sent to Google yet: %s", event.id, e)
+        return False
     except GoogleAuthError:
         await expire(bot, event.user_id)
+        return False
+    return True
 
 
 def _google_time(value: Optional[str]) -> Optional[datetime]:
