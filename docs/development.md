@@ -36,7 +36,7 @@ handlers/           everything that talks to Telegram (messages, buttons)
     calendar.py     📅 Google Calendar: linking, ⚙️ Settings → 📅 Calendar, syncing both ways
     web.py          the small web server: Google's OAuth callback and push notifications, the web app
     webapp.py       🌐 the web app's API: login, chat (the same handlers, replies as JSON), voice, spoken replies, briefing
-    report.py       what a handler did, for the web app: steps, result cards, suggestions (nothing in Telegram)
+    report.py       what a handler did, for the web app: steps and result cards (nothing in Telegram)
     skills.py       “what can you do?”
     buttons.py      every button: callback data pattern → handler (bot.py and the web app)
     errors.py       the catch-all for unexpected errors: recorded, and “Sorry, something went wrong”
@@ -243,15 +243,21 @@ obvious from the code.
   phrase or a button that works in Telegram works in the page, and the
   conversation (`user_data`) is shared. A second, JSON-only API would have
   meant every feature twice.
-- **The page reports, Telegram doesn't** (#61): steps, cards and
-  suggestions are extra calls in the handlers (`handlers/report.py`) that do
+- **The page reports, Telegram doesn't** (#61): steps and cards
+  are extra calls in the handlers (`handlers/report.py`) that do
   nothing in Telegram, where the reply's text already says it all and more
   messages would be noise. Handlers report what they did rather than the
   page guessing it from the reply's text, which would break whenever a
   wording changes.
 - **No AI in the assistant either**: it's the same parser and handlers; the
-  steps are what the code did, and the suggestions are fixed phrases it
-  understands.
+  steps are what the code did.
+- **No example phrases or suggestions in replies**: “I didn't get that.”,
+  “I couldn't understand when.” and the bot's questions (“When should I
+  remind you: …?”) stand on their own, with no “Try …” / “e.g. …” after
+  them, and the page has no tap-to-send follow-ups. Roman found them
+  clutter. Examples stay only where they're asked for (“what can you do?”,
+  the home's What I can do) and in a setting's format (quiet hours, snooze
+  times).
 - **Reminders stay in Telegram**: the page doesn't do notifications (web
   push is unreliable on iPhones, and only works while installed); Telegram
   delivers them, with one tap back into the app.
@@ -909,8 +915,7 @@ party.
   the same list `bot.py` registers), with a `WebUpdate`: the user, a private
   chat with their id, and a `WebMessage` / `WebQuery` that collect what the
   handler does (`reply_text`, `edit_message_text`, `answer`) in a
-  `WebChat`. The response is `{"messages", "edits", "alert", "steps",
-  "suggestions"}`: new messages with their buttons (`{"text", "data"}`, or
+  `WebChat`. The response is `{"messages", "edits", "alert", "steps"}`: new messages with their buttons (`{"text", "data"}`, or
   `{"text", "url"}`), edits of earlier ones, an alert (a button's `answer`
   text), and what the handlers reported (below).
 - The context is a `WebContext`: the user's own `user_data` (the same dict as
@@ -937,9 +942,7 @@ a handler can say what it did, for the page:
   the message `sent` as a card. It's keyed by the message's id, so it's in
   that message's JSON (`"card"`), and an edit of it (↩️ Undo) with a new
   text and no card turns it back into text. `handlers/reminders.report_card`
-  and `handlers/events.report_card` build them, with suggestions.
-- `report.suggest(update, "cancel that")`: follow-ups to tap. They must be
-  phrases the bot understands (tests send them).
+  and `handlers/events.report_card` build them.
 
 A web request's `WebUpdate` carries a `Report` (`update.report`); a Telegram
 `Update` has none, so these calls do nothing there.

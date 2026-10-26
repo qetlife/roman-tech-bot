@@ -38,10 +38,8 @@ reminders = ReminderRepository()
 events = EventRepository()
 
 WHICH_ONE = (
-    "Which one? Say its name, e.g. “cancel the dentist reminder” or “move padel to 20:00”, "
-    "or reply to the reminder's message."
+    "Which one? Say its name, or reply to the reminder's message."
 )
-MOVE_HELP = "Try “move it to 10”, “to friday” or “to friday at 10”."
 
 # "the same next week": a week after it, not a week from today
 NEXT_WEEK = {"next week", "a week later", "the week after", "in a week"}
@@ -126,7 +124,7 @@ async def move_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
     when, _ = _new_time(phrase, reminder.remind_at.astimezone(now.tzinfo), now)
     if when is None:
         record_not_understood(update, context, request, IntentName.REMINDER_EDIT, "couldn't read the new time")
-        await reply(f"I couldn't understand the new time. {MOVE_HELP}")
+        await reply("I couldn't understand the new time.")
         return
     if when <= now:
         await reply("That time has already passed.")
@@ -180,7 +178,7 @@ async def copy_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, remi
     when, _ = _new_time(phrase, reminder.remind_at.astimezone(now.tzinfo), now)
     if when is None:
         record_not_understood(update, context, request, IntentName.REMINDER_CREATE, "couldn't read the new time")
-        await reply("I couldn't understand when. Try “the same next week” or “also on friday at 10”.")
+        await reply("I couldn't understand when.")
         return
     if when <= now:
         await reply("That time has already passed.")
@@ -221,7 +219,7 @@ async def copy_event(update: Update, context: ContextTypes.DEFAULT_TYPE, event, 
     when, timed = _new_time(phrase, old, now)
     if when is None:
         record_not_understood(update, context, request, IntentName.EVENT_CREATE, "couldn't read the new time")
-        await reply("I couldn't understand when. Try “the same next week” or “also on friday at 20:00”.")
+        await reply("I couldn't understand when.")
         return
     all_day = event.all_day and not timed
     if when.date() < now.date() if all_day else when <= now:

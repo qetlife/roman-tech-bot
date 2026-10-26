@@ -4,7 +4,6 @@ from    telegram                    import Update
 from    telegram.ext                import ContextTypes
 
 from    core.skills                 import available, describe
-from    handlers                    import report
 from    services                    import google_calendar as google
 
 
@@ -16,4 +15,3 @@ async def what_i_can_do(update: Update, context: ContextTypes.DEFAULT_TYPE, requ
     """Intent action for "what can you do?"; anything after the phrase is ignored."""
     mine = skills()
     await update.effective_message.reply_text(describe(mine))
-    report.suggest(update, *(s.examples[0] for s in mine))

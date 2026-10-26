@@ -1,4 +1,4 @@
-"""What a handler did, for the web app's assistant view (#61): steps, result cards, follow-ups.
+"""What a handler did, for the web app's assistant view (#61): steps and result cards.
 
 Telegram shows none of it (the reply's text already says it all), so these
 calls do nothing there. A request from the web app (handlers/webapp.py)
@@ -7,9 +7,6 @@ comes with a `Report` on its update, and what's collected goes back as JSON:
     step(update, "Saved the event “padel”")
     sent = await update.effective_message.reply_text(...)
     card(update, sent, CardKind.EVENT, title=..., ...)
-    suggest(update, "move it to 20:00", "the same next week")
-
-Suggestions must be phrases the bot understands.
 """
 
 import  re
@@ -22,7 +19,6 @@ class Report:
         self.steps = []
         # message id → the card shown in place of that message's text
         self.cards = {}
-        self.suggestions = []
 
 
 def when(text: str) -> str:
@@ -48,8 +44,3 @@ def card(update, message, kind: CardKind, **fields):
     if report is not None and message is not None:
         report.cards[message.message_id] = {"kind": kind, **fields}
 
-
-def suggest(update, *phrases: str):
-    report = _report(update)
-    if report is not None:
-        report.suggestions.extend(p for p in phrases if p not in report.suggestions)

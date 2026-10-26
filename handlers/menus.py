@@ -30,10 +30,7 @@ async def on_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ⏰ Reminders ------------------------------------------------------------
 
-REMINDERS_TEXT = (
-    "Reminders:\n\n"
-    "You can also just type, e.g. “remind me in 2 hours to call mom”."
-)
+REMINDERS_TEXT = "Reminders:"
 
 
 def build_reminders_menu():

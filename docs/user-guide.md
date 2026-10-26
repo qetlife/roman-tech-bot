@@ -137,9 +137,7 @@ on a reminder you just made in Telegram, and the other way round.
     09:00”, “Saved”, “Added to Google Calendar”;
   - **the result**: a reminder or event as a card, with its buttons (↩️
     Undo, ✏️ Edit, 👎 Wrong, ⏰ a reminder before an event); other replies
-    as text;
-  - **suggestions** above the text box (“move it to 10:00”, “the same next
-    week”, “cancel that”): tap one to put it in the text box.
+    as text.
 
   Scroll up for what you asked before; tap **Assistant** at the top to go
   back to the briefing.
@@ -841,8 +839,8 @@ it. Cancellations are always told.
 - Typed and voice messages work in **private chats** only.
 - Only the person a reminder is for can answer it (✅ OK, 💤); only whoever
   made it can undo, edit or flag it.
-- If the bot doesn't understand a message, it suggests an example and
-  `/menu`, and saves the message so the bot can learn it (see
+- If the bot doesn't understand a message, it says “I didn't get that.”
+  (no examples), and saves the message so the bot can learn it (see
   [When the bot gets it wrong](#when-the-bot-gets-it-wrong)).
 - A trigger phrase always works, even while the bot is waiting for an
   answer to a question (e.g. during ✏️ Edit).

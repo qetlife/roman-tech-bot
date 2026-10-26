@@ -9,12 +9,12 @@ instead of to Telegram. The conversation state (`user_data`) is the user's
 own, the same as in Telegram, so "move it to 10" works across both.
 Anything the bot sends to other people (a reminder for Anna) still goes
 through Telegram. What handlers report for the page (handlers/report.py:
-the steps they took, result cards, suggestions) comes back with the reply.
+the steps they took, result cards) comes back with the reply.
 
     GET  /                the page; /app.js, /style.css
     GET  /api/config      the bot's @username, whether voice works
     POST /api/login       {"init_data"} (Mini App) or {"login": {…}} (Login Widget) → {"token", "name"}
-    POST /api/message     {"text"} → {"messages", "edits", "alert", "steps", "suggestions"};
+    POST /api/message     {"text"} → {"messages", "edits", "alert", "steps"};
                           a message or edit shown as a card has "card": {"kind", …}
     POST /api/voice       the recording → the same, after "🎙 “what was heard”"
     POST /api/button      {"data", "message_id"} → the same
@@ -121,7 +121,7 @@ class WebChat:
             if message["id"] in self.report.cards:
                 message["card"] = self.report.cards[message["id"]]
         return {"messages": self.messages, "edits": edits, "alert": self.alert,
-                "steps": self.report.steps, "suggestions": self.report.suggestions}
+                "steps": self.report.steps}
 
 
 class WebMessage:

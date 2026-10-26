@@ -196,7 +196,7 @@ def test_upcoming(web):
                             {"kind": "event", "time": "21:00", "text": "padel"}]
 
 
-def test_replies_come_with_steps_cards_and_suggestions(web):
+def test_replies_come_with_steps_and_cards(web):
     body = _json(web("POST", "/api/message", json={"text": "remind me next friday at 9 to call mom"}, token=web.token))
     [made] = body["messages"]
     card = made["card"]
@@ -204,9 +204,8 @@ def test_replies_come_with_steps_cards_and_suggestions(web):
     assert ", 09:00 (in " in card["when"] and card["repeat"] is None
     assert card["whom"] is None and [b["text"] for b in made["buttons"][0]] == ["↩️ Undo", "✏️ Edit", "👎 Wrong"]
     assert body["steps"][0].startswith("Understood: a reminder, ") and body["steps"][1:] == ["Saved"]
-    assert body["suggestions"] == ["move it to 10:00", "the same next week", "cancel that"]
+    assert "suggestions" not in body
 
-    # The suggestions are understood
     body = _json(web("POST", "/api/message", json={"text": "move it to 10:00"}, token=web.token))
     assert body["steps"] == ["Moved “call mom”"] and body["messages"][0]["card"]["time"] == "10:00"
     body = _json(web("POST", "/api/message", json={"text": "cancel that"}, token=web.token))
@@ -217,23 +216,13 @@ def test_replies_come_with_steps_cards_and_suggestions(web):
     [made] = body["messages"]
     assert made["card"]["kind"] == "event" and made["card"]["time"] == "19:00" and made["card"]["repeat"] is None
     assert body["steps"][0].startswith("Understood: an event, ") and body["steps"][1:] == ["Saved “padel”"]
-    assert body["suggestions"] == ["move it to 20:00", "the same next week", "cancel that"]
     undo = made["buttons"][1][0]
     body = _json(web("POST", "/api/button", json={"data": undo["data"], "message_id": made["id"]}, token=web.token))
     [edit] = body["edits"]
     assert edit["id"] == made["id"] and "card" not in edit and edit["text"]
 
 
-def test_no_move_suggestion_past_midnight(web):
-    body = _json(web("POST", "/api/message", json={"text": "remind me next friday at 23:30 to lock up"}, token=web.token))
-    assert body["suggestions"] == ["the same next week", "cancel that"]
-    body = _json(web("POST", "/api/message", json={"text": "event party next friday at 23:15"}, token=web.token))
-    assert body["suggestions"] == ["the same next week", "cancel that"]
-    body = _json(web("POST", "/api/message", json={"text": "event party next saturday at 22:59"}, token=web.token))
-    assert body["suggestions"][0] == "move it to 23:59"
-
-
-def test_an_events_move_suggestion_is_in_its_own_clock(web):
+def test_moving_an_event_is_in_its_own_clock(web):
     from db.repositories.user import UserRepository
 
     _json(web("POST", "/api/message", json={"text": "event padel next friday at 18:00"}, token=web.token))
@@ -241,17 +230,17 @@ def test_an_events_move_suggestion_is_in_its_own_clock(web):
     UserRepository().set_timezone(web.telegram_id, "Europe/Kyiv")
     body = _json(web("POST", "/api/message", json={"text": "move it to 19:00"}, token=web.token))
     assert body["messages"][0]["card"]["time"] == "21:00"
-    assert body["suggestions"][0] == "move it to 20:00"
-    body = _json(web("POST", "/api/message", json={"text": body["suggestions"][0]}, token=web.token))
+    body = _json(web("POST", "/api/message", json={"text": "move it to 20:00"}, token=web.token))
     assert body["messages"][0]["card"]["time"] == "22:00"
 
 
 def test_what_can_you_do(web):
     body = _json(web("POST", "/api/message", json={"text": "what can you do?"}, token=web.token))
     assert body["messages"][0]["text"].startswith("Here's what I can do:")
-    assert body["suggestions"][0] == "every monday at 8 to take out the bins"
-    # Every example is understood
-    for example in body["suggestions"]:
+    assert "suggestions" not in body
+    # Every example it gives is understood
+    from handlers.skills import skills
+    for example in (e for s in skills() for e in s.examples):
         reply = _json(web("POST", "/api/message", json={"text": example}, token=web.token))
         assert not reply["messages"][0]["text"].startswith("I didn't get that"), example
 

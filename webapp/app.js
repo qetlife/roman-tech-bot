@@ -285,20 +285,10 @@ function show(result, turn) {
     if (tg && tg.showAlert) tg.showAlert(result.alert);
     else turn.append(el("div", "alert", result.alert));
   }
-  setSuggestions(result.suggestions || []);
   if (turn.children.length) turn.scrollIntoView({ block: "end", behavior: "smooth" });
   else turn.remove();
   const spoken = fresh.map((m) => m.text).filter(Boolean).join("\n");
   if (spoken) say(spoken);
-}
-
-function setSuggestions(phrases) {
-  $("suggestions").replaceChildren(...phrases.map((phrase) => {
-    const chip = el("button", "", phrase);
-    chip.type = "button";
-    chip.addEventListener("click", () => fillIn(phrase));
-    return chip;
-  }));
 }
 
 async function thinking(turn, work) {
@@ -306,7 +296,6 @@ async function thinking(turn, work) {
   const now = el("ol", "steps");
   now.append(el("li", "now", "Working on it…"));
   turn.append(now);
-  setSuggestions([]);
   let result;
   try {
     const response = await work();
