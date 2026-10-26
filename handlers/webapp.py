@@ -253,10 +253,10 @@ async def message(request: web.Request) -> web.Response:
 
 async def voice(request: web.Request) -> web.Response:
     user = _user(request)
-    audio = await request.content.read(MAX_AUDIO_BYTES + 1)
-    if not audio or len(audio) > MAX_AUDIO_BYTES:
-        raise web.HTTPRequestEntityTooLarge(max_size=MAX_AUDIO_BYTES, actual_size=len(audio)) if audio \
-            else web.HTTPBadRequest(text='{"error": "no audio"}', content_type="application/json")
+    # The whole body (a larger one is refused with 413 by the server: client_max_size in handlers/web.py)
+    audio = await request.read()
+    if not audio:
+        raise web.HTTPBadRequest(text='{"error": "no audio"}', content_type="application/json")
     chat, context = _chat(request, user)
     if not speech.is_configured():
         chat.new_message(NOT_SET_UP)

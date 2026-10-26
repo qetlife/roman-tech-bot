@@ -203,6 +203,33 @@ def test_voice(web, monkeypatch):
     assert [r.source for r in _active(web.telegram_id)] == ["voice"]
 
 
+def test_a_long_recording_arrives_whole(web, monkeypatch):
+    import config
+    from services import speech
+
+    received = []
+
+    def speech_service(request):
+        received.append(request.content)
+        return httpx.Response(200, json={"text": "my reminders"})
+
+    monkeypatch.setattr(config, "SPEECH_URL", "http://speech:8000")
+    monkeypatch.setattr(speech, "transport", httpx.MockTransport(speech_service))
+    recording = bytes(range(256)) * 4096     # 1 MB
+
+    async def in_pieces():
+        for start in range(0, len(recording), 64 * 1024):
+            yield recording[start:start + 64 * 1024]
+            await asyncio.sleep(0)
+
+    assert web("POST", "/api/voice", data=in_pieces(), token=web.token)[0] == 200
+    assert received == [recording]
+    # Too big: refused by the server itself
+    from handlers.webapp import MAX_AUDIO_BYTES
+    assert web("POST", "/api/voice", data=b"x" * (MAX_AUDIO_BYTES + 2048), token=web.token)[0] == 413
+    assert web("POST", "/api/voice", data=b"", token=web.token)[0] == 400
+
+
 def test_speak(web, monkeypatch):
     import config
     from services import speech
