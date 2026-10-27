@@ -17,10 +17,13 @@ from core.typos  import Vocabulary
 Action = Callable[..., Awaitable[None]]
 
 # Polite filler allowed before a trigger phrase: "please remind me ...",
-# "hey, can you remind me ...", "also remind me ...", and
-# "no, remind me ..." (a spoken correction)
-FILLER = re.compile(r"^(?:(?:hey|hi|ok|okay|no|um|uh|please|pls|can you|could you|would you|also|and|again)[\s,!]+)*",
+# "hey, can you remind me ...", "also remind me ...", "um, remind me ..."
+FILLER = re.compile(r"^(?:(?:hey|hi|ok|okay|um|uh|please|pls|can you|could you|would you|also|and|again)[\s,!]+)*",
                     re.IGNORECASE)
+
+# A spoken "no" before a command ("no, remind me ...") is a correction; unlike
+# FILLER it is a real answer, so it only counts when something follows the phrase.
+NO = re.compile(r"^no[\s,!]+", re.IGNORECASE)
 
 # Dropped from the end of a word when fixing typos: "remid me," → "remind me".
 PUNCTUATION = ",.!?:;"
@@ -48,6 +51,10 @@ def match_intent(text: str, intents: list) -> Optional[Match]:
     tried again ("remid me" → "remind me"); the rest keeps the original words.
     """
     stripped = FILLER.sub("", text.strip())
+    if NO.match(stripped):
+        # "no, remind me in 5 min to go", but not "no reminders" (an answer)
+        match = match_intent(NO.sub("", stripped), intents)
+        return match if match and match.rest else None
     return _match_exact(stripped, intents) or _match_with_typos(stripped, intents)
 
 

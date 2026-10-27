@@ -20,6 +20,9 @@ INTENTS = [CREATE, LIST]
     ("Hey, can you remind me in 5 min to go",   CREATE, "in 5 min to go"),
     ("no remind me in a minute to call the bank", CREATE, "in a minute to call the bank"),
     ("No, remind me tomorrow to pay rent",      CREATE, "tomorrow to pay rent"),
+    ("no, please remind me at 9 to stretch",    CREATE, "at 9 to stretch"),
+    ("um, remind me at 9 to stretch",           CREATE, "at 9 to stretch"),
+    ("uh remind me at 9 to stretch",            CREATE, "at 9 to stretch"),
     ("show my reminders",                       LIST,   ""),
     ("my reminders",                            LIST,   ""),
     ("reminders",                               LIST,   ""),
@@ -31,7 +34,7 @@ def test_match(text, intent, rest):
 
 
 @pytest.mark.parametrize("text", [
-    "hello", "remind", "reminder", "don't remind me", "remindme now", "set a reminders",
+    "hello", "no reminders", "no, reminders", "no, show my reminders", "no", "remind", "reminder", "don't remind me", "remindme now", "set a reminders",
 ])
 def test_no_match(text):
     assert match_intent(text, INTENTS) is None
