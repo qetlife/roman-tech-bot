@@ -651,7 +651,9 @@ def test_timezone_change_keeps_a_snooze(chat):
 
 def test_typos_in_the_trigger_and_the_time(chat):
     update = chat("remid me on wensday at 18:00 to call mom")
-    assert _replies(update)[0].startswith("⏰ Got it: call mom\n🗓 Wed ")
+    assert _replies(update)[0].startswith("⏰ Got it: call mom\n🗓 ")      # "Tomorrow" on a Tuesday
+    text, when = _local_when(chat)
+    assert (text, when.weekday(), when.hour) == ("call mom", 2, 18)
     reminder = _active(chat.telegram_id)[0]
     assert reminder.request == "on wensday at 18:00 to call mom"     # saved as typed
 
@@ -815,7 +817,7 @@ def test_reply_move(chat):
     reminder = _firing(chat)
     # "next friday": on a Friday morning, "friday at 10" is today
     update = chat("move it to next friday at 10", reply_to=555)
-    assert _replies(update)[0].startswith("⏰ call mom\n🗓 Moved to Fri ")
+    assert _replies(update)[0].startswith("⏰ call mom\n🗓 Moved to ")     # "Tomorrow" on a Thursday
     text, when = _local_when(chat)
     assert (text, when.weekday(), when.hour) == ("call mom", 4, 10)
     assert _reminder(reminder.id).recurrence is None
@@ -833,7 +835,7 @@ def test_reply_move_ignores_time_words_in_the_text(chat):
                                            utcnow() + timedelta(hours=1), None, "…", MessageSource.TYPED)
     _fire(reminder.id, 555)
     update = chat("move it to next friday at 10", reply_to=555)
-    assert _replies(update)[0].startswith("⏰ pay rent at 5 every sunday\n🗓 Moved to Fri ")
+    assert _replies(update)[0].startswith("⏰ pay rent at 5 every sunday\n🗓 Moved to ")
     text, when = _local_when(chat)
     assert (text, when.weekday(), when.hour) == ("pay rent at 5 every sunday", 4, 10)
 
