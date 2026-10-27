@@ -130,6 +130,12 @@ sessions. They return detached model objects (`expire_on_commit=False`).
 Choices that shape the behaviour, and why. Add one when a decision isn't
 obvious from the code.
 
+- **A leading “no” is not plain filler.** Voice users correct themselves
+  (“no, remind me in 5 min to go”), so `match_intent` drops a “no” before a
+  phrase, but only when the phrase has something after it. “no reminders”
+  is an answer (e.g. to a question), and treating “no” as filler would turn
+  it into the “reminders” command. “um”/“uh” carry no meaning, so they are
+  ordinary filler.
 - **Contacts opt in, one direction at a time.** A bot can only message
   people who started it, and nobody should get reminders they didn't agree
   to. So a contact exists only after the other person taps ✅ Allow on a
@@ -314,7 +320,8 @@ Every message first marks the [conversation](#conversation) as current
 1. A message starting with a trigger phrase runs that intent's action with
    the rest of the message (`handlers/intents.py`, matched by
    `core/intents.py`; longest phrase wins, whole words only, polite filler
-   like “please”, “also” or “and” allowed in front). This always wins. If no phrase matches
+   like “please”, “also”, “and” or a spoken “um”/“uh” allowed in front, and a
+   leading “no” only when something follows the phrase). This always wins. If no phrase matches
    as written, it's tried again with typos of the phrases' words fixed
    (“remid me”, see [Typos](#typos)); the rest keeps the original words.
    A waiting question is dropped, and the bot says so (`Dropped: the reminder

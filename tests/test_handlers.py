@@ -154,6 +154,14 @@ def _local_when(chat):
     return reminder.text, to_local(reminder.remind_at, "Europe/Lisbon")
 
 
+def _day_label(when):
+    """How a reply starts the day of `when`: "Today, ", "Tomorrow, ", else "Wed " etc."""
+    from datetime import timedelta
+    from core.timezones import user_now
+    today = user_now("Europe/Lisbon").date()
+    return {today: "Today, ", today + timedelta(days=1): "Tomorrow, "}.get(when.date(), when.strftime("%a "))
+
+
 @pytest.mark.parametrize("request_", ["remind me to call mom", "remind to call mom", "remind me someday to call mom"])
 def test_a_reminder_without_a_time_asks_when(chat, request_):
     update = chat(request_)
@@ -651,7 +659,9 @@ def test_timezone_change_keeps_a_snooze(chat):
 
 def test_typos_in_the_trigger_and_the_time(chat):
     update = chat("remid me on wensday at 18:00 to call mom")
-    assert _replies(update)[0].startswith("⏰ Got it: call mom\n🗓 Wed ")
+    text, when = _local_when(chat)
+    assert (text, when.weekday(), when.hour) == ("call mom", 2, 18)
+    assert _replies(update)[0].startswith(f"⏰ Got it: call mom\n🗓 {_day_label(when)}")
     reminder = _active(chat.telegram_id)[0]
     assert reminder.request == "on wensday at 18:00 to call mom"     # saved as typed
 
@@ -815,9 +825,9 @@ def test_reply_move(chat):
     reminder = _firing(chat)
     # "next friday": on a Friday morning, "friday at 10" is today
     update = chat("move it to next friday at 10", reply_to=555)
-    assert _replies(update)[0].startswith("⏰ call mom\n🗓 Moved to Fri ")
     text, when = _local_when(chat)
     assert (text, when.weekday(), when.hour) == ("call mom", 4, 10)
+    assert _replies(update)[0].startswith(f"⏰ call mom\n🗓 Moved to {_day_label(when)}")
     assert _reminder(reminder.id).recurrence is None
 
 
@@ -833,9 +843,9 @@ def test_reply_move_ignores_time_words_in_the_text(chat):
                                            utcnow() + timedelta(hours=1), None, "…", MessageSource.TYPED)
     _fire(reminder.id, 555)
     update = chat("move it to next friday at 10", reply_to=555)
-    assert _replies(update)[0].startswith("⏰ pay rent at 5 every sunday\n🗓 Moved to Fri ")
     text, when = _local_when(chat)
     assert (text, when.weekday(), when.hour) == ("pay rent at 5 every sunday", 4, 10)
+    assert _replies(update)[0].startswith(f"⏰ pay rent at 5 every sunday\n🗓 Moved to {_day_label(when)}")
 
 
 def test_reply_move_a_repeat_moves_only_this_time(chat):
