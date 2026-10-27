@@ -168,7 +168,7 @@ Good to know:
 Either type a message that starts with a trigger phrase, or press
 `⏰ Reminders → ➕ New` and send the time and text.
 
-Trigger phrases (case-insensitive; “please”, “hey”, “can you”, “also” etc. in front
+Trigger phrases (case-insensitive; “please”, “hey”, “can you”, “also”, “no” etc. in front
 are fine; small typos too, see [Typos](#typos)):
 
 | To…               | Start the message with                                                                    |

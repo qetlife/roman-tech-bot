@@ -18,6 +18,8 @@ INTENTS = [CREATE, LIST]
     ("set a reminder for friday: Dentist",      CREATE, "for friday: Dentist"),
     ("please remind me at 9 to stretch",        CREATE, "at 9 to stretch"),
     ("Hey, can you remind me in 5 min to go",   CREATE, "in 5 min to go"),
+    ("no remind me in a minute to call the bank", CREATE, "in a minute to call the bank"),
+    ("No, remind me tomorrow to pay rent",      CREATE, "tomorrow to pay rent"),
     ("show my reminders",                       LIST,   ""),
     ("my reminders",                            LIST,   ""),
     ("reminders",                               LIST,   ""),
