@@ -3,7 +3,7 @@ from zoneinfo   import ZoneInfo
 
 import pytest
 
-from core.parser import MissingText, ParseError, parse_reminder, parse_when
+from core.parser import MissingText, ParseError, parse_reminder, parse_when, time_answer
 
 TZ = ZoneInfo("Europe/Kyiv")
 # Saturday 10 Oct 2026, 23:30
@@ -189,6 +189,19 @@ def test_misheard_tomorrow_keeps_too_in_text():
     r = parse_reminder("to borrow at nine am buy milk too and eggs", NOW)
     assert r.when == datetime(2026, 10, 11, 9, 0, tzinfo=TZ)
     assert r.text == "buy milk too and eggs"
+
+
+@pytest.mark.parametrize("answer, expected", [
+    ("1 minute",        dt(10, 23, 31)),
+    ("10 minutes",      dt(10, 23, 40)),
+    ("half an hour",    dt(11, 0, 0)),
+    ("tomorrow at 9",   None),
+])
+def test_time_answer_bare_duration(answer, expected):
+    parsed = parse_reminder(f"{time_answer(answer)} to call the bank", NOW)
+    assert parsed.text == "call the bank"
+    if expected is not None:
+        assert parsed.when == expected
 
 
 @pytest.mark.parametrize("request_", [

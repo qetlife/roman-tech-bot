@@ -549,6 +549,13 @@ def parse_duration(phrase: str) -> Optional[timedelta]:
     return delta
 
 
+def time_answer(phrase: str) -> str:
+    """An answer to "When?" as a time: a bare duration ("10 minutes") means "in 10 minutes"."""
+    if parse_duration(phrase) is not None:
+        return f"in {phrase.strip()}"
+    return phrase
+
+
 def parse_when(phrase: str, now: datetime) -> Optional[datetime]:
     """Parse a complete time expression, or return None."""
     tokens = _tokenize(phrase)

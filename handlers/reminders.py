@@ -20,7 +20,7 @@ from    core                            import recurrence as recurrences
 from    core.commands                   import matches, occurs_on, parse_day, search_words
 from    core.conversation               import TIMES_OF_DAY, needs_day, read_weekday, untimed, with_clock, with_day
 from    core.contacts                   import split_name, unknown_name
-from    core.parser                     import MissingText, MissingTime, ParseError, parse_reminder
+from    core.parser                     import MissingText, MissingTime, ParseError, parse_reminder, time_answer
 from    core.quiet                      import skip_quiet
 from    core.settings                   import (
     QUIET_HOURS, SENDER_UPDATES, SNOOZE_MAX_MINUTES, SNOOZE_MIN_MINUTES, format_minutes, quiet_window,
@@ -377,7 +377,7 @@ async def answer_when(update: Update, context: ContextTypes.DEFAULT_TYPE, when: 
     """The answer to ask_when: the time for the text given before. Asks again if it isn't one."""
     user = users.get_or_create(update.effective_user.id)
     text = context.user_data.get(PENDING_PART, "")
-    request = f"{when} to {text}"
+    request = f"{time_answer(when)} to {text}"
     now = user_now(user.timezone)
     try:
         parsed = parse_reminder(request, now)

@@ -205,7 +205,7 @@ If half is missing, the bot asks for it and puts the two together:
 
 - **No time** (“remind me to call mom”): it asks
   `⏰ When should I remind you: “call mom”?`; answer with just the time
-  (“tomorrow at 9”). If the answer isn't a time it asks again.
+  (“tomorrow at 9”, or a wait such as “10 minutes”). If the answer isn't a time it asks again.
 - **No text** (“remind me tomorrow at 12”, or just “tomorrow at 12” on its
   own): it asks `⏰ tomorrow at 12: what should I remind you about?`; answer
   with the text (“call the bank”).
