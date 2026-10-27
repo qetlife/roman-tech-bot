@@ -152,7 +152,7 @@ async def on_people_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         context.user_data[AWAITING] = Awaiting.CONTACT_NAME
         context.user_data[RENAME_CONTACT_ID] = contact.id
-        await query.message.reply_text(f"What should I call {contact.name}? e.g. “mom” or “Anna”.")
+        await query.message.reply_text(f"What should I call {contact.name}?")
 
     elif action == PeopleAction.REMOVE and owner:
         removed = contacts.remove(contact.id, user.id)

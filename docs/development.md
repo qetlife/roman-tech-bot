@@ -9,9 +9,14 @@ of view, see [user-guide.md](user-guide.md). For setup and deployment, see
 - [Messages and buttons](#messages-and-buttons)
 - [Reminders](#reminders)
 - [Typos](#typos)
+- [Conversation](#conversation)
 - [Settings](#settings)
 - [Failed messages](#failed-messages)
+- [Unexpected errors](#unexpected-errors)
 - [People](#people)
+- [Events](#events)
+- [Google Calendar](#google-calendar)
+- [Web app](#web-app)
 - [Enums](#enums)
 - [Database](#database)
 - [Tests](#tests)
@@ -27,11 +32,20 @@ enums.py            every enum
 
 handlers/           everything that talks to Telegram (messages, buttons)
     commands.py     /start, /menu
+    events.py       📅 Events: create, list, move, cancel; reminders relative to an event; "event or reminder?"
+    calendar.py     📅 Google Calendar: linking, ⚙️ Settings → 📅 Calendar, syncing both ways
+    web.py          the small web server: Google's OAuth callback and push notifications, the web app
+    webapp.py       🌐 the web app's API: login, chat (the same handlers, replies as JSON), voice, spoken replies, briefing
+    report.py       what a handler did, for the web app: steps and result cards (nothing in Telegram)
+    skills.py       “what can you do?”
+    buttons.py      every button: callback data pattern → handler (bot.py and the web app)
+    errors.py       the catch-all for unexpected errors: recorded, and “Sorry, something went wrong”
     failed.py       saving failed messages; /failed list (admin only)
     people.py       👥 People: invite links, requests by @username, rename, remove
     menus.py        main, ⏰ Reminders and ⚙️ Settings menu screens
     reminders.py    create, edit, list; OK / snooze / undo / edit / delete / 👎 wrong buttons
     replies.py      replies to a reminder message: “done”, “snooze 20 min”, “move it to 10”, “cancel”
+    conversation.py “move it to 10”, “cancel that”, “the same next week”, “cancel the second one”
     settings.py     🌍 timezone and ⏰ reminder settings screens
     text.py         typed messages: trigger phrases, answers to questions
     voice.py        voice messages: transcribe, then handle like text
@@ -48,26 +62,38 @@ core/               the logic: no Telegram, no database sessions
     settings.py     setting definitions and validation
     intents.py      trigger phrase matching
     replies.py      reading replies to a reminder message (“snooze 20 min” → ReplyCommand)
+    conversation.py asking back (what time? which day?), what “it” and “the second one” mean for 10 minutes
     contacts.py     contact names: valid ones, unique ones (“Anna 2”), the default
     commands.py     plain-language commands: which reminder “cancel the dentist reminder” means, which day “what do I have tomorrow?” is
+    events.py       events: parsing (all-day too), occurrences, "30 min before padel", which event a message names
+    gcal.py         Google Calendar's JSON ↔ the bot's events
+    secrets.py      encrypting Google logins, signing the OAuth state
+    webauth.py      the web app's logins: Telegram's signed initData / Login Widget data, session tokens
+    speakable.py    a reply as it's said out loud: no emoji, “9 hours” for “9 h”
+    skills.py       what the assistant can do: the web app's home and “what can you do?”
+    briefing.py     the web app's greeting and “2 things left today…” sentences
+    errors.py       recording unexpected errors to a rotating file (no Telegram, no database), reading them back
 
 jobs/
     delivery.py     sends due reminders every 20 seconds
     failed.py       on startup: marks failed messages the bot now understands as fixed
+    calendar.py     daily: renew Google push channels, sync every linked user
 
 services/           clients for other services (no Telegram)
-    speech.py       speech-service: audio → text
+    speech.py       speech-service: audio → text, and text → audio (spoken replies)
+    google_calendar.py  Google OAuth and the Calendar API
 
 db/
     session.py      engine, sessions, init_db
     migrations.py   runs Alembic on startup
-    models/         user, reminder, user_setting, failed_message, contact (+ invite), types (UTCDateTime)
-    repositories/   user, reminder, settings, failed_message, contact: the only code that opens sessions
+    models/         user, reminder, user_setting, failed_message, contact (+ invite), event, google, types (UTCDateTime)
+    repositories/   user, reminder, settings, failed_message, contact, event, google: the only code that opens sessions
 
 alembic/            schema migrations
 autofix/            the daily auto-fix job: sandbox image, prompt, runner script
+webapp/             the web app's page: index.html, app.js, style.css (no build step)
 docs/               this guide and the user guide
-scripts/            command line: failed.py (failed messages), the one-off SQLite migration
+scripts/            command line: failed.py (failed messages), errors.py (unexpected errors), the one-off SQLite migration
 tests/              pytest, throwaway SQLite database
 ```
 
@@ -75,9 +101,13 @@ tests/              pytest, throwaway SQLite database
 `services/`;
 `core/` imports neither Telegram nor the database (it's plain Python, tested
 without mocks); `db/` uses only `enums` and the `Setting` type from `core/`.
-The one exception is `handlers/settings.py`, which imports
-`handlers.reminders.create_reminder` inside a function to resume a reminder
-after the user picks a timezone (a module-level import would be circular).
+`handlers/events.py` uses `handlers/reminders.py`, not the other way
+round. The exceptions import inside a function (a module-level import would
+be circular): `handlers/settings.py` resumes a reminder or an event after the
+user picks a timezone, `handlers/reminders.py` hands “30 min before
+padel …” and “that's wrong” after an event to `handlers/events.py`, and
+`handlers/events.py` / `handlers/reminders.py` call `handlers/calendar.py`
+(which uses `handlers/events.py`) to sync.
 
 `python-telegram-bot` delivers updates to the handlers registered in
 `bot.py`:
@@ -156,6 +186,88 @@ obvious from the code.
   lasting record of a fix is a parser test.
 - **Callback data never changes**: buttons already in users' chats still send
   the old values.
+- **A reminder relative to an event follows it** instead of being a copy of
+  its time: `reminders.event_id` + `event_offset` (minutes from the start),
+  and “every time” is an `Offset` repeat that holds the event's repeat,
+  timezone and skipped days, so delivery, ✅ OK, the agenda and quiet hours
+  treat it like any repeat. Whenever the event changes, `follow` recomputes
+  its reminders; editing a reminder unlinks it.
+- **Events keep their own timezone** (`events.timezone`, the creator's when
+  made): “padel at 21:00” stays 21:00 there if the user moves, and Google
+  Calendar (#22) stores events the same way. `keep_clock_times` leaves
+  `Offset` reminders alone for that reason.
+- **A day without a time is an all-day event** (it starts at the day's
+  midnight), unlike a reminder, where it means 09:00: “dentist on friday”
+  is about the day. `ParsedReminder.timed` tells the two apart.
+- **Ask, don't guess, between an event and a reminder**: a time and a text
+  without a trigger phrase (“padel on thursday at 21:00”) gets
+  `📅 Event / ⏰ Reminder` buttons rather than the help text. With an event
+  of that name, “cancel padel” is the event (its reminders go with it).
+- **“move” has no typo fixing** (`Intent.typos`): “movie tonight at 8” is
+  one letter from it.
+- **Events repeat as RFC 5545 RRULEs**, what Google Calendar uses, so any
+  repeat from Google works (“every 2nd and 4th Tuesday”, “until December”)
+  and nothing is lost on the way back. The bot's own repeats convert
+  (`to_rrule`); older events keep their format until they change. Reminders
+  keep the bot's formats.
+- **Google pushes, the bot also asks**: push notifications make changes show
+  up at once, and an incremental sync when the user asks about reminders or
+  events (at most every 5 minutes) and once a day covers a lost push. The
+  sync before a reply waits at most a few seconds.
+- **Last change wins**, by Google's `updated` against the event's
+  `updated_at`; a change the bot couldn't send yet (`pending_push`) is sent
+  on the next sync.
+- **An expired login keeps everything**: the bot warns once and stops
+  syncing; nothing is deleted or moved, and changes made meanwhile are sent
+  after linking again.
+- **Only two scopes** (`calendar.events`, `calendar.calendarlist.readonly`):
+  enough for both directions and push, and not the full `calendar` scope
+  that can delete calendars and change sharing.
+- **A time is never guessed** (#28): a reminder with a day but no time asks
+  “What time?”, and “every week” without a day asks which day, rather than
+  09:00 or today's weekday. A wrong guess is worse than one question. An
+  event with only a day is all day, which is a real answer.
+- **“it” lasts 10 minutes** after the user's last message: long enough for a
+  back-and-forth, short enough that “cancel it” an hour later doesn't hit
+  something they forgot about. After that the bot asks which one.
+- **“cancel that” doesn't ask, but has ↩️ Undo** for a reminder (one tap
+  either way). An event is asked about first: cancelling one also cancels
+  its reminders and removes it from Google Calendar, which Undo couldn't
+  bring back cleanly.
+- **No AI** for any of this: the parser and fixed phrases, so it stays fast,
+  free, offline and predictable. A phrasing nobody used before gets “I
+  didn't get that” until it's learned ([failed messages](#failed-messages)).
+- **The web app drives the same handlers** (#58): a web request becomes a
+  `WebUpdate` that looks enough like Telegram's for `handle_text` and the
+  button handlers, and their replies come back as JSON. One code path, so a
+  phrase or a button that works in Telegram works in the page, and the
+  conversation (`user_data`) is shared. A second, JSON-only API would have
+  meant every feature twice.
+- **The page reports, Telegram doesn't** (#61): steps and cards
+  are extra calls in the handlers (`handlers/report.py`) that do
+  nothing in Telegram, where the reply's text already says it all and more
+  messages would be noise. Handlers report what they did rather than the
+  page guessing it from the reply's text, which would break whenever a
+  wording changes.
+- **No AI in the assistant either**: it's the same parser and handlers; the
+  steps are what the code did.
+- **No example phrases or suggestions in replies**: “I didn't get that.”,
+  “I couldn't understand when.” and the bot's questions (“When should I
+  remind you: …?”) stand on their own, with no “Try …” / “e.g. …” after
+  them, and the page has no tap-to-send follow-ups. Roman found them
+  clutter. Examples stay only where they're asked for (“what can you do?”,
+  the home's What I can do) and in a setting's format (quiet hours, snooze
+  times).
+- **Reminders stay in Telegram**: the page doesn't do notifications (web
+  push is unreliable on iPhones, and only works while installed); Telegram
+  delivers them, with one tap back into the app.
+- **Spoken replies are Piper on the Pi**, in the speech-service next to
+  Vosk: private like voice messages, and the same voice on every phone.
+- **Unexpected errors go to a file, not a table** (`core/errors.py`): the
+  database is one of the things that breaks, and its errors would go
+  unrecorded. No outside error tracker either: errors can hold bits of what
+  users sent, so they stay on the Pi. Nobody is notified; they are reviewed
+  now and then with `scripts/errors.py`.
 
 ## Messages and buttons
 
@@ -170,9 +282,11 @@ edits it in place, or replaces it if it can't be edited.
 | `CallbackPrefix` | buttons that carry a value             | `tz:Europe/Kyiv`        |
 | `ReminderAction` | buttons on a reminder (`rem:<action>:<id>`) | `rem:snz:5:10`     |
 | `PeopleAction`   | 👥 People buttons (`ppl:<action>:<contact id>`), answers to an invite (`inv:<yes\|no>:<token>`) | `ppl:ren:3` |
+| `EventAction`    | buttons on an event (`evt:<action>:<event id>[:<value>]`) | `evt:rem:4:-30` |
+| `CalendarAction` | ⚙️ Settings → 📅 Calendar (`gcal:<action>[:<value>]`) | `gcal:tgl:6` |
 | `OptionAction`   | buttons on a setting screen            | `qhopt:set:23:00-07:00` |
 
-Build data with `reminder_callback()` / `option_callback()`, read it with
+Build data with `reminder_callback()` / `event_callback()` / `option_callback()`, read it with
 `split_option()`, and register handlers with `exact(...)` / `prefixed(...)`
 (all in `handlers/ui.py`).
 **Never change an existing value**: buttons on messages already in users'
@@ -180,27 +294,51 @@ chats still carry it. `tests/test_callbacks.py` pins them.
 
 **Free text** (`handlers/text.py`):
 
+Every message first marks the [conversation](#conversation) as current
+(`handlers/ui.conversation(touch=True)`).
+
 0. A Telegram reply to a delivered reminder (`reminders.last_message_id`)
    that is a reply command (`core/replies.parse_reply`) acts on that
    reminder (`handlers/replies.py`); other replies go on below.
+   Then, while the bot asks about a reminder or an event
+   (`NEVER_MIND_QUESTIONS`; settings and 👥 People questions take “no” as an
+   answer), “never mind” / “cancel” drops the question
+   (`core/conversation.is_never_mind`; “no”, “stop”, “skip” too where the
+   answer is a time or a day, `NOT_TEXT`), and a follow-up (“move it to
+   10”, “cancel the second one”, `parse_follow_up`) is handled by
+   `handlers/conversation.py`, dropping a waiting question with a note. A
+   follow-up never beats a trigger phrase (“also remind me …”), except the
+   cancel and move ones it is about (`FOLLOW_UP_INTENTS`), and while the bot
+   asks only “cancel …” counts: “make it work” or “also buy milk” may be the
+   answer.
 1. A message starting with a trigger phrase runs that intent's action with
    the rest of the message (`handlers/intents.py`, matched by
    `core/intents.py`; longest phrase wins, whole words only, polite filler
-   like “please” allowed in front). This always wins. If no phrase matches
+   like “please”, “also” or “and” allowed in front). This always wins. If no phrase matches
    as written, it's tried again with typos of the phrases' words fixed
    (“remid me”, see [Typos](#typos)); the rest keeps the original words.
+   A waiting question is dropped, and the bot says so (`Dropped: the reminder
+   “dentist”.`, from `user_data["asked_about"]`, set by `ui.ask`), unless the
+   new command makes the same kind of thing (`REPLACES`).
    During a question, the command intents in `NEEDS_KEYWORD`
-   (`handlers/text.py`: cancel, list, one day, timezone) count only if the message
-   has their word (“reminder”, “timezone”), so “delete old photos” or
-   “what's on the agenda” can be the answer to “what should I remind you
-   about?”.
+   (`handlers/text.py`: cancel, list, one day, timezone, new event, list
+   events) count only if the message has one of their words (“reminder”,
+   “timezone”, “event”, “calendar”), so “delete old photos” or “what's on
+   the agenda” can be the answer to “what should I remind you about?”;
+   “move” counts only if one of the user's event titles follows
+   (`events.names_event`), so “move the car” is an answer too. Not for
+   questions only a time or a day answers (`TIME_ONLY`).
 2. Otherwise, if the bot asked a question, `context.user_data["awaiting"]`
    holds an `Awaiting` value (`enums.py`; keys in `handlers/ui.py`) and the message is the
    answer. For `Awaiting.EDIT`, the reminder id is in
    `user_data["edit_reminder_id"]`.
 3. Otherwise, a message that is only a time (“tomorrow at 12”) starts a
    reminder, which asks for its text (`is_bare_time`, below).
-4. Otherwise the bot replies with a help text (and saves the message as
+4. Otherwise `handlers/events.handle_untriggered`: “padel is at 20:00 now”
+   (an event's title, then “is …”) moves that event, and a message with a
+   time and a text asks `📅 Event / ⏰ Reminder` (`Callback.PICK_EVENT` /
+   `PICK_REMINDER`; the text waits in `user_data["pending_pick"]`).
+5. Otherwise the bot replies with a help text (and saves the message as
    failed, see [Failed messages](#failed-messages)).
 
 `user_data` lives in memory, so a restart forgets pending questions.
@@ -211,12 +349,19 @@ chats still carry it. `tests/test_callbacks.py` pins them.
 the text after the trigger phrase into a time and a text. It tries the
 longest time expression at the start or the end of the message
 (`parse_when` for one-offs, `parse_recurrence` for repeats) whose leftover is
-not itself a time. It understands a fixed set of English expressions (module
+not itself a time. If that has a day but no time of day, or a time but no
+day, `_merge` looks for the rest at the other end: “friday dentist at 10”,
+“every monday to call mom at 10”, “at 9 to call mom tomorrow”. It doesn't
+when the text would end in a word like “about” (“at 9 to tell anna about
+tomorrow”). It understands a fixed set of English expressions (module
 docstring and [user guide](user-guide.md#time-expressions)) and raises
 `ParseError` with a user-facing message otherwise. `now` is timezone-aware
 in the user's timezone. Two subclasses say which half is missing:
 `MissingText` (a time, no text) and `MissingTime` (no time it understands;
-`.text` is the request cleaned up as reminder text).
+`.text` is the request cleaned up as reminder text). A third, `TooFar`, is a
+duration over `MAX_DURATION` (100 years; more would overflow dates, in
+delivery too for “every 99999999 days”); `parse_duration` raises it as
+well, so `parse_day`, replies and `parse_move` catch it.
 
 **Asking for the missing half** (`handlers/reminders.py`): `create_reminder`
 turns `MissingText` into `ask_what` and `MissingTime` into `ask_when`,
@@ -257,7 +402,7 @@ cancels: button, list, or a “cancel” reply). The 📋 list is
 “For others”; the agenda shows only the former. “That's wrong” refers to
 the last reminder the user *made* (`latest_created`).
 
-**Recurrence** (`core/recurrence.py`): four types, stored as a string
+**Recurrence** (`core/recurrence.py`): six types, stored as a string
 in `reminders.recurrence` (`NULL` = one-off):
 
 | Type       | Stored as                       | Meaning |
@@ -266,6 +411,8 @@ in `reminders.recurrence` (`NULL` = one-off):
 | `Monthly`  | `month:15@09:00`                | this day of the month (last day in shorter months) at a local time |
 | `MonthlyWeekday` | `month:2tue@09:00`, `month:-1fri@09:00` | the 2nd Tuesday / last Friday of the month at a local time; months without a 5th weekday are skipped |
 | `Interval` | `every:120m@2026-10-11T07:00Z`  | every N minutes from a start (UTC); whole days keep the local time |
+| `Offset`   | `event:-30m;Europe/Lisbon;;rrule:…` | minutes from every occurrence of a repeating event (its repeat, in its timezone, minus skipped ones); see [Events](#events). Older ones wrap the formats above |
+| `RRuleSet` | `rrule:Europe/Lisbon;20261022T210000;<exdates>;<rdates>;FREQ=WEEKLY;BYDAY=TH` | an event's RRULE from its first occurrence; only inside an `Offset` |
 
 Each has `serialize()`, `next_after(after, tz)` (first occurrence strictly
 after `after`) and `describe(tz)`; `recurrence.parse()` reads a stored value.
@@ -335,6 +482,59 @@ change.
   separate, phrase-level step (not in `Vocabulary`) because it merges two
   words, and it only runs when both earlier tries fail, so “remind me to
   borrow a book at 5” is untouched.
+
+## Conversation
+
+`core/conversation.py` (pure) and `handlers/conversation.py`.
+
+**Asking back.** `create_reminder` asks instead of guessing:
+
+- `needs_day(request)`: “every week” without a weekday → `ask_day`
+  (`Awaiting.REMINDER_DAY`, events `EVENT_DAY`); the answer goes into the
+  request (`with_day`: “every week …” → “every wednesday …”), which is
+  created again from the start, so the next missing piece is asked next.
+- `parsed.timed` false (a day, or a repeat, without a time of day), or
+  `untimed()` for “today dentist” after 09:00 → `ask_clock`
+  (`Awaiting.REMINDER_CLOCK`), with 🌅 09:00 / ☀️ 14:00 / 🌙 19:00
+  (`TIMES_OF_DAY`, `ans:clock:HHMM`). `answer_clock` tries the request with
+  the answer at the end (`with_clock`: “friday dentist at 10”, the parser
+  puts it together) and then the answer as a whole time (“tomorrow at 10 to
+  dentist”); either must keep the same text. Otherwise it asks again.
+
+The request waits in `user_data["pending_part"]`, like the other halves.
+The answer buttons only answer the message that asked
+(`user_data["asked_message_id"]`): an older question's buttons say it has
+expired. A day as the answer to “When?” (“remind me to call mom” →
+“friday”) asks the time too.
+
+**The conversation.** `handlers/ui.py` keeps a `Conversation` in
+`user_data["conversation"]`: the time of the last message, the subject
+(`(ItemKind, id)`, set by `ui.about` when a reminder or event is made, moved,
+edited, copied or restored) and the last numbered list (`ui.listed`, by the
+reminder lists, one day, “which one?”, and 📅 Events). `conversation()`
+returns it only while fresh (`CONTEXT_FOR`, 10 minutes since the last
+message); every message touches it first.
+
+`parse_follow_up` reads “move/make/change/push it|that|the second one [to]
+<when>”, “cancel/delete/remove it|…”, and “[and] the same|also|again <when>”
+(a copy only if <when> is a time, `conversation.is_time`: “also buy milk”
+goes the normal way)
+(polite words around are fine; “the dentist” is a name, left to the other
+commands). `handle_follow_up` picks the item (`Conversation.pick`; “the last
+one” without a list is the subject), checks it is still active and the
+user's, and:
+
+- **move**: `parse_move` from its current time (what isn't said stays); a
+  repeating reminder is snoozed to the new time, an event goes through
+  `events.move`.
+- **cancel**: a reminder is cancelled with `↩️ Undo` (`ReminderAction.RESTORE`,
+  `rem:back:<id>`: `ReminderRepository.restore`, a repeat whose time passed
+  moves on to its next one); an event gets `events.confirm_cancel`.
+- **copy**: a new one-off like it (“next week” is a week after it); for a
+  contact only while they're still in 👥 People.
+
+Without a fresh conversation, or if the item is gone, the bot asks which one.
+`user_data` is in memory: a restart forgets it.
 
 ## Voice messages
 
@@ -412,8 +612,11 @@ created or edited, set to `None` when a message isn't understood (already
 saved). After a restart it falls back to the newest reminder.
 
 The table isn't tied to reminders: `intent` (an `IntentName`) says what the
-bot thought was asked and `bot_understood` is a JSON snapshot, so other
-features (events) add their own optional link column next to `reminder_id`.
+bot thought was asked and `bot_understood` is a JSON snapshot; events have
+their own optional link, `event_id`, next to `reminder_id`. The startup
+re-check replays event messages (`EVENT_CREATE`, `EVENT_EDIT`,
+`EVENT_WHEN`) through `parse_event`; `EVENT_MOVE` needs the user's events,
+so those are closed by hand.
 
 `/failed` is only answered for `ADMIN_TELEGRAM_ID` (silently ignored for
 everyone else); it lists the newest open entries. `✅ <n>`
@@ -455,6 +658,44 @@ reply: database errors are logged.
 - **Privacy:** the entries are the user's own words and stay in the database.
   The repository is public, so fixes are tested with made-up messages of the
   same shape (“remind to call the bank”), never the saved text.
+
+## Unexpected errors
+
+What counts as unexpected: anything logged at ERROR or above **with an
+exception**, i.e. `logger.exception(…)` (or `logger.error(…, exc_info=…)`).
+Expected situations (Google unreachable, a login that expired, Telegram
+network hiccups) are logged at INFO or WARNING and stay out. So: catch what
+you expect and log it as a warning; let the rest reach `logger.exception` or
+the catch-all.
+
+- **The catch-all** `handlers/errors.on_error` gets every exception a handler
+  or job didn't catch. It logs it with what the bot was doing
+  (`describe`: user id, button data or command, the kind of message, **never
+  the text**) and tells the user “Sorry, something went wrong on my side. Try
+  again in a moment.” (an alert for a button). `NetworkError` and `Forbidden`
+  (a user who blocked the bot) are only warnings.
+- **The file**: `install` (in `bot.py`) adds `ErrorFileHandler` to the root
+  logger, which writes to `ERRORS_DIR/errors.jsonl`, one JSON object per
+  line: time, key, count, type, message, where (the innermost frame in the
+  bot's own code), context (the logger, the log message, `extra={"error_context": …}`),
+  traceback. Pass `extra={"error_context": {...}}` to add context to a
+  `logger.exception`. If the directory can't be written the bot logs a
+  warning and runs without it.
+- **Size**: `RotatingFileHandler`, 5 MB per file and 4 old ones
+  (`errors.jsonl.1` … `.4`), 25 MB at most; the oldest is deleted.
+- **Floods**: errors are grouped by key, the exception type and the function
+  it came from (`ValueError@jobs/delivery.py:deliver_due`, not the line, which
+  moves). A group is written in full at most once an hour; repeats in between
+  are counted and written as `{"time", "key", "count"}` at most every 10
+  minutes (and on shutdown), so a bug in the 20-second delivery job takes a
+  few KB a day.
+- **Reading them**: `scripts/errors.py list [--since YYYY-MM-DD]` shows the
+  groups, most frequent first, with their counts and first and last time
+  seen, over all rotated files; `show <n>` prints one in full. See
+  [setup](setup.md#unexpected-errors).
+- **Privacy:** an error's message can hold what a user sent (a database error
+  shows its parameters). The file stays on the Pi; a fix goes in a GitHub
+  issue described without it, tested with made-up input.
 
 ## People
 
@@ -503,6 +744,229 @@ why the other person always opts in.
   (`TypeHandler`, group -1) and stores `first_name` / `username` when they
   change, for known users; `/start` also stores them for new ones.
 
+## Events
+
+Events (`handlers/events.py`, logic in `core/events.py`, table `events`,
+`db/repositories/event.py`) are the user's own, and can sync with
+[Google Calendar](#google-calendar).
+
+- **Parsing**: `parse_event` is `parse_reminder` with the text as the
+  title. Without a time of day (`ParsedReminder.timed` is false: “friday”,
+  “every friday”), it's an all-day event from that day's midnight. “today”
+  is all day even after 09:00 (the parser would call that passed).
+  `MissingText` / `MissingTime` ask for the title or the time
+  (`Awaiting.EVENT_TITLE` / `EVENT_TIME`, the half in `pending_part`), like
+  reminders; `Awaiting.EVENT` is ➕ New or a resend.
+- **Repeats** are RRULEs (below). `events.skipped` holds occurrences that
+  don't happen (`20261029T2000Z,…`, UTC, EXDATEs); those over are dropped
+  when it's written. `next_occurrence` / `occurs_on` skip them; an
+  occurrence counts as on until it ends (an all-day one, all of its day).
+- **Which event**: `match_title` finds the longest title at the start of the
+  words (“the”, “my” in front, “event” after are ignored), among the
+  upcoming ones (`titles_of`, the soonest per title).
+- **Moving**: `parser.parse_move` reads “to 20:00” (same day), “to friday”
+  (same time), “to 8” (the closer of 08:00 / 20:00); for a repeat, see
+  below. It reads the phrase in the event's timezone, and keeps the event's
+  length. Skipped and moved days are dropped.
+
+**Reminders relative to an event**: `split_relative` reads “<duration>
+before|after <event> [to <text>]” or “<text> <duration> before|after
+<event>” (and “the day before”) in `create_reminder`, before the usual
+parser; a message that names no event but is a reminder as written (“to take
+pills 30 min after breakfast every day”) stays an ordinary reminder. The
+reminder gets `event_id` and `event_offset`. For a repeating event the bot
+asks “just the next one, or every time?” (`EventAction.ONCE` / `EVERY`, the
+details in `user_data["pending_event_reminder"]`): the next one is a
+one-off at that occurrence, every time is an `Offset` repeat around the
+event's `RRuleSet`, which is why `reminders.recurrence` is `Text`.
+
+`follow(old, event)` runs after every change (edit, move, skip): “every
+time” ones get the new `Offset` (only the string changes, `relink`, if their
+occurrence still happens); one for a single occurrence moves to the new
+occurrence nearest the old one, or is cancelled if that one is skipped; one
+for a one-off moves with its start. A firing one loses its buttons.
+Cancelling an event (`EventRepository.cancel`) cancels its reminders in the
+same transaction. Delivery adds “📅 padel: Today, 21:00 (in 30 min)”
+(`occurrence_line`).
+
+**Buttons** (`evt:<EventAction>:<id>[:<value>]`, only for the event's
+owner): ⏰ `rem:<minutes>`, `once` / `every`, ↩️ `undo`, ✏️ `edit`
+(`Awaiting.EVENT_EDIT`, `user_data["edit_event_id"]`), 👎 `wrong`
+(`WRONG_RESULT` with `event_id` and `{"title", "starts_at", "recurrence",
+"all_day"}`), `open` (its screen), ⏭ `skip:<occurrence>` (the occurrence in
+the data, so a stale button can't skip another day) and 🗑 `del`.
+
+“that's wrong” right after an event (`user_data["last_event_id"]`, cleared
+by a new reminder or a message not understood) flags the event
+(`flag_last`). The agenda (“what do I have tomorrow?”) is
+`handlers/events.agenda`: that day's events (`day_text`), then the
+reminders (`show_day`).
+
+**Repeats** (`core/events.rule_of`): `events.recurrence` is an RRULE
+(`FREQ=WEEKLY;BYDAY=TH`) from `starts_at` in the event's `timezone`;
+`skipped` are EXDATEs, `moved` the occurrences moved in Google
+(`<original>><new>`, so the original is skipped and the new time added).
+`RRuleSet` (`core/recurrence.py`, with `python-dateutil`) expands them; it
+can end (UNTIL, COUNT), so `next_after` may be None, which delivery, ✅ OK
+and `follow` handle. An “every time” reminder's `Offset` wraps the event's
+`RRuleSet` (`event:-30m;<tz>;;rrule:<tz>;<start>;<exdates>;<rdates>;<RRULE>`).
+Each occurrence lasts `duration` (to `ends_at`, a day if all day, else 0),
+and counts as on until it ends.
+
+**Moving a repeat** (`parse_move` with the RRULE): a time moves it from the
+current occurrence on (a new DTSTART), a weekday changes a weekly one with
+one day (`BYDAY`), a whole repeat replaces it.
+
+## Google Calendar
+
+`handlers/calendar.py` (with `core/gcal.py`, `services/google_calendar.py`,
+`handlers/web.py`, `jobs/calendar.py`, tables `google_accounts` and
+`google_calendars`). Off unless `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`GOOGLE_REDIRECT_URI` and `CALENDAR_KEY` are set (`config.calendar_configured`);
+then `bot.py` also starts the web server (aiohttp, `WEB_PORT`) in the same
+event loop.
+
+- **Linking**: the 🔗 button opens Google's consent page
+  (`access_type=offline`, `prompt=consent`) with a `state` signed by
+  `core/secrets.sign_state` (the Telegram id and the time, valid 15 min).
+  Google comes back to `/oauth/callback`; `complete_link` checks the state,
+  exchanges the code, stores the refresh token encrypted (Fernet,
+  `CALENDAR_KEY`), saves the calendar list (the primary one synced, new
+  events go there), opens push channels, tells the user, then sends the
+  bot's upcoming events to Google and syncs.
+- **Bot → Google** (`push`, called by `handlers/events.to_google` after
+  every create, edit, move, skip and cancel): insert, patch or delete in the
+  event's calendar (new ones: the account's `default_calendar_id`). It sets
+  `pending_push` first and clears it with the new `etag`; if Google can't be
+  reached it stays set, and `sync_user` sends pending events first. Without
+  an end, Google gets one hour (all day: the day), but the bot doesn't store
+  it. Skipped days go as EXDATEs.
+- **Google → bot** (`sync_calendar`): `events.list` with the calendar's
+  sync token (all events the first time; a 410 starts over), repeating
+  events before their exceptions. `apply` creates, updates or cancels the
+  bot's copy, skipping it when the `etag` is the one the bot already has
+  (its own change coming back) or when the bot's change is newer and still
+  pending. An exception (`recurringEventId`) cancels or moves one occurrence
+  of its parent (`skipped`, `moved`). Every change runs `follow`, so
+  reminders move, and cancelling cancels them. One-offs that ended over a
+  day ago aren't imported the first time. If any item fails to apply, the
+  sync token isn't advanced, so the next sync gets those changes again (the
+  applied ones are skipped by their `etag`); after 3 tries an item is given up
+  on (logged), so one broken event can't stall a calendar. An unexpected
+  failure sending one pending event is logged and the sync goes on.
+- **One at a time per user**: `sync_user` and `push` take a per-user
+  `asyncio.Lock`, so a sync can't import an event the bot is inserting
+  (Google has it, the bot doesn't know its id yet), and a burst of push
+  notifications syncs one after the other. Inside a sync, sending doesn't take
+  it again (`_syncing`).
+- **Gone means gone**: an event imported from Google (`source` is
+  `MessageSource.GOOGLE`) that is cancelled (in Google, in the bot, or with
+  🗑 Remove them) is deleted (`EventRepository.delete`; its reminders stay
+  cancelled, unlinked), once Google knows: `cancel_with_reminders` deletes it
+  unless the push is still pending, and `_send` does when it gets there. The
+  bot's own events stay as cancelled rows.
+- **When**: `/google/push` (`on_push`, checked against the channel's token;
+  Google's first "sync" message is ignored) syncs that calendar;
+  `maybe_sync` at the start of `handle_text`, 📅 Events and 📋 My reminders
+  syncs if the last one is 5 minutes old (`GoogleRepository.claim_poll`),
+  waiting at most 8 s; `jobs/calendar.daily` renews channels expiring within
+  2 days and syncs everyone.
+- **Expired login**: `GoogleAuthError` (refresh refused, 401, or a missing
+  scope) → `expire`: status `expired`, one message with 🔗 Link again, a
+  warning line on 📅 Events (`warning`), no syncing; `push` marks changes
+  pending for later. Linking again resets the status and keeps the sync tokens.
+- **Screens and buttons** (`gcal:<CalendarAction>[:<id|all>]`, the id of a
+  `google_calendars` row): ⬜/✅ `tgl`, 📥 `def` (only calendars the user can
+  write to), 🔄 `sync`, 🔓 `unl`, then 📌 `keep` / 🗑 `rm` for a calendar or
+  `all` (unlink: also revokes the token and deletes the account rows).
+  Keeping detaches the events (`EventRepository.detach`): `external_source`
+  becomes None but the Google ids stay, so nothing is sent for them, and
+  syncing that calendar again (or linking again) links them up instead of
+  importing copies.
+- **Setup mistakes aren't the user's**: only Google's `invalid_grant` is an
+  expired login; any other refusal from the token endpoint (`invalid_client`:
+  a wrong secret) is `GoogleUnavailable`, so nobody is warned or marked
+  expired. A `CALENDAR_KEY` that isn't a valid Fernet key turns the feature
+  off (`config.calendar_configured`, logged once).
+
+Tests fake Google with an `httpx.MockTransport` (`tests/test_calendar.FakeGoogle`).
+
+## Web app
+
+The bot as an assistant in a page (#58, #61): `webapp/` (plain HTML, CSS and
+JavaScript, no build step) and its API, `handlers/webapp.py`, on the bot's web server
+(`handlers/web.py`, only with `WEBAPP_URL` set). See the [user
+guide](user-guide.md#-web-app) and [setup](setup.md#web-app).
+
+**Logging in** (`core/webauth.py`): inside Telegram the page has `initData`,
+signed with a key made from the bot token (`check_init_data`); in a browser
+the Telegram Login Widget's fields are signed with the bot token's SHA-256
+(`check_login`). Either is accepted for 24 hours after it was made. The page
+then gets a session token (`sign_session`: the Telegram id and the time,
+HMAC-signed with a key derived from the bot token, valid 30 days), kept in
+`localStorage` and sent as `Authorization: Bearer …`. Not a cookie: inside
+Telegram's desktop app the page is in an iframe, where cookies are third
+party.
+
+**The chat** goes through the bot's own handlers:
+
+- `/api/message` hands the text to `handlers/text.handle_text`, and
+  `/api/button` the tap to the button's handler (`handlers/buttons.py`,
+  the same list `bot.py` registers), with a `WebUpdate`: the user, a private
+  chat with their id, and a `WebMessage` / `WebQuery` that collect what the
+  handler does (`reply_text`, `edit_message_text`, `answer`) in a
+  `WebChat`. The response is `{"messages", "edits", "alert", "steps"}`: new messages with their buttons (`{"text", "data"}`, or
+  `{"text", "url"}`), edits of earlier ones, an alert (a button's `answer`
+  text), and what the handlers reported (below).
+- The context is a `WebContext`: the user's own `user_data` (the same dict as
+  in Telegram, so a question asked in one can be answered in the other) and a
+  `chat_data` of its own, so `render_menu` never edits the Telegram menu
+  message. `context.bot` is the real bot: a reminder for someone else is
+  sent to them through Telegram.
+- Web messages have negative ids (counting down in
+  `user_data["web_message_id"]`), never a Telegram one, so “that question
+  has expired” checks work the same.
+- An unexpected error is recorded like in Telegram (`logger.exception`, so
+  in the [errors file](#unexpected-errors)) and the user gets the same
+  apology.
+
+**What handlers report** (`handlers/report.py`, #61): besides replying,
+a handler can say what it did, for the page:
+
+- `report.step(update, "Saved")`: a step, shown as a timeline above the
+  replies. Steps say what happened, nothing invented: “Understood: a
+  reminder, tomorrow at 09:00” (`report.when` makes a time read as part of
+  a sentence), “Moved out of quiet hours…”, “Added to Google Calendar”
+  (only when `handlers/calendar.push` says Google has it).
+- `report.card(update, sent, CardKind.REMINDER, title=…, date=…, …)`: show
+  the message `sent` as a card. It's keyed by the message's id, so it's in
+  that message's JSON (`"card"`), and an edit of it (↩️ Undo) with a new
+  text and no card turns it back into text. `handlers/reminders.report_card`
+  and `handlers/events.report_card` build them.
+
+A web request's `WebUpdate` carries a `Report` (`update.report`); a Telegram
+`Update` has none, so these calls do nothing there.
+
+**Home** (`/api/briefing`, `brief`): the greeting by the user's clock, and
+blocks (`Block`): `today` is what's left today (`core/briefing.py`, from
+`days_ahead`) and how tomorrow starts. Then the skills (`core/skills.py`):
+the same list answers “what can you do?” (`handlers/skills.py`); Google
+Calendar is only there where it's set up. A new skill is added to
+`SKILLS` (an example the bot understands), and a briefing block if it has
+something to say.
+
+**Voice**: `/api/voice` takes the browser's recording as it is (WebM/Opus, or
+MP4/AAC on iPhones), the speech-service transcribes it (ffmpeg reads both),
+and it goes on as a typed message would, with `voice` set so a reminder made
+from it says so. **Spoken replies**: the page sends the bot's new messages to
+`/api/speak`, which makes them speakable (`core/speakable.py`) and has the
+speech-service's `/speak` (Piper) say them, as MP3. Phones only play sound
+started by a tap, so the page plays a moment of silence on the first one.
+
+**📅 The next 7 days** (`/api/upcoming`, `days_ahead`): today and the next 6 days,
+reminders (repeats on each day they fall on) and events, in the user's
+timezone.
+
 ## Enums
 
 Use an enum instead of loose strings for any fixed set of values. **All
@@ -516,12 +980,17 @@ ones there too.
 | `ReplyCommand`                          | what a reply to a reminder message asks for (`core/replies.py`) |
 | `Awaiting`                              | what the next typed message answers |
 | `IntentName`                            | free-text intents; stored in `failed_messages.intent` |
-| `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source` |
+| `MessageSource`                         | typed or voice; in `reminders.source` and `failed_messages.source`; `events.source` is `google` for an imported event |
 | `FailureReason`, `FailureStatus`        | `failed_messages.reason` and `.status` (open, fixed, ignored) |
 | `ContactStatus`                         | `contacts.status`: pending (asked by @username), accepted, or declined (a note not to ask again) |
 | `RequestResult`                         | what asking by @username did (`ContactRepository.request`) |
 | `InviteResult`                          | what opening an invite did (`ContactRepository.use_invite`) |
-| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction`, `PeopleAction` | callback data of every button |
+| `EventStatus`                           | `events.status`: active or cancelled |
+| `GoogleStatus`                          | `google_accounts.status`: linked, or expired (link again) |
+| `ExternalSource`                        | `events.external_source`: where it's synced (#22) |
+| `ItemKind`, `FollowUp`                  | what “it” is (a reminder or an event), and what a follow-up asks (move, cancel, copy) |
+| `Skill`, `Block`, `CardKind`            | the web app's skills (`core/skills.py`), briefing blocks, and result cards (`handlers/report.py`) |
+| `Callback`, `CallbackPrefix`, `ReminderAction`, `OptionAction`, `PeopleAction`, `EventAction`, `CalendarAction`, `AnswerKind` | callback data of every button |
 
 Weekdays use the standard library's `calendar.Day` (in the parser and
 `Weekly`).
@@ -538,12 +1007,15 @@ changes go through Alembic; see [Database migrations](setup.md#database-migratio
 | Table           | Holds |
 | --------------- | ----- |
 | `users`         | `telegram_id`, `timezone`, `first_name` and `username` (from Telegram, refreshed on every update by `remember_profile` in `handlers/ui.py`) |
-| `reminders`     | creator/target user, chat, text, `remind_at`, `next_fire_at`, `status`, `fire_count`, `last_message_id`, `recurrence`, `request` and `source` (the message it was made from) |
+| `reminders`     | creator/target user, chat, text, `remind_at`, `next_fire_at`, `status`, `fire_count`, `last_message_id`, `recurrence` (`Text`), `request` and `source` (the message it was made from), `event_id` and `event_offset` (minutes from the event's start) if it follows an event |
 | `user_settings` | `(user_id, key)` → JSON value, only non-defaults |
 | `contacts`      | `owner_user_id` may remind `contact_user_id`; `name` (what the owner calls them, unique per owner, case-insensitive, checked in code), `status`, `created_at`, `accepted_at`; unique `(owner, contact)` |
 | `contact_requests` | log of requests by @username: `owner_user_id`, `contact_user_id`, `created_at` (for the daily limits) |
 | `invites`       | `token` (the link), `owner_user_id`, `created_at`, `expires_at`, `used_at`, `used_by_user_id` |
-| `failed_messages` | user, `text`, `source`, `reason`, `intent`, `bot_understood` (JSON), optional `reminder_id`, `status`, `created_at`, `fixed_at`, `note`, `fix_pr` |
+| `failed_messages` | user, `text`, `source`, `reason`, `intent`, `bot_understood` (JSON), optional `reminder_id` or `event_id`, `status`, `created_at`, `fixed_at`, `note`, `fix_pr` |
+| `events`        | user, `title`, `starts_at` (the first occurrence), `ends_at`, `all_day`, `timezone`, `recurrence` (an RRULE), `skipped`, `moved`, `status`, `request`, `source`, `created_at`, `updated_at`, and for Google `external_source`, `external_calendar_id`, `external_id`, `etag`, `external_updated_at`, `pending_push` |
+| `google_accounts` | per user: `refresh_token` (encrypted), `status`, `default_calendar_id`, `linked_at`, `last_poll_at` |
+| `google_calendars` | a user's Google calendars: `calendar_id`, `summary`, `time_zone`, `primary`, `writable`, `selected`, `sync_token`, and the push channel (`channel_id`, `channel_token`, `channel_resource_id`, `channel_expires_at`) |
 
 ## Tests
 
@@ -556,11 +1028,12 @@ pytest
 pyflakes catches undefined names and unused imports, which tests can miss.
 
 Tests use a throwaway SQLite database (`tests/conftest.py`) with all
-migrations applied. CI runs pyflakes and the tests on every pull request
+migrations applied; the `chat` fixture (a user with a timezone) is there too. CI runs pyflakes and the tests on every pull request
 and before every deploy. Parser, recurrence, quiet hours and settings tests are pure;
 delivery tests use a fake bot (`tests/test_recurrence.FakeBot`);
-`tests/test_handlers.py` and `tests/test_voice.py` drive the handlers with
-mocked Telegram objects; `tests/test_numbers.py` covers spoken phrases.
+`tests/test_handlers.py`, `tests/test_events.py`, `tests/test_calendar.py`
+`tests/test_errors.py` (with a fake clock), `tests/test_webapp.py` (logins, and the API through aiohttp's test server)
+and `tests/test_voice.py` drive the handlers with mocked Telegram objects; `tests/test_numbers.py` covers spoken phrases.
 
 ## How to…
 
@@ -576,14 +1049,16 @@ Telegram, configured through `config.py`), with its own exceptions for
 
 **Add a trigger phrase or intent**: add it to `INTENTS` in
 `handlers/intents.py`. An action takes `(update, context, rest_of_message)`.
+Set `typos=False` for a phrase that's one letter from common words.
 
 **Add a button**: add its callback data to the enums in `enums.py`, use it in
 the keyboard, register the handler in `bot.py` with `exact()` / `prefixed()`,
 and add it to `tests/test_callbacks.py`.
 
-**Ask the user a question**: add a value to `Awaiting`, set
-`context.user_data[AWAITING]` when asking, handle it in
-`handlers/text.py`, and pop it once answered.
+**Ask the user a question**: add a value to `Awaiting`, ask with
+`ui.ask(context, awaiting, "the reminder “…”")` (what it's about, for
+“Dropped: …”), handle it in `handlers/text.py`, and pop it once answered.
+Buttons that answer it use `CallbackPrefix.ANSWER` (`text.on_answer`).
 
 **Add a setting**: add a `Setting` (and `validate`) to
 `core/settings.py` and to `SETTINGS`, add a screen and handlers in

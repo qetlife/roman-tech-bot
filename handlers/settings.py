@@ -12,7 +12,7 @@ from    db.repositories.settings    import SettingsRepository
 from    db.repositories.user        import UserRepository
 from    enums                       import Awaiting, Callback, CallbackPrefix, OptionAction
 from    handlers.ui                 import (
-    AWAITING, PENDING_REQUEST, REMINDER_SETTINGS_BACK, option_callback, render_menu, split_option,
+    AWAITING, PENDING_EVENT_REQUEST, PENDING_REQUEST, REMINDER_SETTINGS_BACK, option_callback, render_menu, split_option,
 )
 
 
@@ -66,6 +66,11 @@ async def apply_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE, tz_
         # Imported here: handlers.reminders imports this module (ask_timezone).
         from handlers.reminders import answer_reminder
         await answer_reminder(update, context, pending)
+    pending = context.user_data.pop(PENDING_EVENT_REQUEST, None)
+    if pending is not None:
+        # Imported here: handlers.events imports this module (ask_timezone).
+        from handlers.events import answer_event
+        await answer_event(update, context, pending)
 
 
 async def on_timezone_button(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -6,10 +6,10 @@ rest of the message. Add new phrases or intents here.
 
 from core.intents       import Intent
 from enums              import IntentName
-from handlers.reminders import (
-    agenda, cancel_reminder, create_reminder, flag_last_reminder, list_reminders, remind_someone,
-)
+from handlers.events    import agenda, cancel, cancel_event, create_event, list_events, move_event, put_in_calendar
+from handlers.reminders import create_reminder, flag_last_reminder, list_reminders, remind_someone
 from handlers.settings  import set_timezone
+from handlers.skills    import what_i_can_do
 
 
 INTENTS = [
@@ -46,10 +46,50 @@ INTENTS = [
     ),
     Intent(
         name=IntentName.REMINDER_CANCEL,
-        # "cancel the dentist reminder"; handlers/text.py only takes these
-        # during a question if "reminder" is in the message.
+        # "cancel the dentist reminder", or "cancel padel" (an event, if one is
+        # called that); handlers/text.py only takes these during a question if
+        # "reminder" is in the message.
         phrases=["cancel", "delete", "remove"],
-        action=cancel_reminder,
+        action=cancel,
+    ),
+    Intent(
+        name=IntentName.EVENT_CREATE,
+        phrases=[
+            "event", "new event", "add event", "add an event", "add a new event", "create event",
+            "create an event", "make an event",
+        ],
+        action=create_event,
+    ),
+    Intent(
+        # "put padel on thursday at 21:00 in my calendar", "add to my calendar …"
+        name=IntentName.EVENT_CREATE,
+        phrases=["put", "add"],
+        action=put_in_calendar,
+    ),
+    Intent(
+        name=IntentName.EVENT_LIST,
+        phrases=[
+            "my events", "show my events", "show events", "list events", "list my events", "events",
+            "upcoming events", "my calendar", "show my calendar", "what's on my calendar", "whats on my calendar",
+            "what is on my calendar", "what's in my calendar", "whats in my calendar",
+        ],
+        action=list_events,
+    ),
+    Intent(
+        name=IntentName.EVENT_MOVE,
+        # "move padel to 20:00"; handlers/text.py only takes it during a
+        # question if an event's name follows.
+        phrases=["move", "reschedule"],
+        action=move_event,
+        typos=False,
+    ),
+    Intent(
+        name=IntentName.EVENT_CANCEL,
+        phrases=[
+            "cancel event", "cancel the event", "delete event", "delete the event", "remove event",
+            "remove the event", "cancel my event", "delete my event",
+        ],
+        action=cancel_event,
     ),
     Intent(
         name=IntentName.TIMEZONE_SET,
@@ -58,6 +98,14 @@ INTENTS = [
             "my timezone is", "set my timezone", "change my timezone",
         ],
         action=set_timezone,
+    ),
+    Intent(
+        name=IntentName.SKILLS,
+        phrases=[
+            "what can you do", "what else can you do", "what do you do", "what can i ask you", "what can i ask",
+            "what are you able to do", "how can you help", "what can you help with", "what can you help me with",
+        ],
+        action=what_i_can_do,
     ),
     Intent(
         name=IntentName.FLAG_FAILED,

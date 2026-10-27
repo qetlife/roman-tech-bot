@@ -1,4 +1,4 @@
-"""Menu screens: main menu, ⏰ Reminders and ⚙️ Settings."""
+"""Menu screens: main menu, ⏰ Reminders and ⚙️ Settings (📅 Events is in handlers/events.py)."""
 
 from    telegram                import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from    telegram.ext            import ContextTypes
@@ -15,6 +15,7 @@ MAIN_MENU_TEXT = "Menu:"
 def build_main_menu():
     keyboard = [
         [InlineKeyboardButton("⏰ Reminders", callback_data=Callback.REMINDERS_MENU)],
+        [InlineKeyboardButton("📅 Events", callback_data=Callback.EVENTS_MENU)],
         [InlineKeyboardButton("👥 People", callback_data=Callback.PEOPLE_MENU)],
         [InlineKeyboardButton("⚙️ Settings", callback_data=Callback.SETTINGS_MENU)],
     ]
@@ -29,10 +30,7 @@ async def on_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ⏰ Reminders ------------------------------------------------------------
 
-REMINDERS_TEXT = (
-    "Reminders:\n\n"
-    "You can also just type, e.g. “remind me in 2 hours to call mom”."
-)
+REMINDERS_TEXT = "Reminders:"
 
 
 def build_reminders_menu():
@@ -60,6 +58,7 @@ def build_settings_menu():
         [InlineKeyboardButton("🆔 My ID", callback_data=Callback.MY_ID)],
         [InlineKeyboardButton("🌍 Timezone", callback_data=Callback.TIMEZONE_SETTINGS)],
         [InlineKeyboardButton("⏰ Reminders", callback_data=Callback.REMINDER_SETTINGS)],
+        [InlineKeyboardButton("📅 Calendar", callback_data=Callback.CALENDAR_SETTINGS)],
         [InlineKeyboardButton("↩️ Back", callback_data=Callback.SETTINGS_BACK)],
     ]
     return InlineKeyboardMarkup(keyboard)

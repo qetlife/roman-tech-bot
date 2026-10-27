@@ -202,3 +202,18 @@ def test_time_answer_bare_duration(answer, expected):
     assert parsed.text == "call the bank"
     if expected is not None:
         assert parsed.when == expected
+
+
+@pytest.mark.parametrize("request_", [
+    "in 99999999 days to x", "in 99999999999d to x", "every 99999999 days to x", "in 40000 days to x",
+])
+def test_too_far_in_the_future(request_):
+    from core.parser import TooFar
+    with pytest.raises(TooFar, match="too far"):
+        parse_reminder(request_, NOW)
+
+
+@pytest.mark.parametrize("request_", ["in nan hours to x", "in inf hours to x", "in 1e400 hours to x"])
+def test_numbers_nobody_says(request_):
+    with pytest.raises(ParseError):
+        parse_reminder(request_, NOW)

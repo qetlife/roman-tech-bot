@@ -42,6 +42,28 @@ class ReplyCommand(StrEnum):
     CANCEL = "cancel"       # "cancel", "delete it"
 
 
+# --- events -----------------------------------------------------------------
+
+class EventStatus(StrEnum):
+    """Stored in events.status."""
+
+    ACTIVE = "active"
+    CANCELLED = "cancelled"
+
+
+class ExternalSource(StrEnum):
+    """Where an event is synced with (events.external_source); None for the bot's own. For #22."""
+
+    GOOGLE = "google"
+
+
+class GoogleStatus(StrEnum):
+    """Stored in google_accounts.status."""
+
+    LINKED = "linked"
+    EXPIRED = "expired"     # Google refused the login (expired after 7 days in testing, or revoked): link again
+
+
 # --- contacts ---------------------------------------------------------------
 
 class ContactStatus(StrEnum):
@@ -80,6 +102,7 @@ class MessageSource(StrEnum):
 
     TYPED = "typed"
     VOICE = "voice"     # transcribed by the speech-service
+    GOOGLE = "google"   # events.source: imported from Google Calendar, not made from a message
 
 
 class FailureReason(StrEnum):
@@ -110,7 +133,13 @@ class IntentName(StrEnum):
     REMINDER_CANCEL = "reminder.cancel" # "cancel the dentist reminder"
     TIMEZONE_SET = "settings.timezone"  # "set my timezone to Lisbon"
     FLAG_FAILED = "failed.flag"         # "that's wrong", "save the last one as failed"
-
+    EVENT_CREATE = "event.create"       # "event padel on thursday at 21:00", "put … in my calendar"
+    EVENT_EDIT = "event.edit"           # the answer to ✏️ Edit on an event, not a trigger phrase
+    EVENT_WHEN = "event.when"           # the answer to "when is it?", not a trigger phrase
+    EVENT_LIST = "event.list"           # "my events", "what's on my calendar"
+    EVENT_MOVE = "event.move"           # "move padel to 20:00", "padel is at 20:00 now"
+    EVENT_CANCEL = "event.cancel"       # "cancel event padel" (plain "cancel padel" too)
+    SKILLS = "skills"                   # "what can you do?"
 
 
 class Awaiting(StrEnum):
@@ -125,6 +154,57 @@ class Awaiting(StrEnum):
     QUIET_HOURS = "quiet_hours"         # custom quiet hours
     CONTACT_USERNAME = "contact_username"   # 👥 ➕ Invite: the @username of someone already using the bot
     CONTACT_NAME = "contact_name"       # 👥 ✏️ Rename: a contact's new name
+    EVENT = "event"                     # 📅 ➕ New: time and title of a new event
+    EVENT_TITLE = "event_title"         # what the event is, for a time already given
+    EVENT_TIME = "event_time"           # when the event is, for a title already given
+    EVENT_EDIT = "event_edit"           # ✏️ Edit on an event: new time and title
+    REMINDER_CLOCK = "reminder_clock"   # what time, for a reminder with only a day ("friday dentist")
+    REMINDER_DAY = "reminder_day"       # which day, for "every week" without one
+    EVENT_DAY = "event_day"             # which day, for an event "every week" without one
+
+
+class ItemKind(StrEnum):
+    """What "it" / "the second one" is in a conversation (core/conversation.py)."""
+
+    REMINDER = "reminder"
+    EVENT = "event"
+
+
+class Skill(StrEnum):
+    """What the assistant can do (core/skills.py): the web app's home and "what can you do?"."""
+
+    REMINDERS = "reminders"
+    EVENTS = "events"
+    PEOPLE = "people"
+    CALENDAR = "calendar"       # Google Calendar sync, only where it's set up
+
+
+class Block(StrEnum):
+    """A part of the web app's briefing (handlers/webapp.py, /api/briefing)."""
+
+    TODAY = "today"             # what's left today, and how tomorrow starts
+
+
+class CardKind(StrEnum):
+    """The result card of a reply in the web app (handlers/report.py)."""
+
+    REMINDER = "reminder"
+    EVENT = "event"
+
+
+class FollowUp(StrEnum):
+    """What a message about the last thing (or a listed one) asks: "move it to 10", "cancel that"."""
+
+    MOVE = "move"       # "move it to 10", "make it 9:30", "change the second one to friday"
+    CANCEL = "cancel"   # "cancel that", "delete it", "remove the first one"
+    COPY = "copy"       # "and the same next week", "also on thursday"
+
+
+class AnswerKind(StrEnum):
+    """Buttons that answer the bot's question (ans:<kind>:<value>)."""
+
+    CLOCK = "clock"     # ans:clock:<HHMM>: what time
+    DAY = "day"         # ans:day:<0-6, Monday = 0>: which day of the week
 
 
 # --- buttons ----------------------------------------------------------------
@@ -141,6 +221,7 @@ class Callback(StrEnum):
     REMINDERS_MENU = "menu:reminders"
     SETTINGS_MENU = "menu:settings"
     PEOPLE_MENU = "menu:people"
+    EVENTS_MENU = "menu:events"         # 📅 Events: the list
 
     # 👥 People
     NEW_INVITE = "people:invite"
@@ -154,12 +235,18 @@ class Callback(StrEnum):
     REPEAT_SETTINGS = "settings:repeat"
     QUIET_SETTINGS = "settings:quiet"
     UPDATES_SETTINGS = "settings:updates"               # 📣 Updates from people
+    CALENDAR_SETTINGS = "settings:calendar"             # 📅 Google Calendar
 
     # ⏰ Reminders
     NEW_REMINDER = "rem:new"
     LIST_REMINDERS = "rem:list"
     REMINDER_SETTINGS_FROM_MENU = "rem:settings"        # from the ⏰ Reminders menu
     REMINDER_SETTINGS_RETURN = "rset:show"              # back from a reminder setting
+
+    # 📅 Events
+    NEW_EVENT = "event:new"
+    PICK_EVENT = "pick:event"           # "padel on thursday at 21:00" without a keyword: an event…
+    PICK_REMINDER = "pick:reminder"     # … or a reminder
 
 
 class CallbackPrefix(StrEnum):
@@ -175,6 +262,9 @@ class CallbackPrefix(StrEnum):
     FAILED_IGNORED = "failign:" # failign:<failed message id>, on the /failed list
     PEOPLE = "ppl:"             # ppl:<PeopleAction>:<contact id>
     INVITE = "inv:"             # inv:<PeopleAction.ALLOW|DECLINE>:<invite token>
+    EVENT = "evt:"              # evt:<EventAction>:<event id>[:<value>]
+    CALENDAR = "gcal:"          # gcal:<CalendarAction>[:<google_calendars id, or "all">]
+    ANSWER = "ans:"             # ans:<AnswerKind>:<value>: an answer to the bot's question
 
 
 class ReminderAction(StrEnum):
@@ -186,6 +276,32 @@ class ReminderAction(StrEnum):
     EDIT = "edit"
     DELETE = "del"
     WRONG = "wrong"     # 👎 Wrong: save as a failed message and delete the reminder
+    RESTORE = "back"    # ↩️ Undo after “cancel it”: the reminder is back
+
+
+class EventAction(StrEnum):
+    """Buttons on an event (evt:<action>:<event id>[:<value>])."""
+
+    OPEN = "open"       # its screen in 📅 Events
+    REMIND = "rem"      # evt:rem:<id>:<minutes, negative = before>: add a reminder
+    ONCE = "once"       # a reminder on a repeating event: just the next one…
+    EVERY = "every"     # … or every time
+    UNDO = "undo"
+    EDIT = "edit"
+    WRONG = "wrong"     # 👎 Wrong: save as a failed message and cancel the event
+    SKIP = "skip"       # evt:skip:<id>:<occurrence, YYYYMMDDTHHMMZ>: one occurrence of a repeating event doesn't happen
+    CANCEL = "del"      # cancel the event (every occurrence) and its reminders
+
+
+class CalendarAction(StrEnum):
+    """Buttons on ⚙️ Settings → 📅 Calendar (gcal:<action>[:<value>])."""
+
+    TOGGLE = "tgl"      # gcal:tgl:<id>: sync this calendar or stop
+    DEFAULT = "def"     # new events go to the next synced calendar
+    SYNC = "sync"       # 🔄 Sync now
+    UNLINK = "unl"      # 🔓 Unlink: asks what to do with the imported events
+    KEEP = "keep"       # gcal:keep:<id|all>: stop syncing, keep its events in the bot
+    REMOVE = "rm"       # gcal:rm:<id|all>: stop syncing, remove its events from the bot
 
 
 class PeopleAction(StrEnum):

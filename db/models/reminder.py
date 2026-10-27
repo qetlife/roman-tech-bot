@@ -3,7 +3,7 @@ import uuid
 from datetime        import datetime, timezone
 from typing          import Optional
 
-from sqlalchemy      import BigInteger, Enum, ForeignKey, Index, Integer, String, Text, Uuid
+from sqlalchemy      import BigInteger, Enum, ForeignKey, Index, Integer, Text, Uuid
 from sqlalchemy.orm  import Mapped, mapped_column
 
 from enums           import MessageSource, ReminderStatus
@@ -40,8 +40,9 @@ class Reminder(Base):
     )
     fire_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_message_id: Mapped[Optional[int]] = mapped_column(BigInteger)
-    # Repeats on these days, e.g. "mon,fri@09:00" (reminders/recurrence.py); None = once.
-    recurrence: Mapped[Optional[str]] = mapped_column(String(64))
+    # Repeats on these days, e.g. "mon,fri@09:00" (core/recurrence.py); None = once.
+    # Text: "30 min before every padel" holds the event's repeat and skipped days.
+    recurrence: Mapped[Optional[str]] = mapped_column(Text)
     # The message it was created (or last edited) from, as the parser got it,
     # and how it came in; saved with 👎 Wrong. None for older reminders.
     request: Mapped[Optional[str]] = mapped_column(Text)
@@ -49,10 +50,15 @@ class Reminder(Base):
         Enum(MessageSource, native_enum=False, create_constraint=False, length=16,
              values_callable=lambda sources: [s.value for s in sources]),
     )
+    # A reminder relative to an event ("30 min before padel"): it moves and is
+    # cancelled with it. `event_offset` is minutes from its start (negative: before).
+    event_id: Mapped[Optional[int]] = mapped_column(BigIntId, ForeignKey("events.id", ondelete="SET NULL"))
+    event_offset: Mapped[Optional[int]] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime)
 
     __table_args__ = (
         Index("ix_reminders_status_next_fire_at", "status", "next_fire_at"),
         Index("ix_reminders_target_user_id", "target_user_id"),
+        Index("ix_reminders_event_id", "event_id"),
     )

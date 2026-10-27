@@ -22,7 +22,7 @@ from    core.timezones                  import to_local
 from    db.repositories.failed_message  import FailedMessageRepository
 from    db.repositories.user            import UserRepository
 from    enums                           import CallbackPrefix, FailureReason, MessageSource
-from    handlers.ui                     import LAST_REMINDER_ID, message_source
+from    handlers.ui                     import LAST_EVENT_ID, LAST_REMINDER_ID, message_source
 
 
 logger = logging.getLogger(__name__)
@@ -38,12 +38,12 @@ TEXT_LIMIT = 120
 # --- saving -----------------------------------------------------------------
 
 def record(update: Update, reason: FailureReason, text: str, source: MessageSource = None,
-           intent: str = None, bot_understood: dict = None, reminder_id: int = None):
+           intent: str = None, bot_understood: dict = None, reminder_id: int = None, event_id: int = None):
     """Save a failed message. A database error is logged, never shown: the reply still goes out."""
     try:
         user = users.get_or_create(update.effective_user.id)
         return failed.create(
-            user.id, text, source or message_source(update), reason, intent, bot_understood, reminder_id,
+            user.id, text, source or message_source(update), reason, intent, bot_understood, reminder_id, event_id,
         )
     except Exception:
         logger.exception("Failed to save a failed message from %s", update.effective_user.id)
@@ -57,6 +57,7 @@ def record_not_understood(update: Update, context: ContextTypes.DEFAULT_TYPE, te
            bot_understood={"error": error} if error else None)
     # "that's wrong" now means this message, which is already saved.
     context.user_data[LAST_REMINDER_ID] = None
+    context.user_data.pop(LAST_EVENT_ID, None)
 
 
 # --- /failed ----------------------------------------------------------------
@@ -76,12 +77,21 @@ def describe(entry, tz_name: str) -> str:
         return f"❓ Not understood: {understood['error']}" if understood.get("error") else "❓ Not understood"
 
     parts = []
-    if understood.get("remind_at"):
-        parts.append(f"{to_local(datetime.fromisoformat(understood['remind_at']), tz_name):%a %d %b, %H:%M}")
+    if understood.get("remind_at") or understood.get("starts_at"):
+        when = to_local(datetime.fromisoformat(understood.get("remind_at") or understood["starts_at"]), tz_name)
+        parts.append(f"{when:%a %d %b}" + (" (all day)" if understood.get("all_day") else f", {when:%H:%M}"))
     if understood.get("recurrence"):
-        parts.append(f"🔁 {recurrences.parse(understood['recurrence']).describe(ZoneInfo(tz_name))}")
+        stored = understood["recurrence"]
+        if recurrences.is_rrule(stored):
+            # An event's: the time of day is its start's
+            start = to_local(datetime.fromisoformat(understood.get("starts_at")), tz_name)
+            parts.append(f"🔁 {recurrences.describe_rule(stored, start)}")
+        else:
+            parts.append(f"🔁 {recurrences.parse(stored).describe(ZoneInfo(tz_name))}")
     if understood.get("text"):
         parts.append(f"“{shorten(understood['text'], TEXT_LIMIT)}”")
+    if understood.get("title"):
+        parts.append(f"📅 “{shorten(understood['title'], TEXT_LIMIT)}”")
     return "👎 Wrong: " + " · ".join(parts) if parts else "👎 Wrong"
 
 

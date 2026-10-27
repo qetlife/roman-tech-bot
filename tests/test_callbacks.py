@@ -4,9 +4,10 @@ import re
 
 import pytest
 
-from enums import Callback, CallbackPrefix, OptionAction, PeopleAction, ReminderAction
+from enums import AnswerKind, Callback, CalendarAction, CallbackPrefix, EventAction, OptionAction, PeopleAction, ReminderAction
+from handlers.calendar import calendar_callback
 from handlers.people import people_callback
-from handlers.ui import exact, option_callback, prefixed, reminder_callback, split_option
+from handlers.ui import event_callback, exact, option_callback, prefixed, reminder_callback, split_option
 
 
 def test_fixed_values_are_stable():
@@ -15,6 +16,7 @@ def test_fixed_values_are_stable():
         "REMINDERS_MENU": "menu:reminders",
         "SETTINGS_MENU": "menu:settings",
         "PEOPLE_MENU": "menu:people",
+        "EVENTS_MENU": "menu:events",
         "NEW_INVITE": "people:invite",
         "MY_ID": "settings:my_id",
         "SETTINGS_BACK": "settings:back",
@@ -24,10 +26,14 @@ def test_fixed_values_are_stable():
         "REPEAT_SETTINGS": "settings:repeat",
         "QUIET_SETTINGS": "settings:quiet",
         "UPDATES_SETTINGS": "settings:updates",
+        "CALENDAR_SETTINGS": "settings:calendar",
         "NEW_REMINDER": "rem:new",
         "LIST_REMINDERS": "rem:list",
         "REMINDER_SETTINGS_FROM_MENU": "rem:settings",
         "REMINDER_SETTINGS_RETURN": "rset:show",
+        "NEW_EVENT": "event:new",
+        "PICK_EVENT": "pick:event",
+        "PICK_REMINDER": "pick:reminder",
     }
 
 
@@ -38,6 +44,9 @@ def test_fixed_values_are_stable():
     (reminder_callback(ReminderAction.EDIT, 5),             "rem:edit:5"),
     (reminder_callback(ReminderAction.DELETE, 5),           "rem:del:5"),
     (reminder_callback(ReminderAction.WRONG, 5),            "rem:wrong:5"),
+    (reminder_callback(ReminderAction.RESTORE, 5),          "rem:back:5"),
+    (f"{CallbackPrefix.ANSWER}{AnswerKind.CLOCK}:0900",     "ans:clock:0900"),
+    (f"{CallbackPrefix.ANSWER}{AnswerKind.DAY}:0",          "ans:day:0"),
     (f"{CallbackPrefix.FAILED_FIXED}7",                     "failfix:7"),
     (option_callback(CallbackPrefix.SNOOZE_OPTION, OptionAction.SET, "10,60"),     "snzopt:set:10,60"),
     (option_callback(CallbackPrefix.SNOOZE_OPTION, OptionAction.CUSTOM),           "snzopt:custom"),
@@ -55,6 +64,21 @@ def test_fixed_values_are_stable():
     (people_callback(PeopleAction.ALLOW, 3),                "ppl:yes:3"),
     (people_callback(PeopleAction.DECLINE, 3),              "ppl:no:3"),
     (f"{CallbackPrefix.INVITE}{PeopleAction.ALLOW}:abc",    "inv:yes:abc"),
+    (event_callback(EventAction.OPEN, 4),                   "evt:open:4"),
+    (event_callback(EventAction.REMIND, 4, -30),            "evt:rem:4:-30"),
+    (event_callback(EventAction.ONCE, 4),                   "evt:once:4"),
+    (event_callback(EventAction.EVERY, 4),                  "evt:every:4"),
+    (event_callback(EventAction.UNDO, 4),                   "evt:undo:4"),
+    (event_callback(EventAction.EDIT, 4),                   "evt:edit:4"),
+    (event_callback(EventAction.WRONG, 4),                  "evt:wrong:4"),
+    (event_callback(EventAction.SKIP, 4, "20261029T2000Z"), "evt:skip:4:20261029T2000Z"),
+    (event_callback(EventAction.CANCEL, 4),                 "evt:del:4"),
+    (calendar_callback(CalendarAction.TOGGLE, 6),           "gcal:tgl:6"),
+    (calendar_callback(CalendarAction.DEFAULT),             "gcal:def"),
+    (calendar_callback(CalendarAction.SYNC),                "gcal:sync"),
+    (calendar_callback(CalendarAction.UNLINK),              "gcal:unl"),
+    (calendar_callback(CalendarAction.KEEP, "all"),         "gcal:keep:all"),
+    (calendar_callback(CalendarAction.REMOVE, 6),           "gcal:rm:6"),
 ])
 def test_built_values_are_stable(built, expected):
     assert built == expected
@@ -71,10 +95,18 @@ def test_patterns():
     assert re.match(prefixed(CallbackPrefix.QUIET_OPTION), "qhopt:off")
 
 
-def test_reminder_button_pattern_skips_menu_buttons(monkeypatch):
-    monkeypatch.setenv("DB_CONNECTION", "sqlite://")
-    import bot
+def test_reminder_button_pattern_skips_menu_buttons():
+    from handlers.buttons import REMINDER_BUTTON
 
-    assert re.match(bot.REMINDER_BUTTON, "rem:snz:5:10")
+    assert re.match(REMINDER_BUTTON, "rem:snz:5:10")
     for data in ("rem:new", "rem:list", "rem:settings"):
-        assert not re.match(bot.REMINDER_BUTTON, data)
+        assert not re.match(REMINDER_BUTTON, data)
+
+
+def test_every_button_has_one_handler():
+    from handlers import reminders
+    from handlers.buttons import handler_for
+
+    assert handler_for("rem:new") is reminders.on_new
+    assert handler_for("rem:snz:5:10") is reminders.on_reminder_button
+    assert handler_for("nothing:like:this") is None

@@ -41,6 +41,15 @@ Bot  › ⏰ call mom
   hours”, “on the 1st of every month”.
 - **✅ Delivered until you confirm.** Reminders come with OK and snooze
   buttons and are re-sent until you answer. Quiet hours keep the night free.
+- **📅 Events, with reminders that follow them.** “event padel every
+  thursday at 21:00”, then “remind me 30 min before padel to pack the
+  racket”: move padel and the reminder moves too.
+- **🔄 Google Calendar sync.** Both ways, with the calendars you pick: events
+  from Google get reminders too, and changes made here show up there.
+- **🌐 An assistant in a page.** Inside Telegram or in a browser: a briefing
+  of your day and what it can do; ask by text or voice and it shows the
+  steps it took and the result as a card, and answers out loud (offline
+  voice, with Piper).
 - **👥 Remind other people.** “remind anna tomorrow at 9 to bring the keys”
   sends it to Anna, once she has accepted your invite link. You hear when
   she taps ✅ (or misses it).

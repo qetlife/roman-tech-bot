@@ -7,7 +7,11 @@ from    telegram                    import Update
 from    telegram.ext                import ContextTypes
 from    telegram.error              import BadRequest
 
-from    enums                       import Callback, CallbackPrefix, MessageSource, OptionAction, ReminderAction
+from    core.conversation           import Conversation
+from    db.models.reminder          import utcnow
+from    enums                       import (
+    Callback, CallbackPrefix, EventAction, ItemKind, MessageSource, OptionAction, ReminderAction,
+)
 
 
 # --- user_data keys ---------------------------------------------------------
@@ -35,6 +39,61 @@ REMINDER_SETTINGS_BACK = "reminder_settings_back"
 # What "that's wrong" refers to: the id of the reminder made from the user's
 # last message, or None if that message wasn't understood (already saved).
 LAST_REMINDER_ID = "last_reminder_id"
+# The id of the event made (or edited) from the user's last message: then
+# "that's wrong" means it. Unset once a reminder is made or a message isn't understood.
+LAST_EVENT_ID = "last_event_id"
+# For Awaiting.EVENT_EDIT: the id of the event being edited.
+EDIT_EVENT_ID = "edit_event_id"
+# An event request waiting for the user to pick a timezone first.
+PENDING_EVENT_REQUEST = "pending_event_request"
+# A reminder relative to a repeating event, waiting for “just the next one, or
+# every time?”: {"event_id", "minutes", "text", "request", "source", "contact_id"}.
+PENDING_EVENT_REMINDER = "pending_event_reminder"
+# What "it" and "the second one" mean for a while (a core.conversation.Conversation).
+CONVERSATION = "conversation"
+# What the waiting question is about, for “Dropped: …” when the user moves on:
+# (the Awaiting value it was asked with, "the reminder “dentist”").
+ASKED_ABOUT = "asked_about"
+# The message asking the question that has answer buttons (What time? Which day?): only its buttons answer it.
+ASKED_MESSAGE_ID = "asked_message_id"
+# A message without a trigger phrase that could be an event or a reminder
+# (“padel on thursday at 21:00”), waiting for 📅 Event / ⏰ Reminder.
+PENDING_PICK = "pending_pick"
+
+
+def conversation(context: ContextTypes.DEFAULT_TYPE, touch: bool = False):
+    """The conversation if it's still fresh (core/conversation.py), else None.
+
+    `touch` (on every message): it is the user's latest message now, so
+    starts a new conversation if the old one went stale.
+    """
+    now = utcnow()
+    current = context.user_data.get(CONVERSATION)
+    if current is not None and not current.fresh(now):
+        current = None
+    if touch:
+        current = current or Conversation(now)
+        current.last = now
+        context.user_data[CONVERSATION] = current
+    else:
+        context.user_data[CONVERSATION] = current
+    return current
+
+
+def about(context: ContextTypes.DEFAULT_TYPE, kind: ItemKind, item_id: int):
+    """The bot made or changed this: now it is "it"."""
+    conversation(context, touch=True).subject = (kind, item_id)
+
+
+def listed(context: ContextTypes.DEFAULT_TYPE, kind: ItemKind, item_ids: list):
+    """The bot showed these, numbered: now "the second one" is one of them."""
+    conversation(context, touch=True).listed = [(kind, i) for i in item_ids]
+
+
+def ask(context: ContextTypes.DEFAULT_TYPE, awaiting, about_what: str):
+    """The bot asks a question (`awaiting`) about `about_what` ("the reminder “dentist”")."""
+    context.user_data[AWAITING] = awaiting
+    context.user_data[ASKED_ABOUT] = (awaiting, about_what)
 
 
 async def remember_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -56,11 +115,15 @@ def message_source(update: Update) -> MessageSource:
 
 
 # --- callback data ----------------------------------------------------------
-# The values are the Callback, CallbackPrefix, ReminderAction and OptionAction
-# enums in enums.py.
+# The values are the Callback, CallbackPrefix, ReminderAction, EventAction and
+# OptionAction enums in enums.py.
 
 def reminder_callback(action: ReminderAction, reminder_id: int, *args) -> str:
     return ":".join([f"{CallbackPrefix.REMINDER}{action}", str(reminder_id), *map(str, args)])
+
+
+def event_callback(action: EventAction, event_id: int, *args) -> str:
+    return ":".join([f"{CallbackPrefix.EVENT}{action}", str(event_id), *map(str, args)])
 
 
 def option_callback(prefix: CallbackPrefix, action: OptionAction, value: str = None) -> str:
